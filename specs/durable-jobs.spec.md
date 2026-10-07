@@ -12,7 +12,7 @@ Requirements derive from the conversation: assembly relocation first; extensible
 - FR-002: When no stable contract key is declared, registration/enqueue shall fail with a diagnostic.
 - FR-003: When two distinct implementations claim the same contract in one worker, startup shall reject the conflict before claiming work.
 - FR-004: When enqueue reports success, the provider shall have durably committed the job; a failed or ambiguous commit shall not be reported as confirmed success.
-- FR-005: Where a caller idempotency key is supplied, repeated equivalent enqueue requests shall identify one logical job and conflicting requests shall fail.
+- FR-005: Where a caller idempotency key is supplied, repeated equivalent enqueue or flow-start requests shall identify one logical job or run and conflicting requests shall fail.
 - FR-006: Where processing is enabled, the engine shall run through the .NET host lifecycle and create an independent DI scope per attempt.
 - FR-007: Where a dashboard is hosted, it shall use stored metadata and queries without requiring processor assemblies.
 - FR-008: When a host maps the dashboard, the host shall choose its URL path and authorization policy.

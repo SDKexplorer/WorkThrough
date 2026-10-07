@@ -29,7 +29,7 @@ This plan combines the user's requirements with a purposive review of 20 Hangfir
 - [ ] Complete worker operations: heartbeats, capability inventory, and per-job unsupported-contract/capacity explanations are implemented; oldest-ready age and explicit unhealthy-acquisition indicators remain.
 - [x] Add OpenTelemetry traces/metrics with correlation and causation metadata.
 - [ ] Add audited policy changes, queue pause/resume, and configurable retry policies beyond the initial exponential worker default.
-- [ ] Add caller idempotency keys for starting flows, as already provided for individual jobs.
+- [x] Add caller idempotency keys for starting flows, with atomic receipts, conflicting-reuse rejection, and recovery of the existing run after retirement. Individual-job keys remain separate.
 - [ ] Add payload retention/size policies and cleanup that cannot remove active run dependencies.
 - [x] Introduce recoverable flow incidents: exhausted technical retries block dependent work without confusing it with a deliberately skipped branch. Preserve explicit terminal-failure policy. ADR-008 and saved-schema tests preserve Stop semantics for old graphs; new builders default to Suspend.
 - [x] Render the saved definition revision with execution states and node details; append an execution journal transactionally with state changes for a separate event timeline. Keep the dashboard independent of application DLLs.

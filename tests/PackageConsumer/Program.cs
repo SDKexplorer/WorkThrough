@@ -18,7 +18,12 @@ try
     while ((await queries.GetAsync(id, deadline.Token))?.Status != JobStatus.Succeeded) await Task.Delay(30, deadline.Token);
     while ((await queries.GetAsync(rawId, deadline.Token))?.Status != JobStatus.Succeeded) await Task.Delay(30, deadline.Token);
     if ((await queries.GetAsync(rawId))!.Output?.GetString() != "{\"raw\":true}") throw new InvalidOperationException("Raw input changed.");
-    Console.WriteLine("PASS: package-only consumer discovered generated handlers and processors and executed typed and raw-string work.");
+    var flows = host.Services.GetRequiredService<WorkflowClient>();
+    var flow = new FlowBuilder("smoke.flow", 1).Step("raw", ProcessorId.For<RawProcessor>(), "flow input").Build();
+    var run = await flows.StartAsync(flow, new { }, "package-smoke", "start-once");
+    if (run != await flows.StartAsync(flow, new { }, "package-smoke", "start-once")) throw new InvalidOperationException("Duplicate flow start.");
+    while ((await queries.GetWorkflowAsync(run, deadline.Token))?.Status != "Succeeded") await Task.Delay(30, deadline.Token);
+    Console.WriteLine("PASS: package-only consumer executed generated typed/raw processors and an idempotent flow start.");
 }
 finally
 {

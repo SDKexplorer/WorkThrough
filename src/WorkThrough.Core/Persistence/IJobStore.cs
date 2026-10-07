@@ -16,6 +16,9 @@ public interface IJobStore
     Task<bool> CancelAsync(Guid jobId, CancellationToken cancellationToken = default);
     Task RecordHandlerAsync(Guid jobId, Guid leaseToken, string handler, CancellationToken cancellationToken = default);
     Task<Guid> StartWorkflowAsync(FlowDefinition definition, System.Text.Json.JsonElement input, string? correlationId, CancellationToken cancellationToken = default);
+    /// <summary>Atomically persists the request receipt, run, and steps; rejects conflicting reuse of a key.</summary>
+    Task<Guid> StartWorkflowAsync(FlowDefinition definition, System.Text.Json.JsonElement input, string? correlationId, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This provider does not support idempotent flow starts.");
 }
 
 /// <summary>Assembly-independent read models used by the dashboard and diagnostics.</summary>

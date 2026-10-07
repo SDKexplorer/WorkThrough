@@ -288,7 +288,7 @@
                     <p class="muted">Drafts cannot run. Published versions stay immutable.</p>
                 </div>
                 @if (can('definitions.edit')) {
-                <button class="primary" (click)="draftEditor.set(!draftEditor())">
+                <button class="primary" (click)="openFlowEditor()">
                     {{ draftEditor() ? 'Close editor' : 'Draft editor' }}
                 </button>
                 }

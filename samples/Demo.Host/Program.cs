@@ -25,6 +25,8 @@ if (app.Environment.IsDevelopment())
 {
     app.MapPost("/demo/orders", async (DemoOrder order, WorkflowClient flows, CancellationToken ct) =>
     {
+        if (string.IsNullOrWhiteSpace(order.OrderId) || order.OrderId.Length > 200)
+            return Results.BadRequest(new { error = "OrderId must contain 1–200 characters." });
         var definition = new FlowBuilder("orders.process", 2)
             .Step<ValidateOrder>("validate", maxAttempts: 1)
                 .BindInput("orderId", "orderId").BindInput("amount", "amount")
@@ -33,8 +35,15 @@ if (app.Environment.IsDevelopment())
             .Step<RejectOrder>("reject").After("validate")
                 .BindInput("orderId", "orderId", "validate").WhenOutput("validate", "approved", false)
             .Build();
-        var runId = await flows.StartAsync(definition, order, $"order:{order.OrderId}", ct);
-        return Results.Accepted($"/operations/jobs/api/flows/{runId}", new { runId });
+        try
+        {
+            var runId = await flows.StartAsync(definition, order, $"order:{order.OrderId}", $"process-order:{order.OrderId}", ct);
+            return Results.Accepted($"/operations/jobs/api/flows/{runId}", new { runId });
+        }
+        catch (StateConflictException conflict)
+        {
+            return Results.Conflict(new { error = conflict.Message });
+        }
     });
 }
 await app.RunAsync();

@@ -1,4 +1,6 @@
 using System.Data.Common;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace WorkThrough.Storage;
@@ -6,10 +8,34 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore
 {
     public Task<Guid> StartWorkflowAsync(FlowDefinition definition, JsonElement input, string? correlationId, CancellationToken cancellationToken = default)
+        => StartWorkflowCoreAsync(definition, input, correlationId, null, cancellationToken);
+
+    public Task<Guid> StartWorkflowAsync(FlowDefinition definition, JsonElement input, string? correlationId, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        WorkflowClient.ValidateIdempotencyKey(idempotencyKey);
+        return StartWorkflowCoreAsync(definition, input, correlationId, idempotencyKey, cancellationToken);
+    }
+
+    private Task<Guid> StartWorkflowCoreAsync(FlowDefinition definition, JsonElement input, string? correlationId, string? idempotencyKey, CancellationToken cancellationToken)
     {
         FlowValidator.Validate(definition);
+        var fingerprint = idempotencyKey is null ? null : Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { definition, input, correlationId }, JobJson.Options))));
         return WriteAsync(async (connection, transaction, ct) =>
         {
+            // Check the receipt before lifecycle rules: retirement must not hide an already accepted run.
+            if (idempotencyKey is not null)
+            {
+                await using var command = Command(connection, transaction,
+                    "SELECT fingerprint,run_id FROM dj_flow_starts WHERE idempotency_key=@key", ("key", idempotencyKey));
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                if (await reader.ReadAsync(ct))
+                {
+                    if (reader.GetString(0) != fingerprint)
+                        throw new StateConflictException("Flow idempotency key is already associated with a different request.");
+                    return Guid.Parse(reader.GetString(1));
+                }
+            }
             var lifecycle = await ReadDefinitionAsync(connection, transaction, definition.Key, definition.Version, ct);
             if (lifecycle is not null && lifecycle.Status != DefinitionStatus.Published)
                 throw new StateConflictException("Only published flow definitions can start new runs.");
@@ -37,6 +63,10 @@ public abstract partial class RelationalJobStore
                 await InsertJobAsync(connection, transaction, new(Guid.NewGuid(), step.Contract, step.Input, step.Queue,
                     correlationId, JobStatus.Waiting, 0, step.MaxAttempts, now, now, WorkflowRunId: runId, StepId: step.Id), ct);
             await AdvanceWorkflowAsync(connection, transaction, runId, ct);
+            if (idempotencyKey is not null)
+                await ExecuteAsync(connection, transaction,
+                    "INSERT INTO dj_flow_starts(idempotency_key,fingerprint,run_id) VALUES (@key,@fingerprint,@run)", ct,
+                    ("key", idempotencyKey), ("fingerprint", fingerprint), ("run", runId.ToString()));
             return runId;
         }, cancellationToken);
     }

@@ -123,14 +123,19 @@ a {
 }
 .skip-link {
     position: fixed;
-    top: -80px;
+    top: 10px;
     left: 20px;
     z-index: 10;
     background: var(--surface);
     padding: 16px;
 }
-.skip-link:focus {
-    top: 10px;
+.skip-link:not(:focus) {
+    clip-path: inset(50%);
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    white-space: nowrap;
 }
 .sidebar {
     position: sticky;

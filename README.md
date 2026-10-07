@@ -70,6 +70,15 @@ Flow definitions have **Draft → Published → Retired** lifecycle. Draft edits
 
 New builders suspend on exhausted retries: the failed node creates an **Incident**, dependent steps remain waiting, and admission stops until recovery. `OnFailure(FlowFailurePolicy.Stop)` preserves terminal fail-and-skip behavior; schema-1 definitions retain that behavior. Recovery retries the failed step with its original logical job ID, attempts, and idempotency key. Pause/resume controls admission while allowing running attempts to settle.
 
+Flow starts also accept a caller idempotency key:
+
+```csharp
+var runId = await flows.StartAsync(definition, input,
+    correlationId: "order:123", idempotencyKey: "process-order:123", cancellationToken: ct);
+```
+
+Repeat the identical serialized definition/input/correlation and key to recover the accepted run ID after a lost response, even if that definition has since retired. Conflicting reuse fails. Keys are case-sensitive, scoped to the configured store, and distinct from individual-job keys. Without a key, every call creates a new run. This deduplicates logical starts; handlers still execute at least once. See [flow-start semantics](docs/adr/0009-idempotent-flow-starts.md).
+
 Failed attempts retain exception type, message, and stack trace behind diagnostics permission. Configure `DescribeFailure` to redact before storage. Optional progress reporting and execution deadlines distinguish a live lease from useful progress. Deadlines request cooperative cancellation; non-cooperative handlers remain visibly suspected-stalled and occupy their local slot until they return. Expired leases are recovered; stale tokens cannot settle work.
 
 [Scheduling](docs/scheduling.md) covers cron time zones, draft/publication, enable/pause, overlap, misfires, and transactional occurrence creation. Recurrence currently targets individual processors.

@@ -12,6 +12,7 @@ PostgreSQL uses ordinary tables and a short transaction-scoped advisory lock. Th
 - Use database time for leases and shared admission. Claims recover expired attempts, check total/type capacity, and issue fresh tokens atomically.
 - Never accept stale or expired settlement tokens.
 - Commit parent completion and successor activation together, including branch outcomes.
+- Commit idempotent flow-start receipts with the run and all steps. Identical retries return the accepted run, even after retirement; conflicting requests fail without writes.
 - Keep queries independent of handler assemblies and bound list reads.
 - Support initialization idempotently and reject unknown schema versions. Destructive production migration is never implicit.
 - Run the complete storage conformance suite against a real instance of the provider.

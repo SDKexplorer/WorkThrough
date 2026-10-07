@@ -147,6 +147,7 @@ export class LiveConsoleComponent {
     status = '';
     offset = 0;
     private inspection = 0;
+    private draftKind = 'flows';
 
     constructor() {
         void this.initialize();
@@ -227,9 +228,11 @@ export class LiveConsoleComponent {
         }
     }
     navigate(section: string) {
+        ++this.inspection;
         this.section.set(section);
         this.detail.set(null);
         this.flow.set(null);
+        this.draftEditor.set(false);
     }
     async inspect(job: Job) {
         const version = ++this.inspection;
@@ -300,6 +303,8 @@ export class LiveConsoleComponent {
     }
     openScheduleEditor() {
         this.draftEditor.set(!this.draftEditor());
+        if (this.draftKind === 'schedules') return;
+        this.draftKind = 'schedules';
         this.draftRevision.set(0);
         this.draftJson.set(
             JSON.stringify(
@@ -318,6 +323,15 @@ export class LiveConsoleComponent {
                 null,
                 2,
             ),
+        );
+    }
+    openFlowEditor() {
+        this.draftEditor.set(!this.draftEditor());
+        if (this.draftKind === 'flows') return;
+        this.draftKind = 'flows';
+        this.draftRevision.set(0);
+        this.draftJson.set(
+            JSON.stringify({ key: 'my.flow', version: 1, steps: [], failurePolicy: 1 }, null, 2),
         );
     }
     saveDraft() {
@@ -366,8 +380,6 @@ export class LiveConsoleComponent {
                 this.draftRevision.set(result);
             this.confirmation()?.nativeElement.close();
             await this.refresh();
-            const detail = this.detail();
-            if (detail) await this.inspect(detail.job);
         } catch (e) {
             this.commandError.set(this.message(e) + ' Retrying here uses the same command ID.');
         } finally {

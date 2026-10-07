@@ -51,9 +51,13 @@ public sealed class DashboardTests
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"{path}/api/jobs/{id}")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync($"{path}/api/jobs/{id}/cancel", null)).StatusCode);
         var html = await client.GetStringAsync(path);
-        Assert.True(html.Contains($"{path}/dashboard.js", StringComparison.Ordinal) || html.Contains($"<base href=\"{path}/\"", StringComparison.Ordinal));
+        Assert.Contains($"<base href=\"{path}/\"", html);
         Assert.DoesNotContain("<script>alert", html);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"{path}/dashboard.css")).StatusCode);
+        var stylesheet = System.Text.RegularExpressions.Regex.Match(html, "href=\"(styles-[A-Za-z0-9_-]+\\.css)\"");
+        Assert.True(stylesheet.Success, "The embedded Angular stylesheet must be present.");
+        var style = await client.GetAsync($"{path}/{stylesheet.Groups[1].Value}");
+        Assert.Equal(HttpStatusCode.OK, style.StatusCode);
+        Assert.Equal("text/css", style.Content.Headers.ContentType?.MediaType);
         var csrf = await client.GetAsync($"{path}/api/csrf");
         using var tokenDocument = System.Text.Json.JsonDocument.Parse(await csrf.Content.ReadAsStringAsync());
         client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", csrf.Headers.GetValues("Set-Cookie").Select(x => x.Split(';')[0])));

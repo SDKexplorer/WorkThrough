@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -68,7 +67,7 @@ public static partial class DashboardEndpoints
                     .Replace("<app-console", $"<app-console ngCspNonce=\"{nonce}\"");
                 return Results.Content(html, "text/html");
             }
-            return Results.Content(Asset("dashboard.html").Replace("__BASE__", HtmlEncoder.Default.Encode(matchedPath)), "text/html");
+            return Results.Problem("The dashboard bundle is missing. Build dashboard-ui before building the dashboard host.", statusCode: StatusCodes.Status503ServiceUnavailable);
         });
         group.MapGet("/{asset}", (string asset) =>
         {
@@ -78,8 +77,6 @@ public static partial class DashboardEndpoints
             using var reader = new StreamReader(resource);
             return Results.Content(reader.ReadToEnd(), asset.EndsWith(".js", StringComparison.Ordinal) ? "text/javascript" : "text/css");
         });
-        group.MapGet("/dashboard.css", () => Results.Content(Asset("dashboard.css"), "text/css"));
-        group.MapGet("/dashboard.js", () => Results.Content(Asset("dashboard.js"), "text/javascript"));
         group.MapGet("/api/csrf", (HttpContext context, IAntiforgery antiforgery) =>
             Results.Json(new { token = antiforgery.GetAndStoreTokens(context).RequestToken }));
         group.MapGet("/api/access", async (HttpContext context) =>
@@ -181,11 +178,5 @@ public static partial class DashboardEndpoints
     {
         try { await antiforgery.ValidateRequestAsync(context); return true; }
         catch (AntiforgeryValidationException) { return false; }
-    }
-    private static string Asset(string name)
-    {
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream($"WorkThrough.Dashboard.Assets.{name}")!;
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
     }
 }

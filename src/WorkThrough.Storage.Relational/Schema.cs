@@ -26,6 +26,8 @@ public abstract partial class RelationalJobStore
           id TEXT PRIMARY KEY,flow_key TEXT NOT NULL,version INTEGER NOT NULL,
           input TEXT NOT NULL,correlation_id TEXT,status TEXT NOT NULL,error TEXT);
         CREATE INDEX IF NOT EXISTS ix_dj_flows_correlation ON dj_flows(correlation_id);
+        CREATE TABLE IF NOT EXISTS dj_flow_starts (
+          idempotency_key TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,run_id TEXT NOT NULL UNIQUE);
         CREATE TABLE IF NOT EXISTS dj_definition_lifecycle (
           flow_key TEXT NOT NULL,version INTEGER NOT NULL,definition TEXT NOT NULL,status TEXT NOT NULL,revision INTEGER NOT NULL,
           PRIMARY KEY(flow_key,version));
