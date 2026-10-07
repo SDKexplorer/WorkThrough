@@ -1,0 +1,465 @@
+<div class="console" [class.light]="light()">
+    <a class="skip-link" href="#overview">Skip to overview</a>
+    <aside class="sidebar">
+        <a href="#overview" class="brand" aria-label="TraiNET console overview"
+            ><svg viewBox="0 0 32 32" aria-hidden="true">
+                <path d="M6 7h20M16 7v19M6 7v8h10M26 7v8H16" />
+                <circle cx="16" cy="26" r="3" />
+                <circle cx="6" cy="7" r="3" />
+                <circle cx="26" cy="7" r="3" /></svg
+            ><span>Trai<span class="brand-net">NET</span></span></a
+        >
+        <div class="workspace">
+            <span class="workspace-icon">N</span>
+            <div><strong>Northwind</strong><small>Example workspace</small></div>
+        </div>
+        <p class="nav-label">OBSERVE</p>
+        <nav aria-label="Console sections">
+            <a
+                href="#overview"
+                [attr.aria-current]="activeSection() === 'overview' ? 'location' : null"
+                ><svg viewBox="0 0 20 20" aria-hidden="true">
+                    <rect x="3" y="3" width="14" height="14" rx="2" />
+                    <path d="M3 9h14M9 9v8" />
+                </svg>
+                Overview</a
+            >
+            <a href="#flow" [attr.aria-current]="activeSection() === 'flow' ? 'location' : null"
+                ><svg viewBox="0 0 20 20" aria-hidden="true">
+                    <rect x="7" y="2" width="6" height="5" rx="1" />
+                    <rect x="1" y="13" width="6" height="5" rx="1" />
+                    <rect x="13" y="13" width="6" height="5" rx="1" />
+                    <path d="M10 7v3H4v3m6-3h6v3" />
+                </svg>
+                Flow inspector <span class="nav-count">1</span></a
+            >
+            <a
+                href="#executions"
+                [attr.aria-current]="activeSection() === 'executions' ? 'location' : null"
+                ><svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M7 5h10M7 10h10M7 15h10M3 5h1M3 10h1M3 15h1" />
+                </svg>
+                Executions</a
+            >
+            <a
+                href="#processor"
+                [attr.aria-current]="activeSection() === 'processor' ? 'location' : null"
+                ><svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="m10 2 8 8-8 8-8-8Z" />
+                    <circle cx="10" cy="10" r="2" />
+                </svg>
+                Processor identity</a
+            >
+        </nav>
+        <div class="sidebar-note">
+            <span class="eyebrow">BUILT FOR .NET</span>
+            <p>Move your code.<br /><strong>Keep your work.</strong></p>
+        </div>
+        <div class="sidebar-footer">
+            <span class="sample-dot"></span> Design preview <code>0.1</code>
+        </div>
+    </aside>
+
+    <div class="shell">
+        <header class="topbar">
+            <div class="breadcrumb">Northwind <span>/</span> Operations</div>
+            <div class="top-actions">
+                <span class="demo-pill">SAMPLE DATA</span
+                ><button
+                    type="button"
+                    class="quiet"
+                    (click)="light.set(!light())"
+                    [attr.aria-pressed]="light()"
+                >
+                    {{ light() ? 'Dark theme' : 'Light theme' }}
+                </button>
+            </div>
+        </header>
+        <main>
+            <section id="overview" class="overview">
+                <div class="section-title">
+                    <div>
+                        <p class="eyebrow">EXECUTION OVERVIEW</p>
+                        <h1>Work in motion<span>.</span></h1>
+                        <p class="muted">See what happened. Understand what happens next.</p>
+                    </div>
+                    <div class="snapshot">
+                        <span class="snapshot-indicator"></span>
+                        <div>
+                            <strong>Example snapshot</strong><small>07 Oct 2026 · 14:32 UTC</small>
+                        </div>
+                    </div>
+                </div>
+                <p class="prototype-note">
+                    Interactive Angular concept · fictional metrics and executions · recovery is a
+                    preview only.
+                </p>
+                <div class="metric-grid">
+                    <article class="metric">
+                        <span>Completed jobs</span><strong>{{ completed | number }}</strong>
+                        <div class="metric-foot">
+                            <span class="positive">Successful logical jobs</span
+                            ><span>Last 60 min</span>
+                        </div>
+                    </article>
+                    <article class="metric">
+                        <span>Ready to run</span><strong>182</strong>
+                        <div class="metric-foot">
+                            <span>Oldest ready</span><span class="warn-text">18 seconds</span>
+                        </div>
+                    </article>
+                    <article class="metric">
+                        <span>Fleet capacity</span><strong>48 <em>/ 64</em></strong>
+                        <div
+                            class="capacity"
+                            role="meter"
+                            aria-label="Fleet valid lease capacity"
+                            aria-valuemin="0"
+                            aria-valuemax="64"
+                            aria-valuenow="48"
+                        >
+                            <span></span>
+                        </div>
+                        <div class="metric-foot">
+                            <span>Valid leases / shared limit</span><span>75%</span>
+                        </div>
+                    </article>
+                    <article class="metric incident-metric">
+                        <span>Flows needing attention</span
+                        ><strong
+                            >3 <span class="incident-symbol" aria-hidden="true">!</span></strong
+                        >
+                        <div class="metric-foot">
+                            <span class="warn-text">Oldest incident</span><span>4 min ago</span>
+                        </div>
+                    </article>
+                </div>
+                <div class="throughput panel">
+                    <div class="chart-label">
+                        <h2>Throughput</h2>
+                        <p class="muted">Successful jobs / 5 min</p>
+                        <strong>{{ completed | number }} <small>in this hour</small></strong>
+                    </div>
+                    <div class="chart-content">
+                        <div
+                            class="bar-chart"
+                            role="img"
+                            aria-label="Twelve sample five-minute completion counts; 92, 104, 89, 117, 108, 125, 121, 132, 118, 137, 145, 152."
+                        >
+                            @for (value of buckets; track $index) {
+                            <div class="bar-column">
+                                <span [style.height.%]="value / 160 * 100"></span
+                                ><small>{{ value }}</small>
+                            </div>
+                            }
+                        </div>
+                        <div class="chart-axis">
+                            <span>13:30 UTC</span><span>14:00</span><span>14:30</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="flow" class="flow-section">
+                <div class="section-title compact">
+                    <div>
+                        <p class="eyebrow">FOLLOW THE EXECUTION</p>
+                        <h2>Order fulfillment</h2>
+                    </div>
+                    <label class="scenario-label"
+                        >Example scenario<select
+                            #scenario
+                            (change)="successful.set(scenario.value === 'success')"
+                        >
+                            <option value="blocked">Payment incident</option>
+                            <option value="success">Successful run</option>
+                        </select></label
+                    >
+                </div>
+                <div class="panel flow-panel">
+                    <div class="flow-toolbar">
+                        <div>
+                            <span
+                                class="badge"
+                                [attr.data-state]="successful() ? 'Succeeded' : 'Failed'"
+                                >{{ successful() ? 'Succeeded' : 'Needs attention' }}</span
+                            ><code>order:1042</code><span class="muted">run_demo_1042</span>
+                        </div>
+                        <span class="revision">Saved definition <code>v3</code></span>
+                    </div>
+                    <div class="graph-stage">
+                        <div class="graph-caption">
+                            <span>orders.fulfill <span class="muted">/ 4 steps</span></span
+                            ><span class="muted">Select a step to inspect</span>
+                        </div>
+                        <app-flow-graph
+                            [steps]="steps"
+                            [selected]="selected()"
+                            [successful]="successful()"
+                            (selectStep)="selectStep($event)"
+                        />
+                        <div class="graph-bottom">
+                            <span>Condition after validation: <code>approved == true</code></span
+                            ><span>Read-only execution graph</span>
+                        </div>
+                    </div>
+                    @if (!successful()) {
+                    <div class="incident-banner">
+                        <span class="incident-symbol" aria-hidden="true">!</span>
+                        <div>
+                            <strong>Payment provider timed out. Two steps are blocked.</strong>
+                            <p>
+                                Three attempts exhausted. Reconcile the payment outcome before
+                                retrying with the same idempotency key.
+                            </p>
+                        </div>
+                        <button class="outline" type="button" (click)="recovery.showModal()">
+                            Preview recovery <span aria-hidden="true">↗</span>
+                        </button>
+                    </div>
+                    } @else {
+                    <div class="success-banner">
+                        <strong>All four steps completed.</strong
+                        ><span
+                            >The saved definition and attempt history remain available for
+                            inspection.</span
+                        >
+                    </div>
+                    }
+                    <div class="inspector">
+                        <section id="processor" class="identity">
+                            <p class="eyebrow">SELECTED PROCESSOR</p>
+                            <h3>{{ step().name }}</h3>
+                            <div class="processor-key">
+                                <code>{{ step().processor }}</code
+                                ><button
+                                    type="button"
+                                    class="quiet"
+                                    (click)="copyProcessor()"
+                                    aria-label="Copy processor ID"
+                                >
+                                    Copy
+                                </button>
+                            </div>
+                            <dl>
+                                <dt>Implementation</dt>
+                                <dd><code>{{ step().implementation }}</code></dd>
+                                <dt>Assembly</dt>
+                                <dd><code>{{ step().assembly }}</code></dd>
+                                <dt>Input contract</dt>
+                                <dd>Version 1</dd>
+                            </dl>
+                            <div class="identity-note">
+                                <span class="identity-icon" aria-hidden="true">↗</span>
+                                <p>
+                                    <strong>Same identity. New home.</strong><br />Moving this class
+                                    changes deployment mapping. Stored jobs keep their processor ID.
+                                </p>
+                            </div>
+                        </section>
+                        <section class="step-detail" aria-label="Selected step details">
+                            <div class="detail-toolbar">
+                                <div class="segmented" aria-label="Step detail view">
+                                    <button
+                                        type="button"
+                                        [attr.aria-pressed]="detailTab() === 'attempts'"
+                                        (click)="detailTab.set('attempts')"
+                                    >
+                                        Attempts</button
+                                    ><button
+                                        type="button"
+                                        [attr.aria-pressed]="detailTab() === 'input'"
+                                        (click)="detailTab.set('input')"
+                                    >
+                                        Input</button
+                                    ><button
+                                        type="button"
+                                        [attr.aria-pressed]="detailTab() === 'output'"
+                                        (click)="detailTab.set('output')"
+                                    >
+                                        Output
+                                    </button>
+                                </div>
+                                <span class="badge" [attr.data-state]="stepState()"
+                                    >{{ stepState() }}</span
+                                >
+                            </div>
+                            @if (detailTab() === 'input') {
+                            <p class="muted">Example persisted input · sensitive fields redacted</p>
+                            <pre>{{ step().input | json }}</pre>
+                            } @else if (detailTab() === 'output') { @if (stepState() ===
+                            'Succeeded') {
+                            <pre>{{ step().output | json }}</pre>
+                            } @else {
+                            <div class="empty-detail">
+                                <strong>No successful output recorded</strong>
+                                <p>
+                                    {{ stepState() === 'Blocked' ? 'This step has not started.' : 'A
+                                    timeout does not prove the external payment failed.' }}
+                                </p>
+                            </div>
+                            } } @else if (stepState() === 'Blocked') {
+                            <div class="empty-detail">
+                                <strong>Waiting for its predecessor</strong>
+                                <p>
+                                    No worker slot is held. Resolve the upstream incident before
+                                    this step can become eligible.
+                                </p>
+                            </div>
+                            } @else if (stepState() === 'Succeeded') {
+                            <ol class="timeline">
+                                <li class="completed">
+                                    <span class="event-marker"></span>
+                                    <div>
+                                        <strong>Attempt 1 succeeded</strong>
+                                        <p>Output persisted; successors evaluated atomically.</p>
+                                    </div>
+                                    <code>{{ step().duration }}</code>
+                                </li>
+                            </ol>
+                            } @else {
+                            <ol class="timeline">
+                                <li>
+                                    <span class="event-marker"></span>
+                                    <div>
+                                        <strong>Attempt 3 <span>failed</span></strong>
+                                        <p>PaymentGatewayTimeout · billing-02</p>
+                                    </div>
+                                    <code>14:28:42</code>
+                                </li>
+                                <li>
+                                    <span class="event-marker"></span>
+                                    <div>
+                                        <strong>Attempt 2 <span>failed</span></strong>
+                                        <p>Backoff completed before the next attempt.</p>
+                                    </div>
+                                    <code>14:27:10</code>
+                                </li>
+                                <li>
+                                    <span class="event-marker"></span>
+                                    <div>
+                                        <strong>Attempt 1 <span>failed</span></strong>
+                                        <p>Same logical job and idempotency key.</p>
+                                    </div>
+                                    <code>14:26:30</code>
+                                </li>
+                            </ol>
+                            }
+                        </section>
+                    </div>
+                </div>
+            </section>
+
+            <section id="executions" class="executions">
+                <div class="section-title compact">
+                    <div>
+                        <p class="eyebrow">ACROSS THE FLEET</p>
+                        <h2>Recent executions</h2>
+                    </div>
+                    <span class="muted">Independent sample dataset</span>
+                </div>
+                <div class="panel">
+                    <div class="filters">
+                        <label
+                            >Search executions<input
+                                #search
+                                placeholder="Processor, correlation ID, or job ID"
+                                [value]="query()"
+                                (input)="query.set(search.value)" /></label
+                        ><label
+                            >Status<select #statusFilter (change)="status.set(statusFilter.value)">
+                                <option value="">All statuses</option>
+                                <option>Failed</option>
+                                <option>Blocked</option>
+                                <option>Running</option>
+                                <option>Succeeded</option>
+                            </select></label
+                        ><span class="result-count" role="status"
+                            >{{ filteredJobs().length }} executions</span
+                        >
+                    </div>
+                    <div
+                        class="table-scroll"
+                        tabindex="0"
+                        role="region"
+                        aria-label="Execution results"
+                    >
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Processor / job</th>
+                                    <th>Status</th>
+                                    <th>Correlation</th>
+                                    <th>Queue</th>
+                                    <th>Attempt</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for (job of filteredJobs(); track job.id) {
+                                <tr>
+                                    <td>
+                                        <strong>{{ job.processor }}</strong
+                                        ><small>{{ job.id }}</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge" [attr.data-state]="job.status"
+                                            >{{ job.status }}</span
+                                        >
+                                    </td>
+                                    <td><code>{{ job.correlation }}</code></td>
+                                    <td>{{ job.queue }}</td>
+                                    <td>{{ job.attempt }}</td>
+                                    <td class="duration">{{ job.duration }}</td>
+                                </tr>
+                                } @empty {
+                                <tr>
+                                    <td colspan="6" class="empty-table">
+                                        No sample executions match these filters.
+                                    </td>
+                                </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        6 sample executions · no connection to your job database
+                    </div>
+                </div>
+            </section>
+            <footer class="page-footer">
+                <span>TraiNET <span class="muted">/ provisional brand</span></span
+                ><span>Angular console concept · no commands are sent</span>
+            </footer>
+            <p class="toast" role="status" aria-live="polite" [class.visible]="notice()">
+                {{ notice() }} @if (notice()) {
+                <button type="button" class="quiet" (click)="notice.set('')">Dismiss</button> }
+            </p>
+        </main>
+    </div>
+    <dialog #recovery aria-labelledby="recovery-title">
+        <div class="dialog-top">
+            <span class="demo-pill">COMMAND PREVIEW</span
+            ><button type="button" class="quiet" (click)="recovery.close()">Close preview</button>
+        </div>
+        <h2 id="recovery-title">Retry the payment step</h2>
+        <p>
+            This proposes a new attempt of <code>payments.charge</code> in the same run. Completed
+            steps stay completed.
+        </p>
+        <dl>
+            <dt>Required state</dt>
+            <dd>Unresolved payment incident, unchanged run revision</dd>
+            <dt>Before retry</dt>
+            <dd>Reconcile the provider outcome and reuse the logical job's idempotency key.</dd>
+            <dt>Audit record</dt>
+            <dd>Operator, reason, command ID, time, and affected run</dd>
+        </dl>
+        <div class="identity-note">
+            <p>
+                This is a design preview. Recovery commands and the incident model are planned;
+                closing this dialog makes no changes.
+            </p>
+        </div>
+    </dialog>
+</div>

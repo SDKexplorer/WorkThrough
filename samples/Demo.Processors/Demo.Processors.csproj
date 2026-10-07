@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../samples/Demo.Contracts/Demo.Contracts.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Core/WorkThrough.Core.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Generators/WorkThrough.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

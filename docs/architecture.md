@@ -1,0 +1,86 @@
+# Architecture
+
+Status: initial implementation; see `plan.md` for release gates and deliberate gaps.
+
+## Dependency rule
+
+```mermaid
+flowchart TD
+    Sample[Application composition root] --> Hosting
+    Sample --> Dashboard
+    Sample --> Provider[SQLite or PostgreSQL provider]
+    Provider --> Relational[Relational persistence mechanics]
+    Hosting --> Core
+    Dashboard --> Core
+    Relational --> Core
+    Generator[Build-time manifest generator] -. emits registration .-> Sample
+```
+
+Core owns stable identities, handler contracts, the pure workflow transition planner, enqueue/start use cases, and the persistence ports. It has no dependency on ASP.NET, hosting, database drivers, or an ORM. Read models are separated from atomic write operations because dashboard deployment and storage semantics require different capabilities. There is no mediator dependency and no generic application repository.
+
+The relational adapter shares data mapping and transactional operations. Each database provider must supply a real connection, a database clock, and a transaction that serializes admission writes. The first implementation favors correctness and explainability over maximum write throughput.
+
+## Assembly moves
+
+A job contains a stable key, contract version, JSON input, and operational metadata. It never uses a persisted CLR type, assembly name, or method to dispatch work. `[Processor("documents.generate", Version = 1)]` identifies processor behavior independently of its input type. `[JobContract]` remains a typed-message convenience through the same catalog.
+
+The optional generator exports a module manifest from each processor assembly and composes referenced manifests into the application manifest. `AddGeneratedJobs(typeof(Program).Assembly)` registers those modules through the same `JobCatalog` API used by explicit `AddProcessor<TInput,TProcessor>()` / `AddJob<TJob,THandler>()`. Rebuilding updates the manifest. The application still needs a project/package reference to the new processor assembly, and the new artifact must be deployed.
+
+The generator requires public, concrete, non-generic, top-level processor/handler classes or record classes. It diagnoses missing processor/contract attributes and inaccessible implementations. Duplicate contract implementations are rejected when the catalog is composed. Worker startup resolves each handler in a DI scope before claiming work, detecting missing dependencies in the actual deployment.
+
+Handler names and assembly versions appear only in attempt diagnostics. They are not consulted by scheduling, queries, dashboards, or recovery. Old attempt diagnostics remain historical. Producer and dashboard hosts do not need handler assemblies.
+
+Changing JSON structure or business meaning incompatibly still requires a new contract version or an explicit adapter. Legacy Hangfire invocation import and contract upcasters are planned; stable identity alone does not infer arbitrary old-to-new payload conversions.
+
+## Hosting roles
+
+`AddWorkThrough` provides enqueue/start clients and storage initialization. `AddWorker` starts processing through `BackgroundService`. `MapWorkThroughDashboard` hosts UI and administration endpoints at a chosen path. Each role is independently optional.
+
+- An API can enqueue work and host the dashboard while separate workers execute it.
+- A generic .NET host can execute jobs with no HTTP listener.
+- A worker process can use an ASP.NET host to add an HTTP dashboard.
+- A dashboard-only host depends on stored read models, not application contracts.
+
+The .NET host owns address/port/TLS and authentication. The dashboard defaults to requiring host authentication, checks separate action/resource policies and payload permission, and protects all operator mutations with anti-forgery validation. Administrative writes, deduplication receipts, and attributed audit entries share the provider transaction. Anonymous mode is an explicit development option.
+
+## Execution semantics
+
+1. Enqueue commits before acknowledging acceptance. An ambiguous commit result can still require caller reconciliation; a caller idempotency key makes repeating the enqueue safe.
+2. Claim uses a short transaction and provider-specific write serialization to recover expired work, check limits, select a supported contract/queue, issue a fresh ownership token, and record an attempt.
+3. The worker resolves a scoped handler, records diagnostic implementation metadata, and invokes it outside the storage transaction.
+4. A renewal loop extends ownership. Loss of ownership requests cooperative cancellation.
+5. Completion/failure is accepted only for the current unexpired token. Completion and any workflow advancement commit together.
+
+Execution is **at least once**. A process can perform an external effect and die before saving success. `JobExecutionContext.IdempotencyKey` identifies the logical job across attempts. External services or application transactions must enforce effect deduplication; engine deduplication is not an external exactly-once guarantee.
+
+Shutdown stops acquisition and asks executing handlers to cancel. Cooperatively interrupted attempts, including interruption during setup, are recorded and requeued without consuming their retry budget. Active tasks are tracked by lease identity, so a replacement attempt does not collide with a revoked attempt that has not stopped yet; both count against local capacity until they return. Non-cooperating code may outlive host deadlines; process termination falls back to lease recovery. The runtime never force-aborts a thread.
+
+## Concurrency
+
+There are four independent controls: local total capacity, local per-job-key capacity, shared total admission, and shared per-job-key admission. Per-job limits cover all versions of a stable key. Correlation IDs are not locking keys.
+
+All applicable limits must admit an attempt. Throttled work stays queued and consumes no handler slot. Shared policies reside in `dj_limits`; `SeedClusterLimits` inserts missing defaults without overwriting operator changes. `SetLimitAsync` is the explicit update operation. Zero pauses admission; lowering a limit lets existing work finish and prevents new admission until capacity is available.
+
+Shared limits count valid leases. No lease-based engine can guarantee that a partitioned process has physically stopped executing when its lease expires. Fencing prevents stale storage settlement, not arbitrary remote effects. Administrative shared-limit changes are audited. Keyed business-resource serialization and rate limits remain planned.
+
+## Workflows
+
+The builder produces a data-only acyclic graph of stable step IDs, contract identities, JSON input templates, input bindings, dependencies, and equality conditions. It does not serialize delegates. Every run references an immutable definition version. Republishing changed content under the same version fails.
+
+Step states and outputs are persisted. Success activates eligible successors in the same transaction. Conditions are evaluated from persisted outputs and selected/skipped states are retained. Dependency joins wait for all predecessors to terminate; all must have succeeded or been deliberately skipped, and at least one predecessor must have succeeded. A skipped single predecessor skips its downstream chain. New graphs default to Suspend: terminal attempt failure creates an Incident and leaves dependent work waiting. Operator recovery preserves successful predecessors and attempt history. Stop policy retains terminal fail-and-skip semantics for schema-1 graphs; terminal runs never requeue siblings. Paused/incident runs stop admission while owned siblings may settle.
+
+Initial support includes sequences, conditional branches, parallel roots, dependency joins, and output-to-input property mappings. Arbitrary expressions, loops, human signals, child flows, compensation, and checkpoint forks are planned. Failed incident steps use the separate RecoverStep command with expected attempt, trusted actor, and idempotency. They are never retried through the standalone job endpoint.
+
+## Observability and state
+
+`CorrelationId` groups unrelated runs and jobs. `WorkflowRunId` identifies one run. `StepId` identifies its definition node. `JobId` identifies one logical execution; attempt numbers identify tries. None of these substitute for an enqueue idempotency key.
+
+The dashboard reads JSON and recorded metadata without application deserialization. It filters executions by correlation and state, shows attempts and effective shared limits, and provides standalone retry and cancellation. Saved flow diagrams, transactional event timelines, worker capabilities, and attempt tracing are implemented. Windowed metrics, retention, and deeper deployment preflight remain release-plan items.
+
+## Lifecycle, diagnostics, and schedules
+
+Draft definitions live separately from the immutable graphs pinned by runs. CAS revisions protect editing/publication; retiring rejects new starts. Schema 2 adds lifecycle, command/audit, diagnostics/progress, worker observations, events, and schedules without replacing stored processor keys or payloads. See ADR-008 for rollout and rollback boundaries.
+
+Attempt errors retain protected exception details; progress/deadline observations never redefine lease ownership. The worker exposes standard ActivitySource/Meter instrumentation with bounded metric dimensions. Saved diagrams and event timelines use database read models rather than deployed handler assemblies.
+
+Recurring schedule lifecycle is independent of enable/pause admission. Cronos calculates five-field cron occurrences in an explicit time zone; provider transactions create occurrence/job/next-due state atomically. See scheduling.md for overlap and misfire policies and current processor-only targets.

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../WorkThrough.Core/WorkThrough.Core.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <EmbeddedResource Include="Assets/*" />
+    <EmbeddedResource Include="../../artifacts/console-preview/browser/*" LogicalName="WorkThrough.Console.%(Filename)%(Extension)" />
+  </ItemGroup>
+  <Target Name="RequireConsoleForPackage" BeforeTargets="Pack">
+    <Error Condition="!Exists('../../artifacts/console-preview/browser/index.html')" Text="Build dashboard-ui before packing WorkThrough.Dashboard (npm ci &amp;&amp; npm run build)." />
+  </Target>
+</Project>

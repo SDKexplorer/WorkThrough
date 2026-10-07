@@ -1,0 +1,127 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
+using Xunit;
+
+namespace WorkThrough.Tests;
+
+public sealed class DashboardTests
+{
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("/admin", "/mounted")]
+    public async Task Dashboard_requires_authentication_and_reads_unknown_contracts_without_handlers(string groupPrefix, string pathBase)
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("<script>alert(1)</script>"), new(CorrelationId: "order:123"));
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddSingleton<IJobStore>(harness.Store);
+        builder.Services.AddSingleton<IJobQueries>(harness.Store);
+        builder.Services.AddSingleton<IJobDiagnostics>(harness.Store);
+        builder.Services.AddSingleton<IJobAdministration>(harness.Store);
+        builder.Services.AddSingleton<IWorkflowDefinitions>(harness.Store);
+        builder.Services.AddSingleton<IJobSchedules>(harness.Store);
+        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ => { });
+        builder.Services.AddWorkThroughDashboard();
+        await using var app = builder.Build();
+        app.UsePathBase(pathBase);
+        app.UseRouting();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapGroup(groupPrefix).MapWorkThroughDashboard("/internal/work");
+        await app.StartAsync();
+        var client = app.GetTestClient();
+        var path = pathBase + groupPrefix + "/internal/work";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync($"{path}/api/jobs")).StatusCode);
+        client.DefaultRequestHeaders.Add("X-Test-User", "operator");
+        var response = await client.GetAsync($"{path}/api/jobs?correlationId=order%3A123");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.Contains(id.ToString(), json);
+        Assert.DoesNotContain("script", json); // List responses do not disclose payloads.
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"{path}/api/jobs/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync($"{path}/api/jobs/{id}/cancel", null)).StatusCode);
+        var html = await client.GetStringAsync(path);
+        Assert.True(html.Contains($"{path}/dashboard.js", StringComparison.Ordinal) || html.Contains($"<base href=\"{path}/\"", StringComparison.Ordinal));
+        Assert.DoesNotContain("<script>alert", html);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"{path}/dashboard.css")).StatusCode);
+        var csrf = await client.GetAsync($"{path}/api/csrf");
+        using var tokenDocument = System.Text.Json.JsonDocument.Parse(await csrf.Content.ReadAsStringAsync());
+        client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", csrf.Headers.GetValues("Set-Cookie").Select(x => x.Split(';')[0])));
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", tokenDocument.RootElement.GetProperty("token").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"{path}/api/jobs/{id}/cancel", new DashboardCommand(Guid.NewGuid(), "Cancel obsolete request"))).StatusCode);
+        Assert.Equal(JobStatus.Cancelled, (await harness.Store.GetAsync(id))!.Status);
+        Assert.Equal("operator", (await harness.Store.AuditAsync()).Single().Actor.Subject);
+    }
+
+    [Fact]
+    public void Production_dashboard_fails_fast_without_host_authentication()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddWorkThroughDashboard();
+        using var app = builder.Build();
+        Assert.Throws<InvalidOperationException>(() => app.MapWorkThroughDashboard());
+    }
+
+    [Fact]
+    public async Task Metadata_viewer_cannot_read_exceptions_or_mutate_jobs_even_with_valid_csrf()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("SECRET-PAYLOAD"), new(MaxAttempts: 1));
+        var job = (await harness.Store.ClaimAsync(new("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromSeconds(30))))!;
+        await harness.Store.FailWithDetailsAsync(id, job.LeaseToken!.Value, new("Failure", "SECRET-MESSAGE", "SECRET-STACK"), TimeSpan.Zero);
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddSingleton<IJobStore>(harness.Store);
+        builder.Services.AddSingleton<IJobQueries>(harness.Store);
+        builder.Services.AddSingleton<IJobDiagnostics>(harness.Store);
+        builder.Services.AddSingleton<IJobAdministration>(harness.Store);
+        builder.Services.AddSingleton<IWorkflowDefinitions>(harness.Store);
+        builder.Services.AddSingleton<IJobSchedules>(harness.Store);
+        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ => { });
+        builder.Services.AddWorkThroughDashboard();
+        await using var app = builder.Build();
+        app.MapWorkThroughDashboard();
+        await app.StartAsync();
+        var client = app.GetTestClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "viewer");
+        var detail = await client.GetStringAsync($"/jobs/api/jobs/{id}");
+        Assert.DoesNotContain("SECRET", detail);
+        Assert.Contains("\"sensitive\":false", detail);
+        var csrf = await client.GetAsync("/jobs/api/csrf");
+        using var token = System.Text.Json.JsonDocument.Parse(await csrf.Content.ReadAsStringAsync());
+        client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", csrf.Headers.GetValues("Set-Cookie").Select(x => x.Split(';')[0])));
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", token.RootElement.GetProperty("token").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/retry", new DashboardCommand(Guid.NewGuid(), "unauthorized", 1))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/jobs/api/audit")).StatusCode);
+        Assert.Equal(JobStatus.Failed, (await harness.Store.GetAsync(id))!.Status);
+        Assert.Empty(await harness.Store.AuditAsync());
+        client.DefaultRequestHeaders.Remove("X-Test-User");
+        client.DefaultRequestHeaders.Add("X-Test-User", "operator");
+        Assert.Contains("SECRET-STACK", await client.GetStringAsync($"/jobs/api/jobs/{id}"));
+    }
+
+    public sealed class TestAuthentication(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            if (!Request.Headers.ContainsKey("X-Test-User")) return Task.FromResult(AuthenticateResult.NoResult());
+            var claims = new List<Claim> { new(ClaimTypes.Name, "operator"), new(ClaimTypes.NameIdentifier, "operator", ClaimValueTypes.String, "test-issuer") };
+            var permissions = Request.Headers["X-Test-User"] == "viewer" ? ["executions.read"] : DashboardPermissions.All;
+            claims.AddRange(permissions.Select(p => new Claim(DashboardPermissions.ClaimType, p)));
+            var identity = new ClaimsIdentity(claims, Scheme.Name);
+            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
+        }
+    }
+}

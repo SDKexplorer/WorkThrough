@@ -1,0 +1,601 @@
+<div class="console live-console" [class.light]="light()">
+    <a class="skip-link" href="#live-content">Skip to content</a>
+    <aside class="sidebar">
+        <div class="brand">
+            <svg aria-hidden="true" viewBox="0 0 32 32"><path d="M3 8 9 24 16 9 23 24 29 8" /></svg
+            ><span>WorkThrough</span>
+        </div>
+        <div class="workspace">
+            <span class="workspace-icon">W</span>
+            <div><strong>Operations</strong><small>Connected job store</small></div>
+        </div>
+        <p class="nav-label">WORKSPACE</p>
+        <nav aria-label="Console sections">
+            @if (can('executions.read')) { @for (item of ['executions', 'definitions', 'schedules',
+            'workers']; track item) {
+            <button
+                type="button"
+                [attr.aria-current]="section() === item ? 'page' : null"
+                (click)="navigate(item)"
+            >
+                {{ item === 'definitions' ? 'Flow definitions' : item === 'schedules' ? 'Schedules'
+                : item === 'workers' ? 'Workers & capacity' : 'Executions' }}
+            </button>
+            } } @if (can('audit.read')) {
+            <button
+                type="button"
+                [attr.aria-current]="section() === 'audit' ? 'page' : null"
+                (click)="navigate('audit')"
+            >
+                Audit trail
+            </button>
+            }
+        </nav>
+        <div class="live-sidebar-bottom">
+            <span class="muted">{{ user() }}</span
+            ><button class="outline" type="button" (click)="light.set(!light())">
+                {{ light() ? 'Dark appearance' : 'Light appearance' }}</button
+            ><small class="muted">WorkThrough · alpha</small>
+        </div>
+    </aside>
+    <main id="live-content" class="live-main">
+        <header class="live-heading">
+            <div>
+                <p class="eyebrow">WORKTHROUGH / OPERATIONS</p>
+                <h1>
+                    {{ section() === 'definitions' ? 'Built to evolve.' : section() === 'workers' ?
+                    'Know your capacity.' : section() === 'audit' ? 'Every action, attributed.' :
+                    'Keep work moving.' }}
+                </h1>
+                <p class="muted">
+                    {{ section() === 'definitions' ? 'Draft, publish, and retire immutable flow
+                    versions.' : section() === 'audit' ? 'Committed administrative changes from this
+                    store.' : 'Durable work. Clear state. Deliberate recovery.' }}
+                </p>
+            </div>
+            <div class="live-refresh">
+                <button class="outline" type="button" [disabled]="busy()" (click)="refresh()">
+                    {{ busy() ? 'Refreshing…' : 'Refresh' }}</button
+                ><small class="muted"
+                    >{{ updated() ? (updated() | date:'mediumTime') : 'Not loaded' }}</small
+                >
+            </div>
+        </header>
+        @if (error()) {
+        <p class="live-alert" role="alert">{{ error() }} Displayed data may be stale.</p>
+        } @if (can('executions.read')) {
+        <section class="live-metrics" aria-label="Stored job totals">
+            @for (state of ['Queued', 'Running', 'Succeeded', 'Failed']; track state) {
+            <article>
+                <span class="muted">{{ state }}</span
+                ><strong>{{ stats().counts[state] ?? 0 }}</strong
+                ><small class="muted">Current stored jobs</small>
+            </article>
+            }
+        </section>
+        } @if (section() === 'executions' && can('executions.read')) {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Executions</h2>
+                    <p class="muted">
+                        Follow a correlation, inspect an attempt, resolve an incident.
+                    </p>
+                </div>
+                <span class="badge">{{ jobs().length }} on this page</span>
+            </div>
+            <form class="live-filters" (submit)="$event.preventDefault(); applyFilters()">
+                <label
+                    >Correlation ID<input
+                        [value]="correlation"
+                        (input)="correlation = $any($event.target).value"
+                        placeholder="e.g. order:123" /></label
+                ><label
+                    >Status<select [value]="status" (change)="status = $any($event.target).value">
+                        <option value="">All statuses</option>
+                        @for (state of ['Waiting', 'Queued', 'Running', 'Succeeded', 'Failed',
+                        'Skipped', 'Cancelled']; track state) {
+                        <option>{{ state }}</option>
+                        }
+                    </select></label
+                ><button class="outline" type="submit">Apply filters</button>
+            </form>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Processor / step</th>
+                            <th>State</th>
+                            <th>Correlation</th>
+                            <th>Attempt</th>
+                            <th>Created</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (job of jobs(); track job.id) {
+                        <tr [class.live-selected]="detail()?.job?.id === job.id">
+                            <td>
+                                <strong>{{ job.contract.key }}</strong
+                                ><small class="muted"
+                                    >{{ job.stepId ?? job.queue }} · v{{ job.contract.version
+                                    }}</small
+                                >
+                            </td>
+                            <td>
+                                <span class="badge" [attr.data-status]="job.status"
+                                    >{{ job.status }}</span
+                                >
+                            </td>
+                            <td><code>{{ job.correlationId ?? '—' }}</code></td>
+                            <td>{{ job.attempt }} / {{ job.maxAttempts }}</td>
+                            <td>{{ job.createdAt | date:'short' }}</td>
+                            <td>
+                                <button class="outline" type="button" (click)="inspect(job)">
+                                    Inspect
+                                </button>
+                            </td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="6" class="live-empty">
+                                {{ busy() ? 'Loading executions…' : 'No executions match these
+                                filters.' }}
+                            </td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="live-pagination">
+                <button
+                    class="outline"
+                    type="button"
+                    [disabled]="offset === 0 || busy()"
+                    (click)="page(-1)"
+                >
+                    Previous</button
+                ><span class="muted">Page {{ offset / 100 + 1 }}</span
+                ><button
+                    class="outline"
+                    type="button"
+                    [disabled]="jobs().length < 100 || busy()"
+                    (click)="page(1)"
+                >
+                    Next
+                </button>
+            </div>
+        </section>
+        @if (detail(); as detail) {
+        <section class="live-panel live-inspector">
+            <div class="live-panel-heading">
+                <div>
+                    <p class="eyebrow">EXECUTION INSPECTOR</p>
+                    <h2>{{ detail.job.contract.key }}</h2>
+                    <code class="muted">{{ detail.job.id }}</code>
+                </div>
+                <span class="badge" [attr.data-status]="detail.job.status"
+                    >{{ detail.job.status }}</span
+                >
+            </div>
+            <p class="live-health" [class.live-alert]="detail.health.suspectedStalled">
+                {{ label(detail.health.reason) }} @if (detail.health.reason === 'RetryScheduled' ||
+                detail.health.reason === 'Scheduled') { · {{ detail.job.availableAt | date:'medium'
+                }} }
+            </p>
+            @if (flow(); as flow) {
+            <div class="live-graph-header">
+                <strong>{{ flow.flow.flowKey }} · v{{ flow.flow.version }}</strong
+                ><span class="badge">{{ flow.flow.status }}</span>@if (can('flows.recover') &&
+                ['Running', 'Paused'].includes(flow.flow.status)) {
+                <button
+                    class="outline"
+                    (click)="flowAction(flow.flow.status === 'Paused' ? 'resume' : 'pause')"
+                >
+                    {{ flow.flow.status === 'Paused' ? 'Resume' : 'Pause' }} admission
+                </button>
+                }
+            </div>
+            <app-saved-flow-graph
+                [steps]="flow.graph.steps"
+                [jobs]="flow.jobs"
+                [selected]="detail.job.stepId"
+                (choose)="inspectStep($event)"
+            />
+            }
+            <div class="live-inspector-body">
+                <section>
+                    <h3>Attempt history</h3>
+                    <ol class="live-attempts">
+                        @for (attempt of detail.attempts; track attempt.number) {
+                        <li>
+                            <strong>Attempt {{ attempt.number }} · {{ attempt.status }}</strong
+                            ><small class="muted">{{ attempt.startedAt | date:'medium' }}</small
+                            ><code class="muted"
+                                >{{ attempt.handler ?? 'Implementation not recorded' }}</code
+                            >@if (attempt.error) {
+                            <p>{{ attempt.error }}</p>
+                            }
+                        </li>
+                        } @empty {
+                        <li class="muted">No attempts yet.</li>
+                        }
+                    </ol>
+                </section>
+                <section>
+                    <h3>Input & output</h3>
+                    @if (detail.sensitive) {
+                    <details>
+                        <summary>Input</summary>
+                        <pre>{{ detail.payload | json }}</pre>
+                    </details>
+                    <details>
+                        <summary>Output</summary>
+                        <pre>{{ detail.output | json }}</pre>
+                    </details>
+                    @for (failure of detail.failures; track failure.attempt) {
+                    <details open>
+                        <summary>
+                            Attempt {{ failure.attempt }} · {{ failure.failure.exceptionType }}
+                        </summary>
+                        <p>{{ failure.failure.message }}</p>
+                        <pre>{{ failure.failure.stackTrace ?? 'No stack trace captured.' }}</pre>
+                    </details>
+                    } } @else {
+                    <p class="muted">
+                        Payload and exception details require additional permission.
+                    </p>
+                    }
+                </section>
+            </div>
+            <div class="live-actions">
+                @if (can('jobs.retry') && !detail.job.workflowRunId &&
+                ['Failed','Cancelled'].includes(detail.job.status)) {
+                <button class="primary" (click)="openAction('retry', detail.job)">Retry job</button>
+                } @if (can('flows.recover') && flow()?.flow?.status === 'Incident' &&
+                ['Failed','Cancelled'].includes(detail.job.status)) {
+                <button class="primary" (click)="openAction('recover', detail.job)">
+                    Recover failed step
+                </button>
+                } @if (can('jobs.cancel') &&
+                ['Waiting','Queued','Running'].includes(detail.job.status)) {
+                <button class="outline" (click)="openAction('cancel', detail.job)">
+                    Cancel job
+                </button>
+                }<span class="muted"
+                    >Attempts and external-effect idempotency keys are preserved.</span
+                >
+            </div>
+            @if (flow(); as flow) {
+            <details class="live-events">
+                <summary>Execution event timeline</summary>
+                <ol>
+                    @for (event of flow.events; track event.sequence) {
+                    <li>
+                        {{ event.at | date:'mediumTime' }} · {{ event.kind }} · attempt {{
+                        event.attempt }} <code class="muted">{{ event.jobId }}</code>
+                    </li>
+                    }
+                </ol>
+            </details>
+            }
+        </section>
+        } } @if (section() === 'definitions') {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Flow definitions</h2>
+                    <p class="muted">Drafts cannot run. Published versions stay immutable.</p>
+                </div>
+                @if (can('definitions.edit')) {
+                <button class="primary" (click)="draftEditor.set(!draftEditor())">
+                    {{ draftEditor() ? 'Close editor' : 'Draft editor' }}
+                </button>
+                }
+            </div>
+            @if (draftEditor()) {
+            <div class="live-editor">
+                <label for="draft-json">Draft definition JSON</label
+                ><textarea
+                    id="draft-json"
+                    rows="12"
+                    [value]="draftJson()"
+                    (input)="draftJson.set($any($event.target).value)"
+                ></textarea
+                ><label
+                    >Expected draft revision (0 creates a new version)<input
+                        type="number"
+                        min="0"
+                        [value]="draftRevision()"
+                        (input)="draftRevision.set(+$any($event.target).value)" /></label
+                ><button class="primary" (click)="saveDraft()">Save draft</button>
+            </div>
+            }
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Flow</th>
+                            <th>Version</th>
+                            <th>Lifecycle</th>
+                            <th>Revision</th>
+                            <th>Steps</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (definition of definitions(); track definition.key +
+                        definition.version) {
+                        <tr>
+                            <td><strong>{{ definition.key }}</strong></td>
+                            <td>v{{ definition.version }}</td>
+                            <td>
+                                <span class="badge" [attr.data-status]="definition.status"
+                                    >{{ definition.status }}</span
+                                >
+                            </td>
+                            <td>{{ definition.revision }}</td>
+                            <td>{{ definition.graph.steps.length }}</td>
+                            <td>
+                                @if (definition.status === 'Draft' && can('definitions.publish')) {
+                                <button
+                                    class="outline"
+                                    (click)="definitionAction('publish', definition)"
+                                >
+                                    Publish
+                                </button>
+                                } @if (definition.status === 'Published' &&
+                                can('definitions.retire')) {
+                                <button
+                                    class="outline"
+                                    (click)="definitionAction('retire', definition)"
+                                >
+                                    Retire
+                                </button>
+                                }
+                            </td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="6" class="live-empty">No saved flow definitions.</td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        } @if (section() === 'schedules') {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Schedules</h2>
+                    <p class="muted">
+                        Publish a draft, then enable its trigger. Pausing leaves existing jobs
+                        intact.
+                    </p>
+                </div>
+                @if (can('schedules.manage')) {
+                <button class="primary" (click)="openScheduleEditor()">
+                    {{ draftEditor() ? 'Close editor' : 'New schedule draft' }}
+                </button>
+                }
+            </div>
+            @if (draftEditor()) {
+            <div class="live-editor">
+                <label for="schedule-json">Schedule definition JSON</label
+                ><textarea
+                    id="schedule-json"
+                    rows="12"
+                    [value]="draftJson()"
+                    (input)="draftJson.set($any($event.target).value)"
+                ></textarea
+                ><label
+                    >Expected revision<input
+                        type="number"
+                        min="0"
+                        [value]="draftRevision()"
+                        (input)="draftRevision.set(+$any($event.target).value)" /></label
+                ><button class="primary" (click)="saveDraft()">Save draft</button>
+            </div>
+            }
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Schedule / processor</th>
+                            <th>Trigger</th>
+                            <th>Lifecycle</th>
+                            <th>Next occurrence</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (schedule of schedules(); track schedule.key + schedule.version) {
+                        <tr>
+                            <td>
+                                <strong>{{ schedule.key }} · v{{ schedule.version }}</strong
+                                ><small class="muted">{{ schedule.processor.key }}</small>
+                            </td>
+                            <td>
+                                <code>{{ schedule.cron }}</code
+                                ><small class="muted"
+                                    >{{ schedule.timeZone }} · {{ schedule.overlap }}</small
+                                >
+                            </td>
+                            <td>
+                                <span class="badge" [attr.data-status]="schedule.status"
+                                    >{{ schedule.status }}</span
+                                ><small>{{ schedule.enabled ? 'Enabled' : 'Paused' }}</small>
+                            </td>
+                            <td>
+                                {{ schedule.nextOccurrence ? (schedule.nextOccurrence |
+                                date:'medium') : '—' }}
+                            </td>
+                            <td>
+                                @if (can('schedules.manage')) { @if (schedule.status === 'Draft') {
+                                <button
+                                    class="outline"
+                                    (click)="scheduleAction('publish',schedule)"
+                                >
+                                    Publish
+                                </button>
+                                } @else {
+                                <button
+                                    class="outline"
+                                    (click)="scheduleAction(schedule.enabled ? 'pause' : 'enable',schedule)"
+                                >
+                                    {{ schedule.enabled ? 'Pause' : 'Enable' }}
+                                </button>
+                                } }
+                            </td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="5" class="live-empty">
+                                No schedules saved. Immediate and delayed jobs can still be
+                                enqueued.
+                            </td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        } @if (section() === 'workers') {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Worker observations</h2>
+                    <p class="muted">
+                        Heartbeats are sampled every 10 seconds; capacity can change between
+                        samples.
+                    </p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Worker</th>
+                            <th>Last seen</th>
+                            <th>Local slots</th>
+                            <th>Queues</th>
+                            <th>Processors</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (worker of workers(); track worker.workerId) {
+                        <tr>
+                            <td><code>{{ worker.workerId }}</code></td>
+                            <td>{{ worker.seenAt | date:'medium' }}</td>
+                            <td>{{ worker.running }} / {{ worker.capacity }}</td>
+                            <td>{{ worker.queues.join(', ') }}</td>
+                            <td>
+                                @for (processor of worker.processors; track processor.key +
+                                processor.version) {
+                                <small>{{ processor.key }} · v{{ processor.version }}</small> }
+                            </td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="5" class="live-empty">No worker heartbeats recorded.</td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        <section class="live-panel">
+            <div class="live-panel-heading"><h2>Shared admission limits</h2></div>
+            <div class="live-limits">
+                @for (limit of stats().limits; track limit.jobKey) {
+                <article>
+                    <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
+                    ><strong>{{ limit.maximum }}</strong
+                    ><small class="muted">Concurrent valid leases</small>
+                </article>
+                } @empty {
+                <p class="muted">No shared limits configured.</p>
+                }
+            </div>
+        </section>
+        } @if (section() === 'audit') {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <h2>Audit trail</h2>
+                <span class="muted">Latest 100 committed commands</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>When / who</th>
+                            <th>Action</th>
+                            <th>Target</th>
+                            <th>Reason</th>
+                            <th>Outcome</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (entry of audit(); track entry.commandId) {
+                        <tr>
+                            <td>
+                                {{ entry.at | date:'medium' }}<small class="muted"
+                                    >{{ entry.actor.displayName ?? entry.actor.subject }}</small
+                                >
+                            </td>
+                            <td><code>{{ entry.action }}</code></td>
+                            <td><code>{{ entry.target }}</code></td>
+                            <td>{{ entry.reason }}</td>
+                            <td>{{ entry.outcome }}</td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="5" class="live-empty">
+                                No administrative changes recorded.
+                            </td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        }
+        <footer class="live-footer muted">
+            Live data from the configured store · .NET 8+ · At-least-once execution
+        </footer>
+    </main>
+    <dialog
+        #confirmation
+        class="live-dialog"
+        aria-labelledby="command-title"
+        (cancel)="submitting() && $event.preventDefault()"
+    >
+        <h2 id="command-title">{{ pending()?.title }}</h2>
+        <p class="muted">This action records your identity and reason in the audit trail.</p>
+        <label for="command-reason">Reason</label
+        ><textarea
+            id="command-reason"
+            rows="3"
+            maxlength="1000"
+            [disabled]="!!pending()?.command"
+            [value]="reason()"
+            (input)="reason.set($any($event.target).value)"
+        ></textarea
+        >@if (commandError()) {
+        <p role="alert" class="live-alert">{{ commandError() }}</p>
+        }
+        <div class="live-actions">
+            <button class="outline" [disabled]="submitting()" (click)="closeConfirmation()">
+                Close</button
+            ><button
+                class="primary"
+                [disabled]="!reason().trim() || submitting()"
+                (click)="confirm()"
+            >
+                {{ submitting() ? 'Applying…' : pending()?.command ? 'Retry same command' : 'Confirm
+                action' }}
+            </button>
+        </div>
+    </dialog>
+</div>

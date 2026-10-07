@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="../WorkThrough.Core/WorkThrough.Core.csproj" /></ItemGroup>
+</Project>
