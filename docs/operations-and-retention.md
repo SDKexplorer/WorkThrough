@@ -1,5 +1,7 @@
 # Transactions, operations, and retention
 
+This document describes implemented operations. Automatic maintenance, retention holds and verified external-export receipts are proposed in [storage evolution](../specs/storage-evolution.spec.md); they are not available configuration options yet.
+
 ## Business writes and separate job databases
 
 `RelationalJobStore.InTransactionAsync` supplies a connection, transaction, and scoped `TransactionalJobs` writer. Execute business SQL using that supplied transaction and call `EnqueueAsync(definition, input, options, ct)` before returning. Business data and job acceptance commit or roll back together. Keep the callback short; await all work and never commit/dispose the supplied transaction or make remote calls inside it. This is an explicit transaction boundary, not automatic enlistment in arbitrary ambient EF transactions.

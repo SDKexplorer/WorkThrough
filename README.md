@@ -8,6 +8,8 @@ A .NET 8 library for durable jobs, persisted flows, and recurring schedules, ver
 
 WorkThrough is an alpha. SQLite and PostgreSQL are implemented; packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
 
+Planned next: [read-only MCP investigation, followed by controlled actions](specs/mcp-operations.spec.md), [automatic retention and SQL Server/Oracle providers](specs/storage-evolution.spec.md). These plans are not implemented capabilities. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
+
 ## Repository map
 
 | Location | Purpose |

@@ -16,6 +16,7 @@ This plan combines the user's requirements with a purposive review of 20 Hangfir
 
 ## P1 — orchestration and operations
 
+- [ ] Deliver the maintainer-selected read-only MCP integration in [MCP operations](../specs/mcp-operations.spec.md) and [ADR-011](adr/0011-mcp-operations.md): bounded, authorized investigation of jobs, failures, flows, correlation, capacity and archive/retention metadata. Controlled actions are a later phase; no MCP package is implemented yet.
 - [x] Implement explicit Draft → Published → Retired flow-definition lifecycle. Drafts are editable with optimistic concurrency and cannot execute; publishing validates an immutable revision; retiring prevents new runs without changing pinned active runs. Add corresponding draft/publish lifecycle for schedules, independently of enabled/paused admission, with permissions and audit.
 - [x] Implement ADR-007: separate metadata/payload/action permissions, trusted user/service actors, atomic administrative audit and command deduplication, and embedded/standalone authentication samples. The OIDC sample builds; actual identity-provider login needs deployment-specific validation. Store/environment isolation is implemented; tenant row filtering remains outside the initial scope.
 - [ ] Deliver the console direction in `dashboard-direction.md`: useful backlog/timing/capacity signals, saved-flow inspection, processor deployment visibility, and accessible dark/light themes. The Angular console is now embedded and uses real APIs. Deployment identity/queue coverage and oldest eligible timestamps are implemented; windowed timing/throughput metrics and advanced authoring remain incomplete.
@@ -32,6 +33,7 @@ This plan combines the user's requirements with a purposive review of 20 Hangfir
 - [x] Add audited policy changes, queue pause/resume, and configurable retry policies beyond the initial exponential worker default.
 - [x] Add caller idempotency keys for starting flows, with atomic receipts, conflicting-reuse rejection, and recovery of the existing run after retirement. Individual-job keys remain separate.
 - [x] Add bounded explicit archive/input/output size policies and cleanup that cannot remove active run dependencies.
+- [ ] Automate retention through an opt-in maintenance service with policies/holds, fenced bounded batches, status, verified exports and explicit purge policy. Preserve receipts and subscriber history. See [storage evolution](../specs/storage-evolution.spec.md); manual archive operations already exist.
 - [x] Introduce recoverable flow incidents: exhausted technical retries block dependent work without confusing it with a deliberately skipped branch. Preserve explicit terminal-failure policy. ADR-008 and saved-schema tests preserve Stop semantics for old graphs; new builders default to Suspend.
 - [x] Render the saved definition revision with execution states and node details; append an execution journal transactionally with state changes for a separate event timeline. Keep the dashboard independent of application DLLs.
 - [ ] Complete recovery beyond the implemented audited retry and pause/resume commands: retry the failed step, validated input correction, and pause/resume admission. Show why a flow is waiting or blocked before offering an action.
@@ -51,13 +53,15 @@ This plan combines the user's requirements with a purposive review of 20 Hangfir
 - [ ] Add contract upcasters and rolling-deployment capability checks. Preserve pending old versions until compatible consumers exist.
 - [ ] Evaluate automatic canonical flow revisions with optional human labels; pin executions to the chosen revision and make activation/migration explicit. Mandatory integer versions remain the current API.
 - [ ] Add partition-key concurrency and rate limits. Correlation must remain independent from lock identity.
-- [ ] Add SQL Server, then prioritize further providers using real adoption needs; all must pass the same guarantees.
+- [ ] Add SQL Server, then Oracle, following the portability refactor and real-provider gates in [storage evolution](../specs/storage-evolution.spec.md) and [ADR-012](adr/0012-retention-and-provider-expansion.md). Both remain planned; SQLite and PostgreSQL are the implemented providers.
 - [x] Add durable signals with deduplication, storage of signals arriving before their wait step, and race-tested timeout behavior; never park a worker thread while waiting.
 - [x] Define cron time zones, daylight-saving transitions, and missed-schedule policy alongside overlap controls.
 - [ ] Add bounded fan-out, queue fairness, per-tenant quotas where applicable, and load tests that measure both database contention and memory growth.
 
 ## P3 — controlled recovery and release
 
+- [ ] Add explicitly enabled MCP recovery/control actions only after trusted approval integration, state preconditions and command/audit reconciliation are verified. Keep bulk replay, payload changes and deletion separately scoped.
+- [ ] Apply and verify GitHub branch protections using [branching and release guidance](branching-and-release.md). `develop` exists; enforcement is blocked by the current private-repository account plan. Public visibility requires a separate maintainer decision and readiness review.
 - [ ] Fork an execution from a persisted checkpoint, with a new run ID and causation link; preserve the original audit trail.
 - [ ] Add explicit compensation handlers for reversible external effects. Never label state rewind as undoing arbitrary side effects.
 - [ ] Add child flows, durable timers/signals, failure branches, and a documented expression/versioning model.

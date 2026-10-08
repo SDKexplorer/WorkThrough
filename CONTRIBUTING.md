@@ -2,6 +2,8 @@
 
 Read `AGENTS.md` for dependency boundaries and correctness invariants. Use .NET SDK 10; `global.json` allows stable feature-band updates.
 
+Start feature branches from `develop` and target it with pull requests. Promote tested integration work to `main` through a release PR. See [branching and release guidance](docs/branching-and-release.md) for CI, merge strategy and the current GitHub protection limitation.
+
 Run `./scripts/verify.sh`. For storage changes, include a disposable PostgreSQL database through `DURABLEJOBS_POSTGRES` so the shared suite runs against both implemented providers. Keep new regressions focused on observable behavior and meaningful failure boundaries.
 
 Before changing persisted formats or public guarantees, add or amend an ADR. Do not renumber existing stable contract versions or rewrite historical attempt diagnostics. Update the plan and verification record when support claims change.
