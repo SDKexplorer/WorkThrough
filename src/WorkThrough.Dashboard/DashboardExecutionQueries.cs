@@ -12,6 +12,8 @@ public static partial class DashboardEndpoints
         group.MapGet("/api/executions", SearchExecutionMetadataAsync).WithPermission(options, "executions.read");
         group.MapGet("/api/executions/{id:guid}", FindExecutionMetadataAsync).WithPermission(options, "executions.read");
         group.MapGet("/api/executions/{id:guid}/attempts", ReadExecutionAttemptsAsync).WithPermission(options, "executions.read");
+        group.MapGet("/api/metrics", ReadRuntimeMetricsAsync).WithPermission(options, "executions.read");
+        group.MapGet("/api/executions/{id:guid}/readiness", ReadExecutionReadinessAsync).WithPermission(options, "executions.read");
     }
 
     private static Task<IResult> SearchExecutionMetadataAsync([AsParameters] ExecutionQuery query,
@@ -25,8 +27,15 @@ public static partial class DashboardEndpoints
         [FromServices] IExecutionQueries? queries, CancellationToken ct) =>
         ExecutionQueryResultAsync(queries, service => service.ReadAttemptsAsync(id, afterAttempt ?? 0, limit ?? 25, ct), ct);
 
-    private static async Task<IResult> ExecutionQueryResultAsync<T>(IExecutionQueries? queries,
-        Func<IExecutionQueries, Task<T>> read, CancellationToken ct)
+    private static Task<IResult> ReadRuntimeMetricsAsync([AsParameters] RuntimeMetricsQuery query,
+        [FromServices] IRuntimeQueries? queries, CancellationToken ct) =>
+        ExecutionQueryResultAsync(queries, service => service.ReadRuntimeMetricsAsync(query, ct), ct);
+
+    private static Task<IResult> ReadExecutionReadinessAsync(Guid id, [FromServices] IRuntimeQueries? queries, CancellationToken ct) =>
+        ExecutionQueryResultAsync(queries, service => service.ReadReadinessAsync(id, cancellationToken: ct), ct);
+
+    private static async Task<IResult> ExecutionQueryResultAsync<TService, TResult>(TService? queries,
+        Func<TService, Task<TResult>> read, CancellationToken ct) where TService : class
     {
         if (queries is null)
         {

@@ -1,5 +1,5 @@
 import { Component, ElementRef, signal, viewChild } from '@angular/core';
-import { DatePipe, JsonPipe } from '@angular/common';
+import { DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { SavedFlowGraph } from './saved-flow-graph';
 
 interface Processor {
@@ -48,6 +48,7 @@ interface Graph {
     version: number;
     steps: {
         id: string;
+        displayName?: string | null;
         contract: Processor;
         after: string[];
         queue: string;
@@ -81,6 +82,11 @@ interface Schedule {
     misfire: string;
 }
 interface Worker {
+    acquisition?: {
+        lastAttemptAt: string | null;
+        lastSucceededAt: string | null;
+        consecutiveFailures: number;
+    } | null;
     descriptions?: {
         identity: Processor;
         canonicalIdentity: Processor;
@@ -105,6 +111,15 @@ interface Audit {
 interface Statistics {
     counts: Record<string, number>;
     limits: { jobKey: string | null; maximum: number }[];
+}
+interface RuntimeMetrics {
+    from: string;
+    until: string;
+    succeededAttempts: number;
+    failedAttempts: number;
+    meanDurationMilliseconds: number | null;
+    maximumDurationMilliseconds: number | null;
+    successfulAttemptsPerSecond: number;
 }
 interface DeploymentReport {
     observedAt: string;
@@ -165,7 +180,7 @@ interface Pending {
 
 @Component({
     selector: 'app-console',
-    imports: [DatePipe, JsonPipe, SavedFlowGraph],
+    imports: [DatePipe, DecimalPipe, JsonPipe, SavedFlowGraph],
     templateUrl: './live-console.html',
 })
 export class LiveConsoleComponent {
@@ -179,6 +194,8 @@ export class LiveConsoleComponent {
     readonly user = signal('');
     readonly jobs = signal<Job[]>([]);
     readonly stats = signal<Statistics>({ counts: {}, limits: [] });
+    readonly metrics = signal<RuntimeMetrics | null>(null);
+    readonly metricsError = signal('');
     readonly definitions = signal<Definition[]>([]);
     readonly workers = signal<Worker[]>([]);
     readonly schedules = signal<Schedule[]>([]);
@@ -288,6 +305,15 @@ export class LiveConsoleComponent {
                 this.workers.set(workers);
                 this.schedules.set(schedules);
                 this.deployment.set(deployment);
+                try {
+                    this.metrics.set(await this.request<RuntimeMetrics>('/api/metrics'));
+                    this.metricsError.set('');
+                } catch {
+                    this.metrics.set(null);
+                    this.metricsError.set(
+                        'Windowed metrics are unavailable. Stored job totals remain available.',
+                    );
+                }
             }
             if (this.can('audit.read')) this.audit.set(await this.request<Audit[]>('/api/audit'));
             this.updated.set(new Date());
@@ -330,6 +356,17 @@ export class LiveConsoleComponent {
     }
     stepStatus(id: string) {
         return this.flow()?.jobs.find((j) => j.stepId === id)?.status ?? 'Unknown';
+    }
+    acquisitionStatus(worker: Worker) {
+        if (
+            this.updated() &&
+            this.updated()!.getTime() - new Date(worker.seenAt).getTime() > 60_000
+        )
+            return 'Heartbeat stale';
+        if (worker.acquisition == null) return 'Not reported';
+        if (worker.acquisition.consecutiveFailures > 0)
+            return `${worker.acquisition.consecutiveFailures} consecutive polling failures`;
+        return worker.acquisition.lastSucceededAt ? 'Last poll succeeded' : 'No poll recorded';
     }
     applyFilters() {
         this.offset = 0;

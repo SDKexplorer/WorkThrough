@@ -59,6 +59,8 @@ public sealed class DashboardTests
         Assert.DoesNotContain("script", deployment);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"{path}/api/jobs/{id}")).StatusCode);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync($"{path}/api/executions")).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync($"{path}/api/metrics")).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync($"{path}/api/executions/{id}/readiness")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync($"{path}/api/jobs/{id}/cancel", null)).StatusCode);
         var html = await client.GetStringAsync(path);
         Assert.Contains($"<base href=\"{path}/\"", html);
@@ -106,6 +108,7 @@ public sealed class DashboardTests
         builder.Services.AddSingleton<IExecutionOperations>(harness.Store);
         builder.Services.AddSingleton<IExecutionArchives>(harness.Store);
         builder.Services.AddSingleton<IProcessorRegistry>(harness.Store);
+        builder.Services.AddSingleton<IRuntimeQueries>(harness.Store);
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ =>
         {
         });
@@ -115,6 +118,9 @@ public sealed class DashboardTests
         await app.StartAsync();
         var client = app.GetTestClient();
         client.DefaultRequestHeaders.Add("X-Test-User", "viewer");
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/jobs/api/metrics")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/jobs/api/metrics?from=2025-01-01T00:00:00Z&until=2025-02-01T00:00:00Z")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/jobs/api/executions/{id}/readiness")).StatusCode);
         var detail = await client.GetStringAsync($"/jobs/api/jobs/{id}");
         Assert.DoesNotContain("SECRET", detail);
         Assert.Contains("\"sensitive\":false", detail);

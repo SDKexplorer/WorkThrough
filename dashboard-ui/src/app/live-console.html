@@ -75,7 +75,49 @@
             </article>
             }
         </section>
-        } @if (section() === 'executions' && can('executions.read')) {
+        @if (metrics(); as window) {
+        <section class="live-panel" aria-label="Attempt metrics">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Attempt metrics · last hour</h2>
+                    <p class="muted">
+                        {{ window.from | date:'mediumTime' }} – {{ window.until | date:'mediumTime'
+                        }} · Archived attempts excluded
+                    </p>
+                </div>
+            </div>
+            <div class="live-metrics">
+                <article>
+                    <span class="muted">Successful attempts</span
+                    ><strong>{{ window.succeededAttempts }}</strong
+                    ><small class="muted"
+                        >{{ window.successfulAttemptsPerSecond | number:'1.0-2' }} per second</small
+                    >
+                </article>
+                <article>
+                    <span class="muted">Failed attempts</span
+                    ><strong>{{ window.failedAttempts }}</strong
+                    ><small class="muted">Includes subsequently recovered jobs</small>
+                </article>
+                <article>
+                    <span class="muted">Mean duration</span
+                    ><strong
+                        >{{ window.meanDurationMilliseconds === null ? '—' :
+                        (window.meanDurationMilliseconds | number:'1.0-0') + ' ms' }}</strong
+                    ><small class="muted">Finished attempts in this window</small>
+                </article>
+                <article>
+                    <span class="muted">Longest duration</span
+                    ><strong
+                        >{{ window.maximumDurationMilliseconds === null ? '—' :
+                        (window.maximumDurationMilliseconds | number:'1.0-0') + ' ms' }}</strong
+                    ><small class="muted">Finished attempts in this window</small>
+                </article>
+            </div>
+        </section>
+        } @else if (metricsError()) {
+        <p class="muted" role="status">{{ metricsError() }}</p>
+        } } @if (section() === 'executions' && can('executions.read')) {
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
@@ -563,6 +605,7 @@
                             <th>Queues</th>
                             <th>Processors</th>
                             <th>Admission</th>
+                            <th>Acquisition health</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -592,10 +635,19 @@
                                 </button>
                                 }
                             </td>
+                            <td>
+                                {{ acquisitionStatus(worker) }} @if
+                                (worker.acquisition?.lastSucceededAt) {
+                                <small class="muted"
+                                    >{{ worker.acquisition!.lastSucceededAt | date:'mediumTime'
+                                    }}</small
+                                >
+                                }
+                            </td>
                         </tr>
                         } @empty {
                         <tr>
-                            <td colspan="6" class="live-empty">No worker heartbeats recorded.</td>
+                            <td colspan="7" class="live-empty">No worker heartbeats recorded.</td>
                         </tr>
                         }
                     </tbody>

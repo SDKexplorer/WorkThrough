@@ -9,6 +9,21 @@ public sealed record SqliteStorageOptions(bool UseWriteAheadLogging = true);
 
 public sealed class SqliteJobStore : RelationalJobStore
 {
+    protected override string ReadinessWorkersSql => """
+        WITH recent AS (
+          SELECT id,seen_at,CASE WHEN LENGTH(details)<=262144 THEN details ELSE '{}' END AS info
+          FROM dj_workers WHERE seen_at>=@fresh ORDER BY seen_at DESC,id LIMIT 501)
+        SELECT SUBSTR(r.id,1,512),r.seen_at,COALESCE(json_extract(r.info,'$.capacity'),0),
+          COALESCE(json_extract(r.info,'$.running'),0),COALESCE(c.draining,0),
+          CASE WHEN EXISTS(SELECT 1 FROM json_each(r.info,'$.processors') p WHERE
+            json_extract(p.value,'$.key')=j.job_key AND json_extract(p.value,'$.version')=j.contract_version)
+            AND EXISTS(SELECT 1 FROM json_each(r.info,'$.queues') q WHERE q.value=j.queue) THEN 1 ELSE 0 END,
+          CASE WHEN json_type(r.info,'$.processors')='array' AND json_type(r.info,'$.queues')='array'
+            AND json_type(r.info,'$.capacity')='integer' AND json_type(r.info,'$.running')='integer' THEN 1 ELSE 0 END,
+          CASE WHEN LENGTH(r.id)>512 THEN 1 ELSE 0 END,json_extract(r.info,'$.acquisition.consecutiveFailures')
+        FROM recent r JOIN dj_jobs j ON j.id=@id LEFT JOIN dj_worker_controls c ON c.worker_id=r.id
+        ORDER BY r.seen_at DESC,r.id
+        """;
     protected override string AuditActorValueSql(string field) =>
         $"json_extract(CASE WHEN LENGTH(a.actor)<=16384 THEN a.actor ELSE '{{}}' END,'$.{field}')";
     private readonly string connectionString;
@@ -107,6 +122,7 @@ public static class SqliteRegistration
         builder.Services.AddSingleton<IExecutionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IExecutionInspectionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IOperationHistoryQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
+        builder.Services.AddSingleton<IRuntimeQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobAdministration>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<SqliteJobStore>());

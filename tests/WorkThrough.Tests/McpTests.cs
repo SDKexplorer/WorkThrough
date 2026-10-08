@@ -43,7 +43,7 @@ public sealed partial class McpTests
             EnableStandaloneGetStream = false
         }, http));
         var tools = await client.ListToolsAsync();
-        Assert.Equal(7, tools.Count);
+        Assert.Equal(9, tools.Count);
         Assert.All(tools, tool =>
         {
             Assert.True(tool.ProtocolTool.Annotations!.ReadOnlyHint);
@@ -278,7 +278,7 @@ public sealed partial class McpTests
         internal static async Task<McpTestHost> CreateAsync(StoreHarness harness, Guid? deniedId = null, int requestsPerMinute = 120,
             IExecutionQueries? queries = null, int concurrentRequests = 16, Guid? deniedRun = null,
             bool includeInspection = true, IMcpDiagnosticRedactor? redactor = null, ILoggerProvider? loggerProvider = null,
-            bool includeHistory = true, Guid? deniedArchive = null)
+            bool includeHistory = true, Guid? deniedArchive = null, bool includeRuntime = true)
         {
             var key = RSA.Create(2048);
             var audit = new AccessRecorder();
@@ -299,6 +299,11 @@ public sealed partial class McpTests
             if (includeHistory)
             {
                 builder.Services.AddSingleton<IOperationHistoryQueries>((IOperationHistoryQueries)ReadOnlyQueries(harness));
+            }
+
+            if (includeRuntime)
+            {
+                builder.Services.AddSingleton<IRuntimeQueries>((IRuntimeQueries)ReadOnlyQueries(harness));
             }
 
             if (redactor is not null)

@@ -1,6 +1,6 @@
 # Read-only MCP hosting
 
-`WorkThrough.Mcp` is an optional NuGet package over `IExecutionQueries` and the optional `IExecutionInspectionQueries` / `IOperationHistoryQueries`, using the official C# MCP SDK 2.2.0 and ASP.NET Core Streamable HTTP in stateless mode. It references neither Dashboard/Angular nor application processors. No model account or API key is needed on the server.
+`WorkThrough.Mcp` is an optional NuGet package over `IExecutionQueries` and the optional `IExecutionInspectionQueries` / `IOperationHistoryQueries` / `IRuntimeQueries`, using the official C# MCP SDK 2.2.0 and ASP.NET Core Streamable HTTP in stateless mode. It references neither Dashboard/Angular nor application processors. No model account or API key is needed on the server.
 
 | Implemented tool | Evidence |
 |---|---|
@@ -14,12 +14,14 @@
 | `workthrough_search_archives` | Paged archive summaries by archival time, correlation and kind, including purged-body summaries |
 | `workthrough_get_archive` | One summary by standalone job ID or whole-flow run ID, with no age restriction |
 | `workthrough_preview_retention` | Advisory preview of a caller-supplied manual archive policy; never deletes data |
+| `workthrough_get_capacity` | Snapshot of waiting reasons, shared limits/admitted leases and bounded recent worker evidence |
+| `workthrough_get_metrics` | Windowed live attempt counts, successful attempt throughput and mean/max attempt duration |
 
 Search accepts a `query` object matching `ExecutionQuery`; enums use names such as `FailedAttempt`. Lookup tools take `id`; attempts also accept `afterAttempt` and `limit`. Discovery includes typed input/output schemas and read-only annotations. Direct calls enforce authorization independently.
 
 Search can investigate failed attempts even after recovery, and follow correlation or flow IDs. Results include stable processor identities and causation/run references. They contain no input/output, exception/progress text, implementation names, effect keys or lease tokens. Stored labels remain untrusted business data. Metadata can itself be sensitive; grant access only to principals allowed to read all metadata in this store.
 
-Wait-reason/capacity explanation and automatic-retention status are **not implemented**. Context reports these explicitly. There are no administrative tools. A custom provider without either optional port keeps the original four tools; unavailable inspection/history tools are hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
+Automatic-retention status is **not implemented**. Context reports this explicitly. There are no administrative tools. A custom provider without any optional ports keeps the original four tools; unavailable inspection/history tools are hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
 
 ## Diagnostic and flow inspection
 
@@ -32,6 +34,16 @@ Flow inspection takes `runId`, `nodeOffset`, `dependencyOffset`, `afterEvent` an
 Edges reference job IDs, so clipped step labels cannot merge distinct nodes. SQL expands only the saved pinned definition inside the database and returns dependency IDs; input templates, condition properties/values, bindings and flow input never leave storage. Definitions above 262,144 characters produce `graphStatus=definition_too_large`, without parsing their JSON; node metadata and events remain available. Other graph states are `available`, `definition_missing` and `not_live`. Do not treat unavailable edges as a graph with no dependencies. These are dependency edges, not a complete representation of conditional expressions.
 
 The event page exposes the global journal retention floor and last sequence. `requestedRangeTrimmed` means the requested range predates that floor; it does not prove that this particular run lost events. An archived run can have retained events even though live flow/node metadata is absent. Coverage is `live-and-retained-journal`, not an archive-body lookup. Invalid future event positions fail explicitly.
+
+## Runtime evidence
+
+`workthrough_get_capacity` takes an execution `id` and `workerExamples` (default 10, maximum 100). The database snapshot checks shared total/type admission, including processor aliases, queue and flow state, delayed/retrying work, execution deadlines and last progress. Limits count unexpired admitted leases. They cannot prove that a handler or its external effects stopped after lease expiry.
+
+Recent worker evidence requires the exact processor version and queue on the same heartbeat, no older than 60 seconds. At most 501 workers are examined; more than 500 or an oversized/incomplete heartbeat reports `workerCoverageIncomplete`. Missing or stale evidence never proves no worker exists. Draining, exhausted local total capacity and consecutive acquisition failures have distinct reasons. Free per-type local slots and future acquisition success cannot be inferred. Worker examples are bounded metadata without progress descriptions or lease tokens.
+
+`workthrough_get_metrics` takes `query` with optional `from`/`until`: a half-open completion-time window, default one hour, maximum seven days. Counts and timing describe finished attempts, including failures subsequently recovered; successful attempts per second is averaged over the whole requested window. Mean/max duration is null when empty. Coverage is `live-attempts`: archival removes attempts from these aggregates, so they are not a permanent historical telemetry store. Both tools require `executions.read`; capacity checks the actual execution resource.
+
+The Angular console uses the same port for its one-hour metrics and detailed waiting reason. Worker rows show acquisition failures and stale heartbeat observations. `.Named("Send invoice")` labels a flow step independently of its permanent ID; labels are pinned with the saved definition and changing a published label requires a new definition version. Existing definitions without labels keep their IDs as display text.
 
 ## Audit, archives and cleanup preview
 

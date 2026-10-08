@@ -86,6 +86,11 @@ public static class McpHostingExtensions
                 TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
                 Converters = { new JsonStringEnumConverter() }
             })
+            .WithTools<RuntimeTools>(new JsonSerializerOptions(JsonSerializerDefaults.Web)
+            {
+                TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+                Converters = { new JsonStringEnumConverter() }
+            })
             .WithRequestFilters(filters =>
             {
                 filters.AddListToolsFilter(next => async (context, ct) =>

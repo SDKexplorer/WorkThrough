@@ -110,3 +110,10 @@ Real-provider MCP cases use read-only connections and exercise independent audit
 - The targeted process-kill, lost-acknowledgment, disconnection, and SQLite restore proofs do not replace multi-machine partitions, PostgreSQL PITR, exhaustive fault campaigns, or production soak/load tests.
 
 See `plan.md` for remaining work rather than treating a green suite as a complete replacement for Hangfire or Wolverine.
+
+
+## Runtime evidence and console verification — 2026-10-08
+
+The runtime-query increment passes `scripts/verify.sh`: **190 tests on each of .NET 8 and .NET 10**, SQLite and PostgreSQL 17, zero build warnings/errors, eight local packages, fresh NuGet-only consumers on both runtimes, published relocation proof and both-provider independent-process/performance smoke exercises. New coverage includes exact worker/queue matching, aliases/shared limits, incomplete and stale heartbeats, draining/acquisition failures, progress/deadline observations, half-open metric windows, recovered failures, archival coverage, authorization and absent optional ports. Logs: `artifacts/runtime-verification.log`.
+
+The Angular build and formatting checks pass. An isolated local host was inspected through the in-app browser: empty attempt windows show unavailable durations, worker acquisition observations are visible, and the page has no document overflow at a 375px viewport. Existing demo data was untouched. This is targeted UI verification, not a comprehensive accessibility audit. Large investigative contention, external IdP/client integration and the two-hour soak remain unexecuted gates.

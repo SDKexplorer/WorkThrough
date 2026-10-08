@@ -79,6 +79,15 @@ internal static class McpPackageSmoke
             }
 
             var audit = await client.CallToolAsync("workthrough_get_audit", new Dictionary<string, object?> { ["query"] = new AuditQuery() });
+            var capacity = await client.CallToolAsync("workthrough_get_capacity", new Dictionary<string, object?> { ["id"] = executionId });
+            var metrics = await client.CallToolAsync("workthrough_get_metrics", new Dictionary<string, object?> { ["query"] = new RuntimeMetricsQuery() });
+            if (capacity.IsError == true || metrics.IsError == true
+                || capacity.StructuredContent!.Value.GetProperty("executionId").GetGuid() != executionId
+                || metrics.StructuredContent!.Value.GetProperty("coverage").GetString() != "live-attempts")
+            {
+                throw new InvalidOperationException("Packaged MCP did not return runtime evidence.");
+            }
+
             var archives = await client.CallToolAsync("workthrough_search_archives", new Dictionary<string, object?> { ["query"] = new ArchiveQuery() });
             var preview = await client.CallToolAsync("workthrough_preview_retention", new Dictionary<string, object?>
             {

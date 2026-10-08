@@ -10,13 +10,13 @@ public sealed record McpExecutionContext(string Environment, string Resource, st
 
 [McpServerToolType]
 internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQueries queries,
-    IExecutionInspectionQueries? inspection = null, IOperationHistoryQueries? history = null)
+    IExecutionInspectionQueries? inspection = null, IOperationHistoryQueries? history = null, IRuntimeQueries? runtime = null)
 {
     internal const string Context = "workthrough_get_context";
     internal const string Search = "workthrough_search_executions";
     internal const string Get = "workthrough_get_execution";
     internal const string Attempts = "workthrough_get_attempts";
-    internal static readonly string[] Names = [Context, Search, Get, Attempts, .. InspectionTools.Names, .. HistoryTools.Names];
+    internal static readonly string[] Names = [Context, Search, Get, Attempts, .. InspectionTools.Names, .. HistoryTools.Names, .. RuntimeTools.Names];
 
     [McpServerTool(Name = Context, ReadOnly = true, Destructive = false, OpenWorld = false, UseStructuredContent = true)]
     [Description("Describe this configured read-only endpoint, query limits and unavailable capabilities. No cross-store or tenant discovery.")]
@@ -25,8 +25,14 @@ internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQu
         var store = await queries.GetExecutionContextAsync(cancellationToken);
 
         var names = Names.Where(name => (inspection is not null || !InspectionTools.Names.Contains(name))
-            && (history is not null || !HistoryTools.Names.Contains(name))).ToArray();
-        var unavailable = new List<string> { "capacity", "retention-automation", "mutations" };
+            && (history is not null || !HistoryTools.Names.Contains(name))
+            && (runtime is not null || !RuntimeTools.Names.Contains(name))).ToArray();
+        var unavailable = new List<string> { "retention-automation", "mutations" };
+        if (runtime is null)
+        {
+            unavailable.AddRange(["capacity", "metrics"]);
+        }
+
         if (inspection is null)
         {
             unavailable.AddRange(["diagnostic-text", "flow-graph"]);

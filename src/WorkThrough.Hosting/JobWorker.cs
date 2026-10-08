@@ -44,6 +44,7 @@ internal sealed class JobWorker(
     {
         var running = new Dictionary<Guid, (JobRecord Job, Task Task)>();
         var nextHeartbeat = DateTimeOffset.MinValue;
+        var acquisition = new WorkerAcquisition(null, null, 0);
         try
         {
             while (!stoppingToken.IsCancellationRequested)
@@ -60,7 +61,8 @@ internal sealed class JobWorker(
                     try
                     {
                         await diagnostics.HeartbeatAsync(new(settings.WorkerId, default, catalog.Registrations.Select(x => x.Identity).ToArray(),
-                            settings.Queues, settings.MaxConcurrentJobs, running.Count, catalog.Registrations.Select(r => new ProcessorDescription(r.Identity, r.CanonicalIdentity, r.DisplayName)).ToArray()), stoppingToken);
+                            settings.Queues, settings.MaxConcurrentJobs, running.Count, catalog.Registrations.Select(r => new ProcessorDescription(r.Identity, r.CanonicalIdentity, r.DisplayName)).ToArray())
+                        { Acquisition = acquisition }, stoppingToken);
                         nextHeartbeat = DateTimeOffset.UtcNow.AddSeconds(10);
                     }
                     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -82,7 +84,9 @@ internal sealed class JobWorker(
                 {
                     try
                     {
+                        acquisition = acquisition with { LastAttemptAt = DateTimeOffset.UtcNow };
                         job = await store.ClaimAsync(new(settings.WorkerId, supported, settings.Queues, settings.LeaseDuration, registryRevision), stoppingToken);
+                        acquisition = acquisition with { LastSucceededAt = DateTimeOffset.UtcNow, ConsecutiveFailures = 0 };
                     }
                     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                     {
@@ -91,6 +95,7 @@ internal sealed class JobWorker(
                     catch (Exception exception)
                     {
                         logger.LogError(exception, "Job acquisition failed; storage will be retried");
+                        acquisition = acquisition with { ConsecutiveFailures = Math.Min(acquisition.ConsecutiveFailures, int.MaxValue - 1) + 1 };
                     }
                 }
 

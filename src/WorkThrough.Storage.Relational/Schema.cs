@@ -45,6 +45,7 @@ public abstract partial class RelationalJobStore
           started_at BIGINT NOT NULL,finished_at BIGINT,status TEXT NOT NULL,error TEXT,handler TEXT,
           PRIMARY KEY(job_id,number));
         CREATE INDEX IF NOT EXISTS ix_dj_attempts_failure_time ON dj_attempts(finished_at,job_id) WHERE status='Failed';
+        CREATE INDEX IF NOT EXISTS ix_dj_attempts_finished ON dj_attempts(finished_at);
         CREATE TABLE IF NOT EXISTS dj_limits (job_key TEXT PRIMARY KEY,maximum INTEGER NOT NULL CHECK(maximum>=0));
         CREATE TABLE IF NOT EXISTS dj_definitions (
           flow_key TEXT NOT NULL,version INTEGER NOT NULL,definition TEXT NOT NULL,
@@ -72,6 +73,7 @@ public abstract partial class RelationalJobStore
           job_id TEXT PRIMARY KEY,lease_token TEXT NOT NULL,started_at BIGINT NOT NULL,last_progress_at BIGINT NOT NULL,
           deadline BIGINT,progress_timeout BIGINT,description TEXT);
         CREATE TABLE IF NOT EXISTS dj_workers (id TEXT PRIMARY KEY,seen_at BIGINT NOT NULL,details TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS ix_dj_workers_seen ON dj_workers(seen_at DESC,id);
         CREATE TABLE IF NOT EXISTS dj_events (
           sequence BIGINT PRIMARY KEY,job_id TEXT NOT NULL,run_id TEXT,at BIGINT NOT NULL,kind TEXT NOT NULL,attempt INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS ix_dj_events_run ON dj_events(run_id,sequence);

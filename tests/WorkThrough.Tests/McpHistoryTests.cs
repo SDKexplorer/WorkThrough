@@ -46,7 +46,7 @@ public sealed partial class McpTests
         Assert.Contains(server.Audit.Events, entry => entry.Tool == "workthrough_get_audit" && entry.SensitiveRead && entry.Outcome == "succeeded");
         using var all = server.Client(payloads: true, audit: true, retention: true);
         var fullDiscovery = await ResultAsync(await CallAsync(all, "tools/list"));
-        Assert.Equal(10, fullDiscovery.GetProperty("tools").GetArrayLength());
+        Assert.Equal(12, fullDiscovery.GetProperty("tools").GetArrayLength());
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -87,7 +87,7 @@ public sealed partial class McpTests
         await using var server = await McpTestHost.CreateAsync(harness, includeHistory: false);
         using var client = server.Client(payloads: true, audit: true, retention: true);
         var listed = await ResultAsync(await CallAsync(client, "tools/list"));
-        Assert.Equal(6, listed.GetProperty("tools").GetArrayLength());
+        Assert.Equal(8, listed.GetProperty("tools").GetArrayLength());
         foreach (var name in new[] { "workthrough_get_audit", "workthrough_search_archives", "workthrough_get_archive", "workthrough_preview_retention" })
         {
             var result = await ResultAsync(await CallAsync(client, "tools/call", new { name, arguments = new { archiveId = Guid.NewGuid() } }));

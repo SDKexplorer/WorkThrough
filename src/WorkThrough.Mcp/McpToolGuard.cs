@@ -35,7 +35,8 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
 
     internal static bool IsAvailable(IServiceProvider services, string name) =>
         (!InspectionTools.Names.Contains(name) || services.GetService<IExecutionInspectionQueries>() is not null)
-        && (!HistoryTools.Names.Contains(name) || services.GetService<IOperationHistoryQueries>() is not null);
+        && (!HistoryTools.Names.Contains(name) || services.GetService<IOperationHistoryQueries>() is not null)
+        && (!RuntimeTools.Names.Contains(name) || services.GetService<IRuntimeQueries>() is not null);
 
     internal async ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> context,
         McpRequestHandler<CallToolRequestParams, CallToolResult> next, CancellationToken cancellationToken)
@@ -44,7 +45,7 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
         var started = Stopwatch.GetTimestamp();
         var name = context.Params?.Name;
         var known = name is not null && ExecutionTools.Names.Contains(name, StringComparer.Ordinal);
-        var executionTarget = name is ExecutionTools.Get or ExecutionTools.Attempts or InspectionTools.Diagnostics;
+        var executionTarget = name is ExecutionTools.Get or ExecutionTools.Attempts or InspectionTools.Diagnostics or RuntimeTools.Capacity;
         var id = executionTarget ? ReadTarget(context, "id") : null;
         var runId = name == InspectionTools.Flow ? ReadTarget(context, "runId") : null;
         var archiveId = name == HistoryTools.Archive ? ReadTarget(context, "archiveId") : null;
