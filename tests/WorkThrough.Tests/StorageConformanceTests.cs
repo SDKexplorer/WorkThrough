@@ -38,8 +38,8 @@ public sealed class StorageConformanceTests
         var run = await new WorkflowClient(harness.Store).StartAsync(definition, new
         {
         });
-        var first = (await harness.Store.ClaimAsync(Claim(lease: TimeSpan.FromMilliseconds(600))))!;
-        var second = (await harness.Store.ClaimAsync(Claim(lease: TimeSpan.FromMilliseconds(600))))!;
+        var first = (await harness.Store.ClaimAsync(Claim()))!;
+        var second = (await harness.Store.ClaimAsync(Claim()))!;
         var failed = first.StepId == "fails" ? first : second;
         var sibling = first.StepId == "sibling" ? first : second;
         Assert.True(await harness.Store.FailAsync(failed.Id, failed.LeaseToken!.Value, "terminal", TimeSpan.Zero));
@@ -56,7 +56,8 @@ public sealed class StorageConformanceTests
                 Assert.True(await harness.Store.CompleteAsync(sibling.Id, sibling.LeaseToken!.Value, JobResult.Done()));
                 break;
             case "expire":
-                await Task.Delay(750);
+                Assert.True(await harness.Store.RenewAsync(sibling.Id, sibling.LeaseToken!.Value, TimeSpan.FromMilliseconds(100)));
+                await Task.Delay(180);
                 break;
         }
 
