@@ -5,7 +5,11 @@ namespace WorkThrough;
 /// <summary>Metadata-only access event. No tool arguments, business labels, tokens or job contents are recorded.</summary>
 public sealed record McpAccessEvent(
     string RequestId, string Issuer, string Subject, string? ClientId, string Tool,
-    string Endpoint, string Environment, Guid? ExecutionId, string Outcome, double DurationMilliseconds);
+    string Endpoint, string Environment, Guid? ExecutionId, string Outcome, double DurationMilliseconds)
+{
+    public Guid? WorkflowRunId { get; init; }
+    public bool SensitiveRead { get; init; }
+}
 
 /// <summary>Security sink independent of the job database. Sink failure prevents a tool result being returned.</summary>
 public interface IMcpAccessSink
@@ -17,9 +21,9 @@ internal sealed class LoggingMcpAccessSink(ILogger<LoggingMcpAccessSink> logger)
 {
     public ValueTask WriteAsync(McpAccessEvent access, CancellationToken cancellationToken)
     {
-        logger.LogInformation("WorkThrough MCP access: {RequestId} {Issuer} {Subject} {ClientId} {Tool} {Endpoint} {Environment} {ExecutionId} {Outcome} {DurationMilliseconds}",
+        logger.LogInformation("WorkThrough MCP access: {RequestId} {Issuer} {Subject} {ClientId} {Tool} {Endpoint} {Environment} {ExecutionId} {WorkflowRunId} {SensitiveRead} {Outcome} {DurationMilliseconds}",
             access.RequestId, access.Issuer, access.Subject, access.ClientId, access.Tool, access.Endpoint,
-            access.Environment, access.ExecutionId, access.Outcome, access.DurationMilliseconds);
+            access.Environment, access.ExecutionId, access.WorkflowRunId, access.SensitiveRead, access.Outcome, access.DurationMilliseconds);
 
         return ValueTask.CompletedTask;
     }

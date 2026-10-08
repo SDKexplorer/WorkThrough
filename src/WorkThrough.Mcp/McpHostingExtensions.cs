@@ -27,6 +27,7 @@ public static class McpHostingExtensions
         services.AddSingleton<McpHttpGuard>();
         services.AddScoped<McpToolGuard>();
         services.TryAddSingleton<IMcpAccessSink, LoggingMcpAccessSink>();
+        services.TryAddSingleton<IMcpDiagnosticRedactor, StoredDiagnosticRedactor>();
         services.AddAuthentication().AddJwtBearer(AuthenticationScheme, jwt =>
         {
             jwt.Authority = options.Authority.AbsoluteUri;
@@ -58,11 +59,13 @@ public static class McpHostingExtensions
         {
             authorization.AddPolicy(EndpointPolicy, policy => policy.AddAuthenticationSchemes(AuthenticationScheme)
                 .RequireAuthenticatedUser().RequireClaim("sub").RequireClaim("iss"));
-            var name = OperationPermissions.PolicyPrefix + OperationPermissions.ReadExecutions;
-            if (authorization.GetPolicy(name) is null)
+            foreach (var permission in new[] { OperationPermissions.ReadExecutions, OperationPermissions.ReadPayloads })
             {
-                authorization.AddPolicy(name, policy => policy.RequireAuthenticatedUser()
-                    .RequireClaim(OperationPermissions.ClaimType, OperationPermissions.ReadExecutions));
+                var name = OperationPermissions.PolicyPrefix + permission;
+                if (authorization.GetPolicy(name) is null)
+                {
+                    authorization.AddPolicy(name, policy => policy.RequireAuthenticatedUser().RequireClaim(OperationPermissions.ClaimType, permission));
+                }
             }
         });
         services.AddMcpServer(server => server.ServerInfo = new() { Name = "WorkThrough", Version = "0.1.0-alpha.1" })
@@ -72,18 +75,37 @@ public static class McpHostingExtensions
                 TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
                 Converters = { new JsonStringEnumConverter() }
             })
+            .WithTools<InspectionTools>(new JsonSerializerOptions(JsonSerializerDefaults.Web)
+            {
+                TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+                Converters = { new JsonStringEnumConverter() }
+            })
             .WithRequestFilters(filters =>
             {
                 filters.AddListToolsFilter(next => async (context, ct) =>
                 {
                     var guard = context.Services!.GetRequiredService<McpToolGuard>();
-                    if (!(await guard.AuthorizeAsync(context.User)).Succeeded)
+                    if (!await guard.AuthorizeAsync(context.User))
                     {
                         return new() { Tools = [] };
                     }
 
                     var result = await next(context, ct);
-                    result.Tools = result.Tools.Where(tool => ExecutionTools.Names.Contains(tool.Name, StringComparer.Ordinal)).ToList();
+                    var visible = new List<ModelContextProtocol.Protocol.Tool>();
+                    foreach (var tool in result.Tools.Where(tool => ExecutionTools.Names.Contains(tool.Name, StringComparer.Ordinal)))
+                    {
+                        if (InspectionTools.Names.Contains(tool.Name) && context.Services!.GetService<IExecutionInspectionQueries>() is null)
+                        {
+                            continue;
+                        }
+
+                        if (await guard.AuthorizeAsync(context.User, tool.Name))
+                        {
+                            visible.Add(tool);
+                        }
+                    }
+
+                    result.Tools = visible;
 
                     return result;
                 });

@@ -20,7 +20,7 @@ using Xunit;
 
 namespace WorkThrough.Tests;
 
-public sealed class McpTests
+public sealed partial class McpTests
 {
     public static IEnumerable<object[]> Providers() => StorageConformanceTests.Providers();
 
@@ -43,7 +43,7 @@ public sealed class McpTests
             EnableStandaloneGetStream = false
         }, http));
         var tools = await client.ListToolsAsync();
-        Assert.Equal(4, tools.Count);
+        Assert.Equal(5, tools.Count);
         Assert.All(tools, tool =>
         {
             Assert.True(tool.ProtocolTool.Annotations!.ReadOnlyHint);
@@ -276,14 +276,30 @@ public sealed class McpTests
         internal AccessRecorder Audit => audit;
 
         internal static async Task<McpTestHost> CreateAsync(StoreHarness harness, Guid? deniedId = null, int requestsPerMinute = 120,
-            IExecutionQueries? queries = null, int concurrentRequests = 16)
+            IExecutionQueries? queries = null, int concurrentRequests = 16, Guid? deniedRun = null,
+            bool includeInspection = true, IMcpDiagnosticRedactor? redactor = null, ILoggerProvider? loggerProvider = null)
         {
             var key = RSA.Create(2048);
             var audit = new AccessRecorder();
             var builder = WebApplication.CreateBuilder();
             builder.Logging.ClearProviders();
+            if (loggerProvider is not null)
+            {
+                builder.Logging.SetMinimumLevel(LogLevel.Trace).AddProvider(loggerProvider);
+            }
+
             builder.WebHost.UseTestServer();
             builder.Services.AddSingleton<IExecutionQueries>(queries ?? ReadOnlyQueries(harness));
+            if (includeInspection)
+            {
+                builder.Services.AddSingleton<IExecutionInspectionQueries>((IExecutionInspectionQueries)ReadOnlyQueries(harness));
+            }
+
+            if (redactor is not null)
+            {
+                builder.Services.AddSingleton(redactor);
+            }
+
             builder.Services.AddSingleton<IMcpAccessSink>(audit);
             builder.Services.AddAuthentication("DashboardTest").AddScheme<AuthenticationSchemeOptions, DashboardTests.TestAuthentication>("DashboardTest", _ =>
             {
@@ -303,7 +319,8 @@ public sealed class McpTests
             });
             builder.Services.AddAuthorization(options => options.AddPolicy(OperationPermissions.PolicyPrefix + OperationPermissions.ReadExecutions,
                 policy => policy.RequireAuthenticatedUser().RequireClaim(OperationPermissions.ClaimType, OperationPermissions.ReadExecutions)
-                    .RequireAssertion(context => context.Resource is OperationResource resource && (deniedId is null || resource.ExecutionId != deniedId))));
+                    .RequireAssertion(context => context.Resource is OperationResource resource && (deniedId is null || resource.ExecutionId != deniedId)
+                        && (deniedRun is null || resource.WorkflowRunId != deniedRun))));
             var app = builder.Build();
             app.UseAuthentication();
             app.UseAuthorization();
@@ -331,24 +348,29 @@ public sealed class McpTests
             }.ToString());
         }
 
-        internal HttpClient Client(bool authenticated = true, bool permission = true, string subject = "operator")
+        internal HttpClient Client(bool authenticated = true, bool permission = true, string subject = "operator", bool payloads = false)
         {
             var client = app.GetTestClient();
             client.BaseAddress = new("https://localhost");
             if (authenticated)
             {
-                client.DefaultRequestHeaders.Authorization = new("Bearer", Token(permission: permission, subject: subject));
+                client.DefaultRequestHeaders.Authorization = new("Bearer", Token(permission: permission, subject: subject, payloads: payloads));
             }
 
             return client;
         }
 
-        internal string Token(string audience = Resource, bool expired = false, string issuer = Issuer, bool permission = true, string subject = "operator")
+        internal string Token(string audience = Resource, bool expired = false, string issuer = Issuer, bool permission = true, string subject = "operator", bool payloads = false)
         {
             var claims = new List<Claim> { new("sub", subject), new("client_id", "integration-client") };
             if (permission)
             {
                 claims.Add(new(OperationPermissions.ClaimType, OperationPermissions.ReadExecutions));
+            }
+
+            if (payloads)
+            {
+                claims.Add(new(OperationPermissions.ClaimType, OperationPermissions.ReadPayloads));
             }
 
             var token = new JwtSecurityToken(issuer, audience, claims, DateTime.UtcNow.AddHours(-1),

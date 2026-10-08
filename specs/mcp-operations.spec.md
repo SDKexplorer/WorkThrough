@@ -2,7 +2,7 @@
 
 Status: partially implemented, 2026-10-08. The maintainer selected **read-only diagnostics initially, administrative actions later**. The [current MCP package and hosting guide](../docs/mcp.md) define the implemented subset; this specification retains the broader target. Retention and additional databases are companion work in [storage evolution](storage-evolution.spec.md).
 
-Implemented: bounded execution/attempt queries, additive protected dashboard routes, an optional MCP adapter with four typed tools (context/search/lookup/attempts), dedicated JWT authentication and discovery, shared permission vocabulary, per-call resource checks, access evidence and request/query/result bounds. The initial lookup returns metadata; deterministic wait reasons, graph/diagnostic/capacity/audit/archive/retention projections remain pending. Tool context explicitly lists unavailable capabilities. Existing dashboard resource-policy compatibility is preserved.
+Implemented: bounded execution/attempt queries, additive protected dashboard routes, six MCP tools (context/search/lookup/attempts/diagnostics/flow), dedicated JWT authentication and discovery, shared permission vocabulary, per-call resource checks, access evidence and request/query/result bounds. Diagnostic text requires two permissions and supports host redaction. Flow inspection pages pinned nodes/dependencies and retained events without exporting templates or condition values. Deterministic wait/capacity reasons, audit/archive/retention projections remain pending. Tool context lists unavailable capabilities; dashboard resource-policy compatibility is preserved.
 
 ## Purpose
 
@@ -24,7 +24,7 @@ Stable processor identities remain the reference throughout. A namespace or asse
 
 ## Proposed first tool set
 
-The four shipped tool names/schemas are documented in the hosting guide; names below for future tools remain proposals. Every implemented tool has typed input/output schemas. `workthrough_get_attempts` was split from lookup to keep attempt paging explicit. Search currently provides correlation, flow-run and causation metadata, without claiming a complete correlation trace or graph.
+The six shipped tool names/schemas are documented in the hosting guide; names below for future tools remain proposals. Every implemented tool has typed input/output schemas. `workthrough_get_attempts` was split from lookup to keep attempt paging explicit. Search provides correlation, flow-run and causation metadata; flow inspection supplies saved dependency structure. It does not expose condition expressions or claim a complete cross-run correlation trace.
 
 | Tool | Result | Permission |
 |---|---|---|
@@ -146,7 +146,8 @@ Before release, benchmark 100,000 retained executions with varied attempt histor
 
 ### M1 — read-only package
 
-- [ ] Complete investigative tools beyond the shipped context/search/lookup/attempt set, then archive/retention reads when their query prerequisites are ready.
+- [x] Add selected-attempt diagnostics with dual permissions/read-time redaction and bounded pinned-flow node/dependency/event inspection, including missing/trimmed coverage and optional provider capability.
+- [ ] Complete wait/capacity, audit and archive/retention investigation tools when their bounded query prerequisites are ready.
 - [x] Add a standalone authenticated sample and composable endpoint for an API/web worker; no processor or Angular dependency.
 - [x] Exercise the official C# 2.2.0 client and an independent HTTP JSON-RPC client over Streamable HTTP; document their protocol coverage. These are not two third-party AI applications.
 - [x] Test .NET 8/10 NuGet consumers, permission/resource bypass attempts, metadata projections, paging, cancellation, limits and access-sink failure for the shipped tools.
