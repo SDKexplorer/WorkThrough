@@ -45,7 +45,9 @@ internal static class McpPackageSmoke
         {
             var token = new JwtSecurityToken(authority, resource.AbsoluteUri,
                 [new("sub", "package-consumer"), new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadExecutions),
-                    new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadPayloads)],
+                    new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadPayloads),
+                    new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadAudit),
+                    new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadRetention)],
                 DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(1),
                 new SigningCredentials(new RsaSecurityKey(key), SecurityAlgorithms.RsaSha256));
             using var http = new HttpClient();
@@ -74,6 +76,19 @@ internal static class McpPackageSmoke
             if (diagnostic.IsError == true || !diagnostic.StructuredContent!.Value.GetProperty("diagnostic").GetProperty("attemptExists").GetBoolean())
             {
                 throw new InvalidOperationException("Packaged MCP did not inspect the selected attempt.");
+            }
+
+            var audit = await client.CallToolAsync("workthrough_get_audit", new Dictionary<string, object?> { ["query"] = new AuditQuery() });
+            var archives = await client.CallToolAsync("workthrough_search_archives", new Dictionary<string, object?> { ["query"] = new ArchiveQuery() });
+            var preview = await client.CallToolAsync("workthrough_preview_retention", new Dictionary<string, object?>
+            {
+                ["policy"] = new ArchivePolicy(DateTimeOffset.UtcNow.AddDays(1))
+            });
+            if (audit.IsError == true || archives.IsError == true || preview.IsError == true
+                || preview.StructuredContent!.Value.GetProperty("candidates").GetArrayLength() == 0
+                || preview.StructuredContent.Value.GetProperty("policySource").GetString() != "caller-supplied")
+            {
+                throw new InvalidOperationException("Packaged MCP did not expose read-only operational history and retention preview.");
             }
         }
         finally

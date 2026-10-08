@@ -8,7 +8,7 @@ A .NET 8 library for durable jobs, persisted flows, and recurring schedules, ver
 
 WorkThrough is an alpha. SQLite and PostgreSQL are implemented; packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
 
-The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/attempt investigation, protected failure details and saved-flow inspection. Capacity/audit/archive tools and controlled actions remain in the [MCP plan](specs/mcp-operations.spec.md); [automatic retention and SQL Server/Oracle providers](specs/storage-evolution.spec.md) are also planned. The [remaining delivery order](docs/plan.md#remaining-delivery-order) makes those gaps explicit. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
+The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/attempt investigation, protected failure details, saved-flow inspection, audit/archive metadata and manual cleanup preview. Capacity explanations and controlled actions remain in the [MCP plan](specs/mcp-operations.spec.md); [automatic retention and SQL Server/Oracle providers](specs/storage-evolution.spec.md) are also planned. The [remaining delivery order](docs/plan.md#remaining-delivery-order) makes those gaps explicit. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
 
 ## Repository map
 

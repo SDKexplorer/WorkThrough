@@ -11,19 +11,31 @@ namespace WorkThrough;
 
 internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorizationService authorization, IMcpAccessSink accessSink)
 {
-    internal async Task<bool> AuthorizeAsync(ClaimsPrincipal? user, string? tool = null, Guid? id = null, Guid? runId = null)
+    internal async Task<bool> AuthorizeAsync(ClaimsPrincipal? user, string? tool = null, Guid? id = null, Guid? runId = null, Guid? archiveId = null)
     {
         var principal = user ?? new ClaimsPrincipal();
-        var resource = new OperationResource(options.Resource.AbsoluteUri, options.Environment, id) { WorkflowRunId = runId };
+        var resource = new OperationResource(options.Resource.AbsoluteUri, options.Environment, id) { WorkflowRunId = runId, ArchiveId = archiveId };
         if (!(await authorization.AuthorizeAsync(principal, resource,
             OperationPermissions.PolicyPrefix + OperationPermissions.ReadExecutions)).Succeeded)
         {
             return false;
         }
 
-        return tool != InspectionTools.Diagnostics || (await authorization.AuthorizeAsync(principal, resource,
-            OperationPermissions.PolicyPrefix + OperationPermissions.ReadPayloads)).Succeeded;
+        var additional = tool switch
+        {
+            InspectionTools.Diagnostics => OperationPermissions.ReadPayloads,
+            HistoryTools.Audit => OperationPermissions.ReadAudit,
+            HistoryTools.Retention => OperationPermissions.ReadRetention,
+            _ => null
+        };
+
+        return additional is null || (await authorization.AuthorizeAsync(principal, resource,
+            OperationPermissions.PolicyPrefix + additional)).Succeeded;
     }
+
+    internal static bool IsAvailable(IServiceProvider services, string name) =>
+        (!InspectionTools.Names.Contains(name) || services.GetService<IExecutionInspectionQueries>() is not null)
+        && (!HistoryTools.Names.Contains(name) || services.GetService<IOperationHistoryQueries>() is not null);
 
     internal async ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> context,
         McpRequestHandler<CallToolRequestParams, CallToolResult> next, CancellationToken cancellationToken)
@@ -35,6 +47,7 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
         var executionTarget = name is ExecutionTools.Get or ExecutionTools.Attempts or InspectionTools.Diagnostics;
         var id = executionTarget ? ReadTarget(context, "id") : null;
         var runId = name == InspectionTools.Flow ? ReadTarget(context, "runId") : null;
+        var archiveId = name == HistoryTools.Archive ? ReadTarget(context, "archiveId") : null;
 
         var outcome = "unavailable";
         CallToolResult result;
@@ -48,17 +61,17 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
                 result = Error(outcome, requestId);
             }
             else if (executionTarget && id is null
-                || name == InspectionTools.Flow && runId is null)
+                || name == InspectionTools.Flow && runId is null || name == HistoryTools.Archive && archiveId is null)
             {
                 outcome = "invalid_arguments";
                 result = Error(outcome, requestId);
             }
-            else if (!await AuthorizeAsync(context.User, name, id, runId))
+            else if (!await AuthorizeAsync(context.User, name, id, runId, archiveId))
             {
                 outcome = "forbidden";
                 result = Error(outcome, requestId);
             }
-            else if (InspectionTools.Names.Contains(name!) && context.Services!.GetService<IExecutionInspectionQueries>() is null)
+            else if (!IsAvailable(context.Services!, name!))
             {
                 outcome = "capability_unavailable";
                 result = Error(outcome, requestId);
@@ -101,7 +114,7 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
             await accessSink.WriteAsync(new(requestId, Claim(context.User, "iss") ?? "unknown", Claim(context.User, "sub") ?? "unknown",
                 Claim(context.User, "client_id") ?? Claim(context.User, "azp"), known ? name! : "unregistered",
                 options.Resource.AbsoluteUri, options.Environment, id, outcome, Stopwatch.GetElapsedTime(started).TotalMilliseconds)
-            { WorkflowRunId = runId, SensitiveRead = name == InspectionTools.Diagnostics }, auditDeadline.Token)
+            { WorkflowRunId = runId, ArchiveId = archiveId, SensitiveRead = name is InspectionTools.Diagnostics or HistoryTools.Audit }, auditDeadline.Token)
                 .AsTask().WaitAsync(auditDeadline.Token);
         }
         catch (Exception)

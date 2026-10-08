@@ -27,7 +27,7 @@ public sealed partial class McpTests
         Assert.True((await ResultAsync(await CallAsync(payloadOnly, "tools/call", request))).GetProperty("isError").GetBoolean());
         using var allowed = server.Client(payloads: true);
         var available = await ResultAsync(await CallAsync(allowed, "tools/list"));
-        Assert.Equal(6, available.GetProperty("tools").GetArrayLength());
+        Assert.Equal(8, available.GetProperty("tools").GetArrayLength());
         var response = await ResultAsync(await CallAsync(allowed, "tools/call", request));
         var result = response.GetProperty("structuredContent");
         Assert.True(result.GetProperty("redacted").GetBoolean());
@@ -71,7 +71,7 @@ public sealed partial class McpTests
     public async Task Missing_inspection_port_reports_capability_unavailable_without_falling_back_to_legacy_queries()
     {
         await using var harness = await StoreHarness.CreateAsync("sqlite");
-        await using var server = await McpTestHost.CreateAsync(harness, includeInspection: false);
+        await using var server = await McpTestHost.CreateAsync(harness, includeInspection: false, includeHistory: false);
         using var client = server.Client(payloads: true);
         var listed = await ResultAsync(await CallAsync(client, "tools/list"));
         Assert.Equal(4, listed.GetProperty("tools").GetArrayLength());

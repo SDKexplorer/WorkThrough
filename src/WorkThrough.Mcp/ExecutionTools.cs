@@ -9,13 +9,14 @@ public sealed record McpExecutionContext(string Environment, string Resource, st
     int DefaultPageSize, int MaximumPageSize, int MaximumWindowDays, int MaximumResultBytes, int QueryDeadlineSeconds);
 
 [McpServerToolType]
-internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQueries queries, IExecutionInspectionQueries? inspection = null)
+internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQueries queries,
+    IExecutionInspectionQueries? inspection = null, IOperationHistoryQueries? history = null)
 {
     internal const string Context = "workthrough_get_context";
     internal const string Search = "workthrough_search_executions";
     internal const string Get = "workthrough_get_execution";
     internal const string Attempts = "workthrough_get_attempts";
-    internal static readonly string[] Names = [Context, Search, Get, Attempts, .. InspectionTools.Names];
+    internal static readonly string[] Names = [Context, Search, Get, Attempts, .. InspectionTools.Names, .. HistoryTools.Names];
 
     [McpServerTool(Name = Context, ReadOnly = true, Destructive = false, OpenWorld = false, UseStructuredContent = true)]
     [Description("Describe this configured read-only endpoint, query limits and unavailable capabilities. No cross-store or tenant discovery.")]
@@ -23,10 +24,18 @@ internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQu
     {
         var store = await queries.GetExecutionContextAsync(cancellationToken);
 
-        var inspectionAvailable = inspection is not null;
-        var names = inspectionAvailable ? Names : Names.Except(InspectionTools.Names).ToArray();
-        string[] unavailable = inspectionAvailable ? ["capacity", "audit", "archives", "retention", "mutations"]
-            : ["diagnostic-text", "flow-graph", "capacity", "audit", "archives", "retention", "mutations"];
+        var names = Names.Where(name => (inspection is not null || !InspectionTools.Names.Contains(name))
+            && (history is not null || !HistoryTools.Names.Contains(name))).ToArray();
+        var unavailable = new List<string> { "capacity", "retention-automation", "mutations" };
+        if (inspection is null)
+        {
+            unavailable.AddRange(["diagnostic-text", "flow-graph"]);
+        }
+
+        if (history is null)
+        {
+            unavailable.AddRange(["audit", "archives", "retention-preview"]);
+        }
 
         return new(options.Environment, options.Resource.AbsoluteUri, store.StoreId, store.ObservedAt, "1", "live", true,
             names, unavailable, 25, 100, 7, 65536, 5);

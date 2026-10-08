@@ -9,6 +9,8 @@ public sealed record SqliteStorageOptions(bool UseWriteAheadLogging = true);
 
 public sealed class SqliteJobStore : RelationalJobStore
 {
+    protected override string AuditActorValueSql(string field) =>
+        $"json_extract(CASE WHEN LENGTH(a.actor)<=16384 THEN a.actor ELSE '{{}}' END,'$.{field}')";
     private readonly string connectionString;
     private readonly bool useWriteAheadLogging;
 
@@ -104,6 +106,7 @@ public static class SqliteRegistration
         builder.Services.AddSingleton<IJobQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IExecutionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IExecutionInspectionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
+        builder.Services.AddSingleton<IOperationHistoryQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobAdministration>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<SqliteJobStore>());

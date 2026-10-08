@@ -7,6 +7,8 @@ namespace WorkThrough.Storage;
 /// <summary>PostgreSQL provider with a transaction-scoped admission lock for this table set.</summary>
 public sealed class PostgresJobStore(string connectionString) : RelationalJobStore
 {
+    protected override string AuditActorValueSql(string field) =>
+        $"((CASE WHEN LENGTH(a.actor)<=16384 THEN a.actor ELSE '{{}}' END)::jsonb->>'{field}')";
     protected override DbConnection CreateConnection() => new NpgsqlConnection(connectionString);
     protected override string ClockSql => "SELECT CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)";
     protected override string FlowDependencySql => """
@@ -49,6 +51,7 @@ public static class PostgresRegistration
         builder.Services.AddSingleton<IJobQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IExecutionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IExecutionInspectionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IOperationHistoryQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IJobAdministration>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<PostgresJobStore>());

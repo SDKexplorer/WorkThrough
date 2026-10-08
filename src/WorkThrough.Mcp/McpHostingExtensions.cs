@@ -59,7 +59,8 @@ public static class McpHostingExtensions
         {
             authorization.AddPolicy(EndpointPolicy, policy => policy.AddAuthenticationSchemes(AuthenticationScheme)
                 .RequireAuthenticatedUser().RequireClaim("sub").RequireClaim("iss"));
-            foreach (var permission in new[] { OperationPermissions.ReadExecutions, OperationPermissions.ReadPayloads })
+            foreach (var permission in new[] { OperationPermissions.ReadExecutions, OperationPermissions.ReadPayloads,
+                OperationPermissions.ReadAudit, OperationPermissions.ReadRetention })
             {
                 var name = OperationPermissions.PolicyPrefix + permission;
                 if (authorization.GetPolicy(name) is null)
@@ -80,6 +81,11 @@ public static class McpHostingExtensions
                 TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
                 Converters = { new JsonStringEnumConverter() }
             })
+            .WithTools<HistoryTools>(new JsonSerializerOptions(JsonSerializerDefaults.Web)
+            {
+                TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+                Converters = { new JsonStringEnumConverter() }
+            })
             .WithRequestFilters(filters =>
             {
                 filters.AddListToolsFilter(next => async (context, ct) =>
@@ -94,7 +100,7 @@ public static class McpHostingExtensions
                     var visible = new List<ModelContextProtocol.Protocol.Tool>();
                     foreach (var tool in result.Tools.Where(tool => ExecutionTools.Names.Contains(tool.Name, StringComparer.Ordinal)))
                     {
-                        if (InspectionTools.Names.Contains(tool.Name) && context.Services!.GetService<IExecutionInspectionQueries>() is null)
+                        if (!McpToolGuard.IsAvailable(context.Services!, tool.Name))
                         {
                             continue;
                         }

@@ -28,6 +28,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET terminal_at=COALESCE((SELECT MAX(finished_at) FROM dj_attempts WHERE job_id=dj_jobs.id),created_at) WHERE status IN ('Succeeded','Failed','Skipped','Cancelled')", ct);
             }
 
+            // Old schema upgrades must add terminal_at before this optional inspection index is created.
+            await ExecuteAsync(connection, transaction, "CREATE INDEX IF NOT EXISTS ix_dj_jobs_terminal ON dj_jobs(status,terminal_at,id)", ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_event_sequence(id,value) SELECT 1,COALESCE(MAX(sequence),0) FROM dj_events WHERE 1=1 ON CONFLICT DO NOTHING", ct);
             if (Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_store", ct)) == 0)
             {

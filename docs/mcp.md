@@ -1,6 +1,6 @@
 # Read-only MCP hosting
 
-`WorkThrough.Mcp` is an optional NuGet package over `IExecutionQueries` and the optional `IExecutionInspectionQueries`, using the official C# MCP SDK 2.2.0 and ASP.NET Core Streamable HTTP in stateless mode. It references neither Dashboard/Angular nor application processors. No model account or API key is needed on the server.
+`WorkThrough.Mcp` is an optional NuGet package over `IExecutionQueries` and the optional `IExecutionInspectionQueries` / `IOperationHistoryQueries`, using the official C# MCP SDK 2.2.0 and ASP.NET Core Streamable HTTP in stateless mode. It references neither Dashboard/Angular nor application processors. No model account or API key is needed on the server.
 
 | Implemented tool | Evidence |
 |---|---|
@@ -10,12 +10,16 @@
 | `workthrough_get_attempts` | Paged attempt outcomes/timestamps with an exclusive attempt-number continuation |
 | `workthrough_get_diagnostics` | One attempt's bounded exception type/message/stack after host redaction; requires both execution and payload permissions |
 | `workthrough_get_flow` | Pinned run metadata, independently paged node states/dependency IDs and retained event history; no templates or condition values |
+| `workthrough_get_audit` | Paged attributed operation metadata; excludes reasons and change contents |
+| `workthrough_search_archives` | Paged archive summaries by archival time, correlation and kind, including purged-body summaries |
+| `workthrough_get_archive` | One summary by standalone job ID or whole-flow run ID, with no age restriction |
+| `workthrough_preview_retention` | Advisory preview of a caller-supplied manual archive policy; never deletes data |
 
 Search accepts a `query` object matching `ExecutionQuery`; enums use names such as `FailedAttempt`. Lookup tools take `id`; attempts also accept `afterAttempt` and `limit`. Discovery includes typed input/output schemas and read-only annotations. Direct calls enforce authorization independently.
 
 Search can investigate failed attempts even after recovery, and follow correlation or flow IDs. Results include stable processor identities and causation/run references. They contain no input/output, exception/progress text, implementation names, effect keys or lease tokens. Stored labels remain untrusted business data. Metadata can itself be sensitive; grant access only to principals allowed to read all metadata in this store.
 
-Wait-reason/capacity explanation, audit, archive lookup and retention tools are **not implemented**. Context reports these explicitly. There are no retry, cancel, archive, cleanup or other administrative tools. A custom provider without `IExecutionInspectionQueries` keeps the original four tools; inspection is hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured server capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
+Wait-reason/capacity explanation and automatic-retention status are **not implemented**. Context reports these explicitly. There are no administrative tools. A custom provider without either optional port keeps the original four tools; unavailable inspection/history tools are hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
 
 ## Diagnostic and flow inspection
 
@@ -28,6 +32,18 @@ Flow inspection takes `runId`, `nodeOffset`, `dependencyOffset`, `afterEvent` an
 Edges reference job IDs, so clipped step labels cannot merge distinct nodes. SQL expands only the saved pinned definition inside the database and returns dependency IDs; input templates, condition properties/values, bindings and flow input never leave storage. Definitions above 262,144 characters produce `graphStatus=definition_too_large`, without parsing their JSON; node metadata and events remain available. Other graph states are `available`, `definition_missing` and `not_live`. Do not treat unavailable edges as a graph with no dependencies. These are dependency edges, not a complete representation of conditional expressions.
 
 The event page exposes the global journal retention floor and last sequence. `requestedRangeTrimmed` means the requested range predates that floor; it does not prove that this particular run lost events. An archived run can have retained events even though live flow/node metadata is absent. Coverage is `live-and-retained-journal`, not an archive-body lookup. Invalid future event positions fail explicitly.
+
+## Audit, archives and cleanup preview
+
+`workthrough_get_audit` accepts an `AuditQuery` in `query`, with exact action/target filters, time window, limit and cursor. It returns command ID, timestamp, trusted actor issuer/subject, action, target and outcome. Reasons, actor display names, command arguments/results and change JSON are never selected. Metadata is clipped to 512 characters with an explicit flag. Actor JSON over 16,384 characters is not parsed; `actorAvailable=false` reports missing attribution. Both `executions.read` and `audit.read` are required. Target filters narrow store-wide access; they do not impose per-row authorization.
+
+`workthrough_search_archives` accepts an `ArchiveQuery` in `query`. Time means archival time, not execution/completion time. Audit/archive searches default to the previous 24 hours, allow at most seven days and 100 rows, and order by timestamp descending then ID ascending. Reuse the same filters and limit with `nextCursor`; cursors bind query kind, store and frozen window. Pages are fresh snapshots and returned counts are not totals.
+
+Archive summaries expose kind, unit ID, correlation, archival time, job count and `bodyAvailable`. They never select the body or its hash. The existing summary format does not record original execution outcome, so no outcome is inferred. `workthrough_get_archive` takes `archiveId` without a time restriction: use a standalone job ID or whole-flow run ID. Individual archived step IDs are not indexed; a missing lookup does not prove a step never existed. Purged bodies leave searchable summaries. Lookup enforces `OperationResource.ArchiveId`; archive search requires store-wide metadata access.
+
+`workthrough_preview_retention` accepts `policy` with `succeededBefore`, optional `failedBefore` and `batchSize` (default/max 10). It shares the manual archive selector in a bounded read snapshot. Missing failure cutoff retains failed/cancelled/rejected/expired work. Active work, paused/incident flows, individual flow steps and flows exceeding 500 jobs are excluded. A whole flow is one unit. `hasMoreCandidates` reports an observed extra candidate, not an estimated total. No payload is loaded; byte/evidence limits are not preflighted (`evidenceSizeVerified=false`). Eligibility can change before an actual archive transaction.
+
+The preview describes the supplied manual policy (`policySource=caller-supplied`), not a persisted automatic-retention configuration. Holds, automatic maintenance, verified exports and automatic purge remain planned. It requires `retention.read` in addition to `executions.read`; `archives.manage` does not implicitly grant it. Existing dashboard preview authorization is unchanged. History tools use the same result budgets, cancellation and access evidence as other tools. Audit reads set the sensitive-read flag; archive lookups also record the archive ID without recording query arguments or results.
 
 ## Composition
 
@@ -69,7 +85,7 @@ Configure the identity provider to issue access tokens for the exact `Resource.A
 
 RFC 9728 metadata is mapped at `/.well-known/oauth-protected-resource` followed by the resource path. Unauthorized responses include its fixed configured URL in `WWW-Authenticate`. Metadata advertises the authorization server and header-based bearer access. The identity provider remains responsible for OAuth client registration, consent and token issuance. WorkThrough creates neither a user directory nor an authorization server.
 
-Every tool call rechecks `WorkThrough.executions.read` with an `OperationResource` containing the configured endpoint/environment and either `ExecutionId` or `WorkflowRunId`, according to the tool target. Diagnostics additionally checks `WorkThrough.payloads.read`. Override policies after registration for host restrictions. Search access is store-wide; flow access covers all nodes/events in that run. This is **not** per-row tenant isolation. Correlation filters and cursors never grant authority. Dashboard policies still receive `DashboardResource`; permission constants are shared without replacing that compatibility hook.
+Every tool call rechecks `WorkThrough.executions.read` with an `OperationResource` containing the configured endpoint/environment and the appropriate `ExecutionId`, `WorkflowRunId` or `ArchiveId`. Diagnostics additionally checks `payloads.read`; audit and cleanup preview additionally check `audit.read` and `retention.read`. Override policies after registration for host restrictions. Search access is store-wide; flow access covers all nodes/events in that run. This is **not** per-row tenant isolation. Correlation filters and cursors never grant authority. Dashboard policies still receive `DashboardResource`; permission constants are shared without replacing that compatibility hook.
 
 Discovery is permission-filtered; unregistered direct calls are rejected. Browser origins other than the configured resource origin are rejected, and the adapter does not enable cross-origin CORS. Native authenticated clients send no Origin header. Arbitrary cross-origin browser embedding is outside this release.
 
@@ -83,7 +99,7 @@ Enforced bounds:
 - 16 KiB request bodies, request IDs up to 128 characters, no batch requests and a five-second body-read budget.
 - 48 KiB serialized tool results including structured content and compatibility text, reserving space below the 64 KiB response budget for protocol framing. Oversized results return `response_too_large` and guidance to lower page size; no broken JSON or silently partial page.
 - Host-wide concurrent HTTP admission (default 16), no waiting queue, and per-issuer/subject fixed-window admission (default 120 requests/minute). Rejections return 429 and `Retry-After: 60`. Fleet-wide limits need a gateway.
-- Default 25 rows, maximum 100 per section; default 24-hour and maximum seven-day execution-search windows. Direct job/flow lookup has no age filter. Pages are separate observations; live metadata can be absent for archived work. Flow inspection additionally identifies retained-journal coverage.
+- Default 25 rows, maximum 100 per section; default 24-hour and maximum seven-day execution/audit/archive search windows. Cleanup preview returns at most ten units. Direct job/flow/archive lookup has no age filter. Pages are separate observations with explicit coverage.
 
 Errors contain bounded codes/request IDs, not database exceptions. SDK tool-binding failures can appear as `invalid_or_unavailable`; errors are never successful empty history. Cursors preserve query/window/position and are not credentials. See [query semantics](execution-queries.md).
 

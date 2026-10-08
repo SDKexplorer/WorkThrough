@@ -91,6 +91,14 @@ Sixteen added cases cover bounded diagnostic fields (including the legacy except
 
 Authorization cases verify that diagnostics require both execution and payload permissions, direct calls cannot bypass discovery filtering, run-specific policies receive the actual flow ID, and legacy hosts without the inspection port return explicit unavailable capabilities. Access evidence records sensitive reads and resource IDs without stored diagnostic text. A failing host redactor suppresses results; a trace-level SDK log capture also verifies that its exception containing a secret is not logged. Flow responses exclude templates and condition literals. These checks establish the six-tool subset, not the remaining MCP tools or the planned investigative-load campaign.
 
+## MCP history and manual retention preview verification
+
+The full gate in `artifacts/mcp-history-verification.log` passed **180 tests on each of .NET 8 and .NET 10**, using real SQLite and PostgreSQL 17.11. Angular formatting/build, zero-warning Release build, readability checks, all eight packages, fresh package-only consumers, published relocation/alias proofs, examples, process-kill recovery and all six provider/workload smoke runs passed. Packaged MCP consumers now also call audit/archive search and manual retention preview through the official client over loopback Kestrel.
+
+Fifteen added cases verify audit attribution without reasons/display names/change JSON, bounded or unavailable actors, timestamp ties and fractional half-open windows, store/filter/query-kind cursor rejection, purged-body summaries, unrestricted-age archive-ID lookup, and manual-policy preview parity without payload reads or mutation. Invalid archive-body/change JSON fixtures still support metadata queries. Preview retains failed work without a failure cutoff, excludes incident flow steps and reports clipping and additional candidates explicitly. The legacy schema fixture still upgrades after adding the terminal-selection index after its column migration.
+
+Real-provider MCP cases use read-only connections and exercise independent audit/retention permissions, discovery filtering, direct calls, actual archive-ID resource authorization, access evidence and rejected archive/export/purge mutations. Missing history ports report explicit unavailable capabilities. The new queries have row/window/time budgets; the proposed 100,000-execution contention and two-hour soak gates have not been run. Manual preview is not evidence of automatic retention, holds, export verification or purge implementation.
+
 ## Limits of this evidence
 
 - Local packing is not package publication. Hosted verification applies only to the exact commit shown by each workflow run.

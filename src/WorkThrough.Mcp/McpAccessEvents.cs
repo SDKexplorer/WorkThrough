@@ -8,6 +8,7 @@ public sealed record McpAccessEvent(
     string Endpoint, string Environment, Guid? ExecutionId, string Outcome, double DurationMilliseconds)
 {
     public Guid? WorkflowRunId { get; init; }
+    public Guid? ArchiveId { get; init; }
     public bool SensitiveRead { get; init; }
 }
 
@@ -21,9 +22,9 @@ internal sealed class LoggingMcpAccessSink(ILogger<LoggingMcpAccessSink> logger)
 {
     public ValueTask WriteAsync(McpAccessEvent access, CancellationToken cancellationToken)
     {
-        logger.LogInformation("WorkThrough MCP access: {RequestId} {Issuer} {Subject} {ClientId} {Tool} {Endpoint} {Environment} {ExecutionId} {WorkflowRunId} {SensitiveRead} {Outcome} {DurationMilliseconds}",
+        logger.LogInformation("WorkThrough MCP access: {RequestId} {Issuer} {Subject} {ClientId} {Tool} {Endpoint} {Environment} {ExecutionId} {WorkflowRunId} {ArchiveId} {SensitiveRead} {Outcome} {DurationMilliseconds}",
             access.RequestId, access.Issuer, access.Subject, access.ClientId, access.Tool, access.Endpoint,
-            access.Environment, access.ExecutionId, access.WorkflowRunId, access.SensitiveRead, access.Outcome, access.DurationMilliseconds);
+            access.Environment, access.ExecutionId, access.WorkflowRunId, access.ArchiveId, access.SensitiveRead, access.Outcome, access.DurationMilliseconds);
 
         return ValueTask.CompletedTask;
     }

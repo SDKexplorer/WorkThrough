@@ -4,19 +4,21 @@ This plan combines the user's requirements with a purposive review of 20 Hangfir
 
 ## Remaining delivery order
 
-The core engine and processor relocation guarantee are implemented. Completing an individual PR does not complete this roadmap. Current work adds protected attempt diagnostics and paged pinned-flow inspection to the MCP foundation; the ordered remaining work is:
+The core engine and processor relocation guarantee are implemented. Completing an individual PR does not complete this roadmap. The maintainer prioritized MCP, retention, SQL Server/Oracle, operational UX, concurrency/isolation controls and release readiness. Import/export adapters for other engines are optional, not prerequisites. Protected attempt diagnostics and paged pinned-flow inspection are merged; the ordered remaining work is:
 
 | Order | Work | Completion evidence |
 |---|---|---|
-| 1 | Finish read-only MCP: bounded wait/capacity explanations, audit, archive lookup and retention preview | Permission/resource tests, explicit coverage, real-provider query bounds and client/package verification for every tool |
+| 1 | Finish read-only MCP: bounded wait/capacity explanations and client/load verification; audit/archive metadata and manual retention preview are implemented | Permission/resource tests, explicit coverage, real-provider query bounds and client/package verification for every tool |
 | 2 | Automatic retention: opt-in maintenance, holds, bounded fenced batches, export verification and separate purge policy | Crash/race tests proving active work, receipts and held evidence survive; restart-safe progress |
 | 3 | SQL Server, then Oracle | Provider dialect/transaction implementation and the complete conformance suite against each actual database |
 | 4 | Operational UX: windowed metrics, step display labels and worker acquisition health | Real measurements and saved-data inspection in the Angular console; no invented counts or missing-history claims |
-| 5 | Advanced recovery/compatibility: validated input correction, checkpoint forks, compensation, child flows, upcasters/imports and partition/fairness controls | Explicit semantics and targeted fault/concurrency/compatibility tests; no claim that state rewind undoes effects |
+| 5 | Partition-key concurrency, rate limits, queue fairness and tenant isolation | Separate lock/tenant identities, resource-policy tests and multi-host admission/fairness evidence |
 | 6 | Controlled MCP actions, after the read-only release | Trusted approval, exact target/parameters, revocation/state preconditions and existing atomic command/audit reconciliation |
 | 7 | Production/public release readiness | External IdP/AI-client checks, 100k-job investigative contention and two-hour soak, multi-host/PITR evidence, license/package/visibility decisions and enforced branch policies |
 
 Branch protection remains blocked by GitHub's current private-repository plan. Changing account plan or repository visibility is a maintainer decision. Public visibility, package publication and a project license are not authorized by completing implementation. Advanced architecture items remain design-and-implementation work, not hidden completed features.
+
+Native recovery enhancements (validated input correction, checkpoint forks, compensation, child flows and contract upcasters) remain a separate backlog. Optional interoperability may later import from or export to Hangfire, Wolverine or other engines through explicit mappings of the supported subset. Different delivery, scheduling and flow semantics prevent assuming a lossless round trip. No such adapter is required for WorkThrough to operate or release, and none is implemented.
 
 ## P0 — identity and durable execution
 
@@ -32,7 +34,7 @@ Branch protection remains blocked by GitHub's current private-repository plan. C
 
 ## P1 — orchestration and operations
 
-- [ ] Complete the read-only MCP integration in [MCP operations](../specs/mcp-operations.spec.md) and [ADR-011](adr/0011-mcp-operations.md). The optional [MCP package](mcp.md) implements six typed tools: context, execution search/lookup, attempt history, protected diagnostic text and paged saved-flow inspection. Dedicated bearer authentication/discovery, resource policies, access evidence and request/result bounds are implemented. Wait/capacity explanations, audit/archive/retention tools, real-IdP/AI-client setup and the large contention/soak gate remain. Controlled actions are a later phase.
+- [ ] Complete the read-only MCP integration in [MCP operations](../specs/mcp-operations.spec.md) and [ADR-011](adr/0011-mcp-operations.md). The optional [MCP package](mcp.md) implements ten typed tools: context, execution search/lookup, attempts, diagnostics, saved-flow inspection, audit, archive search/lookup and manual retention preview. Dedicated bearer authentication/discovery, resource policies, access evidence and request/result bounds are implemented. Wait/capacity explanations, automatic-policy status, real-IdP/AI-client setup and the large contention/soak gate remain. Controlled actions are a later phase.
 - [x] Implement explicit Draft → Published → Retired flow-definition lifecycle. Drafts are editable with optimistic concurrency and cannot execute; publishing validates an immutable revision; retiring prevents new runs without changing pinned active runs. Add corresponding draft/publish lifecycle for schedules, independently of enabled/paused admission, with permissions and audit.
 - [x] Implement ADR-007: separate metadata/payload/action permissions, trusted user/service actors, atomic administrative audit and command deduplication, and embedded/standalone authentication samples. The OIDC sample builds; actual identity-provider login needs deployment-specific validation. Store/environment isolation is implemented; tenant row filtering remains outside the initial scope.
 - [ ] Deliver the console direction in `dashboard-direction.md`: useful backlog/timing/capacity signals, saved-flow inspection, processor deployment visibility, and accessible dark/light themes. The Angular console is now embedded and uses real APIs. Deployment identity/queue coverage and oldest eligible timestamps are implemented; windowed timing/throughput metrics and advanced authoring remain incomplete.
@@ -65,7 +67,7 @@ Branch protection remains blocked by GitHub's current private-repository plan. C
 - [x] Add recurring schedules with explicit overlap policies: allow, skip-if-active, and coalesce. Keep schedule identity separate from processor identity.
 - [x] Define named schedule lifecycle, update ownership, pause/resume, and atomic/idempotent occurrence creation. Reuse one processor across immediate jobs, one-time schedules, recurring schedules, and flow steps.
 - [x] Deliver the executable sample set in `samples/README.md`, starting with the .NET 8 direct-processor quickstart and scheduling example. Build and smoke-test runnable samples in CI.
-- [ ] Add legacy invocation import with explicit old identity/signature mappings and payload conversion. Start with one verified Hangfire storage/version shape.
+- [ ] Optional: add import/export adapters for other engines, such as Hangfire or Wolverine, with explicit identity/payload mappings, supported version shapes and semantic-loss reports. Nice to have; not a release prerequisite.
 - [ ] Add contract upcasters and rolling-deployment capability checks. Preserve pending old versions until compatible consumers exist.
 - [ ] Evaluate automatic canonical flow revisions with optional human labels; pin executions to the chosen revision and make activation/migration explicit. Mandatory integer versions remain the current API.
 - [ ] Add partition-key concurrency and rate limits. Correlation must remain independent from lock identity.

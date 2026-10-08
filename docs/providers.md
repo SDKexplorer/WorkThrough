@@ -21,6 +21,10 @@ PostgreSQL uses ordinary tables and a short transaction-scoped advisory lock. Th
 
 ## PostgreSQL test database
 
+`IOperationHistoryQueries` provides snapshot audit/archive searches and a supplied-policy archive preview. Searches share five-second query budgets, 1–100 row pages and seven-day maximum windows. Audit SQL projects only bounded actor issuer/subject and operation metadata; JSON above 16,384 characters is not parsed. Archive SQL never selects the body. Preview shares the actual manual archive eligibility selector and returns at most ten units plus a `HasMoreCandidates` flag. It does not test archive byte/evidence limits or configure automatic cleanup.
+
+Additive indexes cover audit time/action/target, archive time/correlation and terminal job selection. The terminal-job index is created after legacy upgrades add `terminal_at`, preserving the schema-1 migration order. These indexes do not change schema version or dispatch/settlement semantics. Initialize storage with a deployment credential before starting a read-only operations host. A result limit bounds returned rows; SQL plans and the five-second budget also matter when scanning a large retained dataset. The planned contention campaign remains necessary.
+
 `DURABLEJOBS_POSTGRES` must point to a disposable database whose user can create/drop schemas. Each test creates a unique `dj_test_*` schema and drops only that schema when finished. Test output does not print the connection string.
 
 ```sh

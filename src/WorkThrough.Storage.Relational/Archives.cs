@@ -7,6 +7,19 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IExecutionArchives
 {
+    private const string EligibleArchiveUnitsSql = """
+        SELECT j.id,'Job' AS kind,j.correlation_id,j.terminal_at AS completed,1 AS jobs FROM dj_jobs j
+        WHERE j.workflow_run_id IS NULL AND
+          ((j.status IN ('Succeeded','Skipped') AND j.terminal_at<=@success) OR
+           (j.status IN ('Failed','Cancelled','Rejected','Expired') AND j.terminal_at<=@failure))
+        UNION ALL
+        SELECT f.id,'Flow' AS kind,f.correlation_id,MAX(j.terminal_at) AS completed,COUNT(*) AS jobs
+        FROM dj_flows f JOIN dj_jobs j ON j.workflow_run_id=f.id WHERE f.status IN ('Succeeded','Failed')
+        GROUP BY f.id,f.correlation_id,f.status
+        HAVING COUNT(*)=COUNT(j.terminal_at) AND COUNT(*)<=500
+          AND MAX(j.terminal_at)<=CASE WHEN f.status='Succeeded' THEN @success ELSE @failure END
+        """;
+
     private static void ValidateArchivePolicy(ArchivePolicy policy)
     {
         ArgumentNullException.ThrowIfNull(policy);
@@ -26,19 +39,8 @@ public abstract partial class RelationalJobStore : IExecutionArchives
 
     private static async Task<IReadOnlyList<ArchiveCandidate>> ReadCandidatesAsync(DbConnection connection, DbTransaction? transaction, ArchivePolicy policy, CancellationToken ct)
     {
-        await using var command = Command(connection, transaction, """
-            SELECT id,kind,correlation_id,completed,jobs FROM (
-              SELECT j.id,'Job' AS kind,j.correlation_id,j.terminal_at AS completed,1 AS jobs FROM dj_jobs j
-              WHERE j.workflow_run_id IS NULL AND
-                ((j.status IN ('Succeeded','Skipped') AND j.terminal_at<=@success) OR
-                 (j.status IN ('Failed','Cancelled','Rejected','Expired') AND j.terminal_at<=@failure))
-              UNION ALL
-              SELECT f.id,'Flow' AS kind,f.correlation_id,MAX(j.terminal_at) AS completed,COUNT(*) AS jobs
-              FROM dj_flows f JOIN dj_jobs j ON j.workflow_run_id=f.id WHERE f.status IN ('Succeeded','Failed')
-              GROUP BY f.id,f.correlation_id,f.status
-              HAVING COUNT(*)=COUNT(j.terminal_at) AND COUNT(*)<=500
-                AND MAX(j.terminal_at)<=CASE WHEN f.status='Succeeded' THEN @success ELSE @failure END
-            ) candidates ORDER BY completed,id LIMIT @limit
+        await using var command = Command(connection, transaction, $"""
+            SELECT id,kind,correlation_id,completed,jobs FROM ({EligibleArchiveUnitsSql}) candidates ORDER BY completed,id LIMIT @limit
             """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()), ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()), ("limit", policy.BatchSize));
         await using var reader = await command.ExecuteReaderAsync(ct);
         var result = new List<ArchiveCandidate>();

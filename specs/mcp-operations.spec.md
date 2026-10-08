@@ -2,7 +2,7 @@
 
 Status: partially implemented, 2026-10-08. The maintainer selected **read-only diagnostics initially, administrative actions later**. The [current MCP package and hosting guide](../docs/mcp.md) define the implemented subset; this specification retains the broader target. Retention and additional databases are companion work in [storage evolution](storage-evolution.spec.md).
 
-Implemented: bounded execution/attempt queries, additive protected dashboard routes, six MCP tools (context/search/lookup/attempts/diagnostics/flow), dedicated JWT authentication and discovery, shared permission vocabulary, per-call resource checks, access evidence and request/query/result bounds. Diagnostic text requires two permissions and supports host redaction. Flow inspection pages pinned nodes/dependencies and retained events without exporting templates or condition values. Deterministic wait/capacity reasons, audit/archive/retention projections remain pending. Tool context lists unavailable capabilities; dashboard resource-policy compatibility is preserved.
+Implemented: bounded execution/attempt queries, additive protected dashboard routes, ten MCP tools (context/search/lookup/attempts/diagnostics/flow/audit/archive search/archive lookup/manual retention preview), dedicated JWT authentication and discovery, per-call resource checks, access evidence and query/result bounds. Diagnostics, audit and retention preview require distinct additional permissions. Templates, condition values, audit reasons/change contents and archive bodies are excluded from metadata tools. Deterministic wait/capacity reasons and effective automatic-policy status remain pending. Context lists unavailable capabilities; dashboard policy compatibility is preserved.
 
 ## Purpose
 
@@ -24,7 +24,7 @@ Stable processor identities remain the reference throughout. A namespace or asse
 
 ## Proposed first tool set
 
-The six shipped tool names/schemas are documented in the hosting guide; names below for future tools remain proposals. Every implemented tool has typed input/output schemas. `workthrough_get_attempts` was split from lookup to keep attempt paging explicit. Search provides correlation, flow-run and causation metadata; flow inspection supplies saved dependency structure. It does not expose condition expressions or claim a complete cross-run correlation trace.
+The ten implemented tool names/schemas are documented in the hosting guide; names below for future tools remain proposals. Every implemented tool has typed input/output schemas. `workthrough_get_attempts` was split from lookup to keep attempt paging explicit; `workthrough_get_archive` permits archive-ID lookup outside the search window. Search supplies correlation, run and causation metadata; flow inspection supplies dependencies without condition expressions. It does not claim a complete cross-run correlation trace.
 
 | Tool | Result | Permission |
 |---|---|---|
@@ -35,11 +35,11 @@ The six shipped tool names/schemas are documented in the hosting guide; names be
 | `workthrough_get_flow` | Pinned graph structure, step states and paged event timeline, without input templates or condition literals by default | `executions.read`; protected fields additionally need `payloads.read` |
 | `workthrough_trace_correlation` | Paged related executions, runs and explicit causation/replay links | `executions.read` |
 | `workthrough_get_capacity` | Queue controls, limits, worker heartbeat age, processor/queue coverage and observation timestamps | `executions.read` |
-| `workthrough_get_audit` | Paged attributed operations and redacted change summaries | `audit.read`; protected fields additionally need `payloads.read` |
+| `workthrough_get_audit` | Paged attributed operation metadata; reasons and change contents excluded | `executions.read` + `audit.read` |
 | `workthrough_search_archives` | Paged archive summaries, original IDs where indexed and body availability | `executions.read` |
-| `workthrough_preview_retention` | Effective policy and bounded eligible/excluded units; no archive or delete action | Proposed `retention.read` |
+| `workthrough_preview_retention` | Supplied manual policy, bounded candidates and excluded categories; effective automatic policy remains future work | `executions.read` + `retention.read` |
 
-The last two tools follow the bounded archive query work; they remain read-only. Existing dashboard preview requires `archives.manage`; adding `retention.read` is an explicit new permission, not an implicit grant from `executions.read`. Preserve existing dashboard integrations during that change.
+Archive search/lookup and supplied-policy preview are implemented read-only. Automatic-policy/hold/status and original archived-outcome/step-ID indexes remain storage work. Dashboard preview still requires `archives.manage`; MCP preview's `retention.read` is an explicit new permission, not an implicit grant from `executions.read` or `archives.manage`.
 
 Default responses contain neither raw `JobRecord` nor archive JSON. Those contain payloads, output, errors and internal fields unsuitable for general metadata access. Never return lease tokens, connection strings, authentication tokens or effect/idempotency keys. Host-defined redaction also covers business identifiers and labels where necessary.
 
@@ -140,14 +140,15 @@ Before release, benchmark 100,000 retained executions with varied attempt histor
 
 - [x] Freeze the initial context/search/lookup/attempt schemas and permission/resource mapping with a client spike. Richer tool schemas remain to design.
 - [x] Add bounded live execution/attempt metadata reads, keyset pagination, explicit failed-attempt windows, compatible provider indexes and protected HTTP routes. Legacy `ListAsync` remains unchanged; the new port never loads payloads.
-- [ ] Add bounded audit/archive queries, retained-history indexing and query-plan/performance gates at the planned scale.
+- [x] Add bounded audit/archive metadata queries, store/query-bound pagination and additive history indexes. Individual archived step/outcome indexing and the planned-scale query-plan/performance gates remain.
 - [x] Extract shared execution projections, permission vocabulary and a framework-independent MCP operation resource; preserve `DashboardResource` policy compatibility. Richer projections remain pending.
 - [x] Add dedicated bearer authentication, discovery, per-call authorization and metadata-only access events. Real external IdP discovery/login remains deployment validation.
 
 ### M1 — read-only package
 
 - [x] Add selected-attempt diagnostics with dual permissions/read-time redaction and bounded pinned-flow node/dependency/event inspection, including missing/trimmed coverage and optional provider capability.
-- [ ] Complete wait/capacity, audit and archive/retention investigation tools when their bounded query prerequisites are ready.
+- [x] Add permission-protected audit metadata, archive search/lookup and supplied manual-policy preview without loading sensitive evidence or mutating storage.
+- [ ] Complete wait/capacity tools and effective automatic-retention policy/status once its persistence prerequisites are implemented.
 - [x] Add a standalone authenticated sample and composable endpoint for an API/web worker; no processor or Angular dependency.
 - [x] Exercise the official C# 2.2.0 client and an independent HTTP JSON-RPC client over Streamable HTTP; document their protocol coverage. These are not two third-party AI applications.
 - [x] Test .NET 8/10 NuGet consumers, permission/resource bypass attempts, metadata projections, paging, cancellation, limits and access-sink failure for the shipped tools.

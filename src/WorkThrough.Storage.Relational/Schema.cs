@@ -9,6 +9,8 @@ public abstract partial class RelationalJobStore
         CREATE INDEX IF NOT EXISTS ix_dj_waits_due ON dj_signal_waits(deadline,run_id);
         CREATE TABLE IF NOT EXISTS dj_archives (id TEXT PRIMARY KEY,kind TEXT NOT NULL,correlation_id TEXT,archived_at BIGINT NOT NULL,jobs INTEGER NOT NULL,sha256 TEXT NOT NULL,body TEXT);
         CREATE INDEX IF NOT EXISTS ix_dj_archives_correlation ON dj_archives(correlation_id,archived_at);
+        CREATE INDEX IF NOT EXISTS ix_dj_archives_history ON dj_archives(archived_at DESC,id);
+        CREATE INDEX IF NOT EXISTS ix_dj_archives_correlation_history ON dj_archives(correlation_id,archived_at DESC,id);
         CREATE TABLE IF NOT EXISTS dj_job_receipts (idempotency_key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, job_id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS dj_queue_controls (queue TEXT PRIMARY KEY,paused INTEGER NOT NULL,revision INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS dj_worker_controls (worker_id TEXT PRIMARY KEY,draining INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -60,6 +62,9 @@ public abstract partial class RelationalJobStore
         CREATE TABLE IF NOT EXISTS dj_audit (
           command_id TEXT PRIMARY KEY,at BIGINT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,reason TEXT NOT NULL,outcome TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS dj_audit_changes (command_id TEXT PRIMARY KEY,changes TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS ix_dj_audit_history ON dj_audit(at DESC,command_id);
+        CREATE INDEX IF NOT EXISTS ix_dj_audit_target_history ON dj_audit(target,at DESC,command_id);
+        CREATE INDEX IF NOT EXISTS ix_dj_audit_action_history ON dj_audit(action,at DESC,command_id);
         CREATE TABLE IF NOT EXISTS dj_failures (
           job_id TEXT NOT NULL,attempt INTEGER NOT NULL,exception_type TEXT NOT NULL,message TEXT NOT NULL,stack_trace TEXT,
           PRIMARY KEY(job_id,attempt));

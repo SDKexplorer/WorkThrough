@@ -130,7 +130,7 @@ Run the same contention workload with and without maintenance on each provider. 
 
 ## Delivery checklist
 
-- [ ] R0: Add persisted retention policy/holds, bounded metadata queries and readable maintenance status; reuse them in dashboard and MCP.
+- [ ] R0: Add persisted retention policy/holds and readable maintenance status; reuse them in dashboard and MCP. Bounded audit/archive metadata and caller-supplied manual-policy preview are implemented through `IOperationHistoryQueries`; they do not configure automatic maintenance.
 - [ ] R1: Implement opt-in fenced maintenance service, atomic bounded batches, oversized-candidate handling and durable command reconciliation.
 - [ ] R2: Add one export destination, verified receipts, restart proofs and explicit automatic purge policy; add safe event trimming separately.
 - [ ] P0: Extract focused provider seams; keep existing SQLite/PostgreSQL conformance and saved-schema tests passing.
