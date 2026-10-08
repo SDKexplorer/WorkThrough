@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/Demo.Lifecycle/Demo.Lifecycle.csproj" />
+    <Project Path="samples/Demo.Mcp/Demo.Mcp.csproj" />
     <Project Path="samples/Demo.Contracts/Demo.Contracts.csproj" />
     <Project Path="samples/Demo.Dashboard/Demo.Dashboard.csproj" />
     <Project Path="samples/Demo.Host/Demo.Host.csproj" />
@@ -16,6 +17,7 @@
     <Project Path="src/WorkThrough.Dashboard/WorkThrough.Dashboard.csproj" />
     <Project Path="src/WorkThrough.Generators/WorkThrough.Generators.csproj" />
     <Project Path="src/WorkThrough.Hosting/WorkThrough.Hosting.csproj" />
+    <Project Path="src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />
     <Project Path="src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
     <Project Path="src/WorkThrough.Storage.Relational/WorkThrough.Storage.Relational.csproj" />
     <Project Path="src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />

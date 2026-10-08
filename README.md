@@ -8,7 +8,7 @@ A .NET 8 library for durable jobs, persisted flows, and recurring schedules, ver
 
 WorkThrough is an alpha. SQLite and PostgreSQL are implemented; packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
 
-Planned next: [read-only MCP investigation, followed by controlled actions](specs/mcp-operations.spec.md), [automatic retention and SQL Server/Oracle providers](specs/storage-evolution.spec.md). These plans are not implemented capabilities. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
+The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution and attempt investigation. Richer diagnostics and controlled actions remain in the [MCP plan](specs/mcp-operations.spec.md); [automatic retention and SQL Server/Oracle providers](specs/storage-evolution.spec.md) are also planned. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
 
 ## Repository map
 
@@ -19,6 +19,7 @@ Planned next: [read-only MCP investigation, followed by controlled actions](spec
 | `src/WorkThrough.Storage.*` | SQLite/PostgreSQL adapters and shared transactional operations |
 | `src/WorkThrough.Dashboard`, `dashboard-ui` | Protected HTTP APIs and the embedded Angular console |
 | `src/WorkThrough.Generators` | Compile-time processor discovery and registration |
+| `src/WorkThrough.Mcp` | Optional bearer-protected, read-only MCP endpoint without a dashboard dependency |
 | `samples` | API, worker, dashboard-only, direct-processor, and relocation examples |
 | `tests`, `scripts` | Real-provider conformance, package consumers, and deployment proofs |
 | `docs`, `specs` | Architecture decisions, requirements, evidence, and the remaining plan |
@@ -59,7 +60,7 @@ The [published relocation proof](scripts/check-refactor.sh) creates typed, futur
 
 ## Setup and hosting
 
-Seven local NuGet packages separate Core, Hosting, Dashboard, Generators, relational mechanics, SQLite, and PostgreSQL. Consumers do not need Node. The Angular console is embedded in the Dashboard package.
+Eight local NuGet packages separate Core, Hosting, Dashboard, MCP, Generators, relational mechanics, SQLite, and PostgreSQL. Consumers do not need Node. The Angular console is embedded in the Dashboard package.
 
 ```csharp
 builder.Services.AddWorkThrough()
@@ -115,6 +116,8 @@ Failed attempts retain exception type, message, and stack trace behind diagnosti
 ## Dashboard and security
 
 The Angular console reads real storage data: correlation/status filters, saved flow diagrams, attempts and protected stack traces, waiting explanations, draft lifecycle, schedules, worker observations, limits, and an administrative audit trail. It does not load application processor DLLs.
+
+[Bounded execution queries](docs/execution-queries.md) add metadata-only processor/queue/time filters and failed-attempt searches through `IExecutionQueries`, protected `/api/executions` routes, and the optional [MCP package](docs/mcp.md). They include recovered jobs and paginate without loading input/output. MCP uses dedicated bearer authentication, resource authorization, access events and request/query limits; it exposes no administrative actions.
 
 Configure host authentication before mapping the dashboard. Default policies require `workthrough.permission` claims; hosts can override policies and inspect route resources. Metadata, payloads, recovery, publication, schedules, limits, and audit reads have separate permissions. Administrative actions require CSRF protection, a trusted actor, a reason, a command ID, and state preconditions. Mutation, command deduplication, and successful audit commit together.
 

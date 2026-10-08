@@ -10,7 +10,7 @@ dotnet build WorkThrough.slnx -c Release --no-restore -m:1 -nr:false -p:UseShare
 ./scripts/format.sh --check
 dotnet test tests/WorkThrough.Tests -c Release -f net10.0 --no-build --no-restore -m:1 -nr:false
 sdk8_dir="$(mktemp -d "$repo_dir/artifacts/consumer-sdk8-XXXXXXXX")"
-cp tests/PackageConsumer/PackageConsumer.csproj tests/PackageConsumer/Program.cs "$sdk8_dir/"
+cp tests/PackageConsumer/PackageConsumer.csproj tests/PackageConsumer/*.cs "$sdk8_dir/"
 cat > "$sdk8_dir/global.json" <<'JSON'
 {"sdk":{"version":"8.0.100","rollForward":"latestFeature","allowPrerelease":false}}
 JSON

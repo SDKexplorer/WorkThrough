@@ -66,7 +66,15 @@ try
         await Task.Delay(30, deadline.Token);
     }
 
-    Console.WriteLine("PASS: package-only consumer executed generated typed/raw processors and an idempotent flow start.");
+    var executionQueries = host.Services.GetRequiredService<IExecutionQueries>();
+    var page = await executionQueries.SearchExecutionsAsync(new(ProcessorKey: manualDefinition.Identity.Key), deadline.Token);
+    if (page.Items.Count != 1 || page.Items[0].Id != manualId || page.Items[0].Status != JobStatus.Succeeded)
+    {
+        throw new InvalidOperationException("The packaged metadata query did not find the completed processor.");
+    }
+
+    await McpPackageSmoke.RunAsync(database, manualId);
+    Console.WriteLine("PASS: package-only consumer executed processors, flows, bounded queries and a protected MCP call over loopback HTTP.");
 }
 finally
 {
