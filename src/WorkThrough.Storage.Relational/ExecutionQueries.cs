@@ -16,6 +16,18 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         CASE WHEN LENGTH(j.queue)>512 OR LENGTH(j.correlation_id)>512 OR LENGTH(j.step_id)>512 THEN 1 ELSE 0 END AS clipped
         """;
 
+    public async Task<ExecutionStoreContext> GetExecutionContextAsync(CancellationToken cancellationToken = default)
+    {
+        using var timeout = OperationQueryTimeout(cancellationToken);
+        var ct = timeout.Token;
+        await using var connection = await OpenAsync(ct);
+        await using var transaction = await BeginReadAsync(connection, ct);
+        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+        await transaction.CommitAsync(ct);
+
+        return new(storeId, observed);
+    }
+
     public async Task<ExecutionPage> SearchExecutionsAsync(ExecutionQuery query, CancellationToken cancellationToken = default)
     {
         ValidateExecutionQuery(query);

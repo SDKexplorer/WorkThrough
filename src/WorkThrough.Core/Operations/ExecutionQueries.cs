@@ -44,6 +44,9 @@ public sealed record ExecutionLookup(string StoreId, DateTimeOffset ObservedAt, 
     public string Coverage => "live";
 }
 
+/// <summary>Configured live store identity and its database observation time.</summary>
+public sealed record ExecutionStoreContext(string StoreId, DateTimeOffset ObservedAt);
+
 /// <summary>Attempt outcome/timing without exception text or CLR implementation details.</summary>
 public sealed record ExecutionAttemptMetadata(int Number, string Status, DateTimeOffset StartedAt, DateTimeOffset? FinishedAt);
 
@@ -58,6 +61,8 @@ public sealed record ExecutionAttemptPage(
 /// <summary>Read-only, assembly-independent operation queries. Hosts must enforce authorization before calling.</summary>
 public interface IExecutionQueries
 {
+    /// <summary>Reads the configured store identity without fetching an execution or sensitive data.</summary>
+    Task<ExecutionStoreContext> GetExecutionContextAsync(CancellationToken cancellationToken = default);
     /// <summary>Searches metadata using keyset pagination, bounded time windows and explicit live-history coverage.</summary>
     Task<ExecutionPage> SearchExecutionsAsync(ExecutionQuery query, CancellationToken cancellationToken = default);
     /// <summary>Reads metadata by ID without a time-window restriction or loading input/output.</summary>

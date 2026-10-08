@@ -8,10 +8,9 @@ namespace WorkThrough;
 
 public static class DashboardPermissions
 {
-    public static IReadOnlyList<string> All { get; } = ["executions.read", "payloads.read", "jobs.retry", "jobs.cancel", "flows.recover",
-        "definitions.edit", "definitions.publish", "definitions.retire", "schedules.manage", "limits.manage", "audit.read", "queues.manage", "workers.manage", "jobs.replay", "archives.manage"];
-    public const string ClaimType = "workthrough.permission";
-    public const string PolicyPrefix = "WorkThrough.";
+    public static IReadOnlyList<string> All => OperationPermissions.All;
+    public const string ClaimType = OperationPermissions.ClaimType;
+    public const string PolicyPrefix = OperationPermissions.PolicyPrefix;
 }
 
 /// <summary>Host policies may authorize a configured store or an individual route resource. Correlation is not an access boundary.</summary>

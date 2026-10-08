@@ -8,10 +8,12 @@ Status: initial implementation; see `plan.md` for release gates and deliberate g
 flowchart TD
     Sample[Application composition root] --> Hosting
     Sample --> Dashboard
+    Sample --> Mcp[Optional MCP adapter]
     Sample --> Provider[SQLite or PostgreSQL provider]
     Provider --> Relational[Relational persistence mechanics]
     Hosting --> Core
     Dashboard --> Core
+    Mcp --> Core
     Relational --> Core
     Generator[Build-time manifest generator] -. emits registration .-> Sample
 ```

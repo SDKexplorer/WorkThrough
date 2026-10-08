@@ -73,7 +73,15 @@ The expanded 141-case suite passed on each runtime against real SQLite files and
 
 The first expanded run exhausted PostgreSQL's connection limit because separate test schemas retained separate idle pools after disposal. The harness now clears only the completed test's pool before dropping its schema, using [Npgsql's scoped pool cleanup](https://www.npgsql.org/doc/api/Npgsql.NpgsqlConnection.html#Npgsql_NpgsqlConnection_ClearPool_Npgsql_NpgsqlConnection_). The subsequent full gate passed without reducing test parallelism or increasing server limits. Production connection management is unchanged.
 
-The gate also passed the release/readability build, published relocation/alias proofs, both package consumers, examples, process-kill recovery and all six provider/workload smoke runs. This is execution correctness/load smoke; the proposed 100,000-execution investigative-query contention campaign and MCP protocol/client tests have not run. The MCP adapter itself is still planned.
+That query-foundation gate also passed the release/readability build, published relocation/alias proofs, both package consumers, examples, process-kill recovery and all six provider/workload smoke runs. The subsequent MCP verification is recorded below; the proposed 100,000-execution investigative-query contention campaign remains unrun.
+
+## Read-only MCP verification
+
+The full gate in `artifacts/mcp-verification.log` passed **149 tests on each of .NET 8 and .NET 10**, with real SQLite files and PostgreSQL 17.11. It built/formatted the new `WorkThrough.Mcp` package and standalone sample without warnings or errors. All eight local packages packed; fresh SDK 8/10 consumers exercised the packaged MCP server and official C# client through real loopback Kestrel with signed JWTs. Published relocation/alias proofs, examples, process-kill recovery and all six workload smoke runs passed.
+
+Eight new cases use the official C# SDK 2.2.0 Streamable HTTP client (current 2026-07-28 negotiation) and an independent HTTP JSON-RPC client using 2025-11-25 requests. They verify typed discovery, metadata paging/failed-attempt searches, attempt reads, signed-token validation (wrong issuer/audience and expiration), dashboard-scheme isolation, direct permission/resource enforcement, rejected mutation calls, request/result limits, per-principal rates, concurrency admission, deadline/disconnect cancellation and access-sink failure. The real-provider MCP connections are read-only: SQLite `Mode=ReadOnly` and PostgreSQL `default_transaction_read_only=on`. Job state and engine mutation audit remain unchanged by MCP reads. These transport tests do not claim to verify deployment database-role grants.
+
+This establishes the shipped four-tool metadata subset. Real external identity-provider discovery/login, setup with third-party AI applications, richer tools and the planned 100,000-execution/two-hour contention campaign remain unverified or unimplemented. The existing execution smoke is not that performance campaign. See [MCP hosting and limits](mcp.md).
 
 ## Limits of this evidence
 

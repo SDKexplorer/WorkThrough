@@ -73,7 +73,8 @@ try
         throw new InvalidOperationException("The packaged metadata query did not find the completed processor.");
     }
 
-    Console.WriteLine("PASS: package-only consumer executed generated typed/raw processors, an idempotent flow start and bounded metadata queries.");
+    await McpPackageSmoke.RunAsync(database, manualId);
+    Console.WriteLine("PASS: package-only consumer executed processors, flows, bounded queries and a protected MCP call over loopback HTTP.");
 }
 finally
 {
