@@ -124,6 +124,13 @@ public static partial class DashboardEndpoints
             .WithPermission(options, "executions.read");
         group.MapGet("/api/workers", async (IJobDiagnostics diagnostics, CancellationToken ct) => Results.Json(await diagnostics.WorkersAsync(ct), JsonOptions))
             .WithPermission(options, "executions.read");
+        group.MapGet("/api/deployment", async (IDeploymentQueries queries, IJobDiagnostics diagnostics, CancellationToken ct) =>
+        {
+            var requirements = await queries.DeploymentRequirementsAsync(ct);
+            var workers = (await diagnostics.WorkersAsync(ct)).Where(w => w.SeenAt > requirements.ObservedAt.AddSeconds(-60))
+                .Select(w => new WorkerCapability(w.WorkerId, w.Processors, w.Queues)).ToArray();
+            return Results.Json(DeploymentPreflight.Compare(requirements, workers), JsonOptions);
+        }).WithPermission(options, "executions.read");
         group.MapGet("/api/schedules", async (IJobSchedules schedules, CancellationToken ct) =>
             Results.Json((await schedules.SchedulesAsync(ct)).Select(s => new { s.Definition.Key, s.Definition.Version, s.Definition.Cron,
                 s.Definition.TimeZone, s.Definition.Processor, s.Definition.Overlap, s.Definition.Misfire, s.Status, s.Revision, s.Enabled, s.NextOccurrence }), JsonOptions))

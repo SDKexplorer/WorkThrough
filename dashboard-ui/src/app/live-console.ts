@@ -101,6 +101,23 @@ interface Statistics {
     counts: Record<string, number>;
     limits: { jobKey: string | null; maximum: number }[];
 }
+interface DeploymentReport {
+    observedAt: string;
+    isTruncated: boolean;
+    allRequirementsCovered: boolean;
+    checks: {
+        requirement: {
+            processor: Processor;
+            queue: string;
+            outstandingJobs: number;
+            readyJobs: number;
+            oldestReadyAt: string | null;
+            enabledSchedules: number;
+        };
+        coverage: string;
+        workers: string[];
+    }[];
+}
 interface Pending {
     title: string;
     path: string;
@@ -130,6 +147,7 @@ export class LiveConsoleComponent {
     readonly definitions = signal<Definition[]>([]);
     readonly workers = signal<Worker[]>([]);
     readonly schedules = signal<Schedule[]>([]);
+    readonly deployment = signal<DeploymentReport | null>(null);
     readonly audit = signal<Audit[]>([]);
     readonly detail = signal<Detail | null>(null);
     readonly flow = signal<Flow | null>(null);
@@ -204,18 +222,21 @@ export class LiveConsoleComponent {
                 const filter = new URLSearchParams({ offset: String(this.offset) });
                 if (this.correlation) filter.set('correlationId', this.correlation);
                 if (this.status) filter.set('status', this.status);
-                const [jobs, stats, definitions, workers, schedules] = await Promise.all([
-                    this.request<Job[]>('/api/jobs?' + filter),
-                    this.request<Statistics>('/api/stats'),
-                    this.request<Definition[]>('/api/definitions'),
-                    this.request<Worker[]>('/api/workers'),
-                    this.request<Schedule[]>('/api/schedules'),
-                ]);
+                const [jobs, stats, definitions, workers, schedules, deployment] =
+                    await Promise.all([
+                        this.request<Job[]>('/api/jobs?' + filter),
+                        this.request<Statistics>('/api/stats'),
+                        this.request<Definition[]>('/api/definitions'),
+                        this.request<Worker[]>('/api/workers'),
+                        this.request<Schedule[]>('/api/schedules'),
+                        this.request<DeploymentReport>('/api/deployment'),
+                    ]);
                 this.jobs.set(jobs);
                 this.stats.set(stats);
                 this.definitions.set(definitions);
                 this.workers.set(workers);
                 this.schedules.set(schedules);
+                this.deployment.set(deployment);
             }
             if (this.can('audit.read')) this.audit.set(await this.request<Audit[]>('/api/audit'));
             this.updated.set(new Date());
@@ -401,6 +422,9 @@ export class LiveConsoleComponent {
                     LeaseExpired: 'Lease expired · awaiting recovery',
                     ExecutionDeadlineExceeded: 'Suspected stalled · execution deadline exceeded',
                     ProgressOverdue: 'Suspected stalled · progress overdue',
+                    MissingProcessor: 'Processor version missing',
+                    MissingQueue: 'Matching processor does not consume this queue',
+                    Covered: 'Covered',
                 } as Record<string, string>
             )[reason] ?? reason
         );

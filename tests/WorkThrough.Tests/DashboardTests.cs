@@ -30,6 +30,7 @@ public sealed class DashboardTests
         builder.Services.AddSingleton<IJobAdministration>(harness.Store);
         builder.Services.AddSingleton<IWorkflowDefinitions>(harness.Store);
         builder.Services.AddSingleton<IJobSchedules>(harness.Store);
+        builder.Services.AddSingleton<IDeploymentQueries>(harness.Store);
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ => { });
         builder.Services.AddWorkThroughDashboard();
         await using var app = builder.Build();
@@ -48,6 +49,9 @@ public sealed class DashboardTests
         var json = await response.Content.ReadAsStringAsync();
         Assert.Contains(id.ToString(), json);
         Assert.DoesNotContain("script", json); // List responses do not disclose payloads.
+        var deployment = await client.GetStringAsync($"{path}/api/deployment");
+        Assert.Contains("MissingProcessor", deployment);
+        Assert.DoesNotContain("script", deployment);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"{path}/api/jobs/{id}")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync($"{path}/api/jobs/{id}/cancel", null)).StatusCode);
         var html = await client.GetStringAsync(path);
@@ -92,6 +96,7 @@ public sealed class DashboardTests
         builder.Services.AddSingleton<IJobAdministration>(harness.Store);
         builder.Services.AddSingleton<IWorkflowDefinitions>(harness.Store);
         builder.Services.AddSingleton<IJobSchedules>(harness.Store);
+        builder.Services.AddSingleton<IDeploymentQueries>(harness.Store);
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ => { });
         builder.Services.AddWorkThroughDashboard();
         await using var app = builder.Build();

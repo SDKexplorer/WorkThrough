@@ -18,15 +18,16 @@ This plan combines the user's requirements with a purposive review of 20 Hangfir
 
 - [x] Implement explicit Draft → Published → Retired flow-definition lifecycle. Drafts are editable with optimistic concurrency and cannot execute; publishing validates an immutable revision; retiring prevents new runs without changing pinned active runs. Add corresponding draft/publish lifecycle for schedules, independently of enabled/paused admission, with permissions and audit.
 - [x] Implement ADR-007: separate metadata/payload/action permissions, trusted user/service actors, atomic administrative audit and command deduplication, and embedded/standalone authentication samples. The OIDC sample builds; actual identity-provider login needs deployment-specific validation. Store/environment isolation is implemented; tenant row filtering remains outside the initial scope.
-- [ ] Deliver the console direction in `dashboard-direction.md`: useful backlog/timing/capacity signals, saved-flow inspection, processor deployment visibility, and accessible dark/light themes. The Angular console is now embedded and uses real APIs. Windowed timing/backlog metrics and deeper deployment preflight remain incomplete.
+- [ ] Deliver the console direction in `dashboard-direction.md`: useful backlog/timing/capacity signals, saved-flow inspection, processor deployment visibility, and accessible dark/light themes. The Angular console is now embedded and uses real APIs. Deployment identity/queue coverage and oldest eligible timestamps are implemented; windowed timing/throughput metrics and advanced authoring remain incomplete.
 - [x] Implement and verify the accepted .NET 8 minimum, multi-runtime package/SDK matrix, and durable format compatibility policy in ADR-005. Runtime packages use net8.0 assets; SDK/runtime 8 and 10 consumers are exercised. .NET 9 is not claimed tested.
 - [ ] Define schema migration, engine-version coexistence, and rollback boundaries; add mixed-version consumer/worker tests and saved-data fixtures.
-- [ ] Add a deployment preflight report that compares declared contract/queue capabilities against queued work and active flow requirements. Flag removed support and unresolved mappings; do not claim to infer semantic compatibility of arbitrary handler code.
+- [x] Add a deployment preflight report that compares declared contract/queue capabilities against queued work and active flow requirements. Flag removed support and unresolved mappings; do not claim to infer semantic compatibility of arbitrary handler code.
 - [ ] Add human-readable job/step labels independently of permanent identity keys. A display-name change must not require data migration or contract revision.
+- [ ] Add explicit identity-at-registration and coordinated compatibility aliases as explored in `identity-evolution.md`. Preserve old stored identities; aliases must share admission limits and have explicit rollout, idempotency, and retirement rules before being advertised as migrations.
 - [x] Implement persisted graph versions, step dependencies, output bindings, equality branches, and atomic successor activation.
 - [x] Implement local total/type limits and shared total/type admission policies.
 - [x] Implement correlation filtering, attempt inspection, shared limit display, standalone retry, and cancellation in the dashboard.
-- [ ] Complete worker operations: heartbeats, capability inventory, and per-job unsupported-contract/capacity explanations are implemented; oldest-ready age and explicit unhealthy-acquisition indicators remain.
+- [ ] Complete worker operations: heartbeats, capability inventory, and per-job unsupported-contract/capacity explanations are implemented; oldest-ready timestamps are implemented in the coverage inventory; explicit unhealthy-acquisition indicators remain.
 - [x] Add OpenTelemetry traces/metrics with correlation and causation metadata.
 - [ ] Add audited policy changes, queue pause/resume, and configurable retry policies beyond the initial exponential worker default.
 - [x] Add caller idempotency keys for starting flows, with atomic receipts, conflicting-reuse rejection, and recovery of the existing run after retirement. Individual-job keys remain separate.
@@ -38,6 +39,8 @@ This plan combines the user's requirements with a purposive review of 20 Hangfir
 - [ ] Add business-write/outbox integration before claiming atomic business operation plus enqueue. Specify supported local transaction boundaries and do not imply cross-database atomicity.
 - [ ] Define tenant/environment isolation, viewer/operator permissions, payload redaction, and secret-reference handling before shared multi-tenant hosting. CorrelationId must never be an authorization boundary.
 - [ ] Test process-kill, ambiguous commit, database disconnection, restoration, and resumption scenarios. Document restore reconciliation for external effects; retain the existing at-least-once guarantee.
+
+- [ ] Review and implement scoped attempt middleware, typed validation, configurable retry classification, and post-settlement observers as defined in `processor-lifecycle-and-extensibility.md`. Durable lifecycle subscriptions require a separate persisted delivery/outbox contract; local callbacks must not masquerade as reliable delivery.
 
 ## P2 — scheduling and compatibility
 

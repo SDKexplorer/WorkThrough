@@ -461,7 +461,78 @@
                 </table>
             </div>
         </section>
-        } @if (section() === 'workers') {
+        } @if (section() === 'workers') { @if (deployment(); as report) {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Processor coverage</h2>
+                    <p class="muted">
+                        Outstanding work and enabled schedules, compared with worker heartbeats from
+                        the last 60 seconds.
+                    </p>
+                </div>
+                <span class="badge"
+                    >{{ report.allRequirementsCovered ? 'All requirements covered' : 'Review
+                    required' }}</span
+                >
+            </div>
+            <p class="muted">
+                Observed {{ report.observedAt | date:'medium' }}. Coverage does not prove input
+                compatibility or available capacity.
+            </p>
+            @if (report.isTruncated) {
+            <p class="live-alert" role="alert">
+                This report reached its size limit. It cannot confirm complete coverage.
+            </p>
+            }
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Processor / queue</th>
+                            <th>Outstanding / ready</th>
+                            <th>Oldest eligible since</th>
+                            <th>Schedules</th>
+                            <th>Coverage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (check of report.checks; track check.requirement.processor.key + ':' +
+                        check.requirement.processor.version + ':' + check.requirement.queue) {
+                        <tr>
+                            <td>
+                                <code
+                                    >{{ check.requirement.processor.key }} · v{{
+                                    check.requirement.processor.version }}</code
+                                ><small>{{ check.requirement.queue }}</small>
+                            </td>
+                            <td>
+                                {{ check.requirement.outstandingJobs }} / {{
+                                check.requirement.readyJobs }}
+                            </td>
+                            <td>
+                                {{ check.requirement.oldestReadyAt ?
+                                (check.requirement.oldestReadyAt | date:'medium') : '—' }}
+                            </td>
+                            <td>{{ check.requirement.enabledSchedules }}</td>
+                            <td>
+                                <span class="badge" [class.failed]="check.coverage !== 'Covered'"
+                                    >{{ label(check.coverage) }}</span
+                                ><small>{{ check.workers.length }} matching workers</small>
+                            </td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="5" class="live-empty">
+                                No outstanding work or enabled schedules require processor coverage.
+                            </td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        }
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>

@@ -10,7 +10,9 @@ Local verification on 7 October 2026, Node 24.20.0, Angular 22.2.1 / build tooli
 - At 375 CSS pixels, document width matched viewport width. Tables scroll within their container. Light/dark themes and desktop layout are manually checked; this does not certify every browser, screen reader, or contrast pair.
 - No browser warning/error messages were observed during the local check. External OIDC account login, exhaustive accessibility testing, and production load remain unverified.
 
-See the repository verification record for the runtime/provider/package matrix. Earlier prototype checks are retained below for historical context only.
+On 8 October, the full frontend gate and .NET packaging passed with the processor-coverage view (approximately 201 kB raw / 56 kB transfer). Against the existing sample database, the live view showed three required processor/queue pairs, zero ready work for the incident's steps, and coverage from the current worker. Expired historical heartbeats stopped contributing to coverage. The view had no document overflow at 375 CSS pixels and no observed browser warnings/errors. Local screenshot: `artifacts/workthrough-coverage.png`. Backend integration tests cover exact versions, queue matching, schedule inclusion, snapshot bounds, and metadata permission.
+
+See the repository verification record for the runtime/provider/package matrix and hosted CI evidence. Earlier prototype checks are retained below for historical context only.
 
 # Console concept verification
 

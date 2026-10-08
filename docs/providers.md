@@ -10,10 +10,11 @@ PostgreSQL uses ordinary tables and a short transaction-scoped advisory lock. Th
 
 - Persist before successful enqueue acknowledgment. Duplicate idempotency keys are atomic, and conflicting work is rejected.
 - Use database time for leases and shared admission. Claims recover expired attempts, check total/type capacity, and issue fresh tokens atomically.
+- Persist eligibility at millisecond precision, rounding fractional `NotBefore` instants up. Database clocks round down to milliseconds so conversion never admits work before its saved eligibility. This does not remove application/database clock skew; synchronize deployment clocks.
 - Never accept stale or expired settlement tokens.
 - Commit parent completion and successor activation together, including branch outcomes.
 - Commit idempotent flow-start receipts with the run and all steps. Identical retries return the accepted run, even after retirement; conflicting requests fail without writes.
-- Keep queries independent of handler assemblies and bound list reads.
+- Keep queries independent of handler assemblies and bound list reads. Deployment inventory uses SQLite deferred / PostgreSQL Repeatable Read snapshots, returns grouped metadata only, and refuses a complete coverage verdict when truncated.
 - Support initialization idempotently and reject unknown schema versions. Destructive production migration is never implicit.
 - Run the complete storage conformance suite against a real instance of the provider.
 

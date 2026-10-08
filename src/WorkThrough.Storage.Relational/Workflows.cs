@@ -91,8 +91,8 @@ public abstract partial class RelationalJobStore
         foreach (var change in plan.Changes)
         {
             await ExecuteAsync(connection, transaction,
-                "UPDATE dj_jobs SET status=@status,payload=@payload,error=@error WHERE id=@id", ct,
-                ("status", change.Status.ToString()), ("payload", change.Payload.GetRawText()), ("error", change.Error), ("id", change.Id.ToString()));
+                "UPDATE dj_jobs SET status=@status,payload=@payload,error=@error,available_at=CASE WHEN @status='Queued' THEN @now ELSE available_at END WHERE id=@id", ct,
+                ("status", change.Status.ToString()), ("payload", change.Payload.GetRawText()), ("error", change.Error), ("id", change.Id.ToString()), ("now", now));
             await JournalAsync(connection, transaction, change, now, change.Status.ToString(), ct);
         }
         await ExecuteAsync(connection, transaction, "UPDATE dj_flows SET status=@status,error=@error WHERE id=@id", ct,

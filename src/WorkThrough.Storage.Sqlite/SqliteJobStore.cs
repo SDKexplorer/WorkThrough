@@ -20,6 +20,12 @@ public sealed class SqliteJobStore : RelationalJobStore
     protected override DbConnection CreateConnection() => new SqliteConnection(connectionString);
     protected override string ClockSql => "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)";
 
+    protected override Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<DbTransaction>(((SqliteConnection)connection).BeginTransaction(deferred: true));
+    }
+
     protected override Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -39,6 +45,7 @@ public static class SqliteRegistration
         builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobSchedules>(sp => sp.GetRequiredService<SqliteJobStore>());
+        builder.Services.AddSingleton<IDeploymentQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         return builder;
     }
 }

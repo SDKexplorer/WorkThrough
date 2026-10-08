@@ -92,8 +92,16 @@ public abstract partial class RelationalJobStore
             """, ct, ("id", job.Id.ToString()), ("key", job.Contract.Key), ("version", job.Contract.Version),
             ("payload", job.Payload.GetRawText()), ("queue", job.Queue), ("correlation", job.CorrelationId),
             ("status", job.Status.ToString()), ("attempt", job.Attempt), ("maximum", job.MaxAttempts),
-            ("created", job.CreatedAt.ToUnixTimeMilliseconds()), ("available", job.AvailableAt.ToUnixTimeMilliseconds()),
+            ("created", job.CreatedAt.ToUnixTimeMilliseconds()), ("available", EligibilityMilliseconds(job.AvailableAt)),
             ("dedup", job.IdempotencyKey), ("flow", job.WorkflowRunId?.ToString()), ("step", job.StepId));
+
+    private static long EligibilityMilliseconds(DateTimeOffset instant)
+    {
+        // Storage has millisecond precision. Rounding down could make NotBefore eligible early.
+        var utc = instant.ToUniversalTime();
+        var remainder = utc.Ticks % TimeSpan.TicksPerMillisecond;
+        return (remainder == 0 ? utc : utc.AddTicks(TimeSpan.TicksPerMillisecond - remainder)).ToUnixTimeMilliseconds();
+    }
 
     private static string? Text(DbDataReader reader, string name) => reader.IsDBNull(reader.GetOrdinal(name)) ? null : reader.GetString(reader.GetOrdinal(name));
     private static DateTimeOffset? Date(DbDataReader reader, string name) => reader.IsDBNull(reader.GetOrdinal(name)) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(reader.GetOrdinal(name)));

@@ -24,3 +24,11 @@ dotnet restore tests/PackageConsumer -p:TargetFramework=net10.0 --configfile tes
 dotnet run --project tests/PackageConsumer -c Release -f net10.0 -p:TargetFramework=net10.0 --no-restore -p:UseSharedCompilation=false
 sample_dir="$(mktemp -d "$repo_dir/artifacts/processor-sample-XXXXXXXX")"
 Jobs__ConnectionString="Data Source=$sample_dir/jobs.db" "$runtime8" samples/Demo.Processor/bin/Release/net8.0/Demo.Processor.dll --once
+if Jobs__ConnectionString="Data Source=$sample_dir/jobs.db" "$runtime8" samples/Demo.Worker/bin/Release/net8.0/Demo.Worker.dll --preflight > artifacts/preflight-smoke.json; then
+  echo 'FAIL: the order worker incorrectly claimed coverage for the invoice sample.' >&2
+  exit 1
+else
+  preflight_status=$?
+  test "$preflight_status" -eq 2
+  echo 'PASS: deployment preflight rejected a worker that does not support persisted invoice work.'
+fi

@@ -75,7 +75,7 @@ Initial support includes sequences, conditional branches, parallel roots, depend
 
 `CorrelationId` groups unrelated runs and jobs. `WorkflowRunId` identifies one run. `StepId` identifies its definition node. `JobId` identifies one logical execution; attempt numbers identify tries. None of these substitute for an enqueue idempotency key.
 
-The dashboard reads JSON and recorded metadata without application deserialization. It filters executions by correlation and state, shows attempts and effective shared limits, and provides standalone retry and cancellation. Saved flow diagrams, transactional event timelines, worker capabilities, and attempt tracing are implemented. Windowed metrics, retention, and deeper deployment preflight remain release-plan items.
+The dashboard reads JSON and recorded metadata without application deserialization. It filters executions by correlation and state, shows attempts and effective shared limits, and provides standalone retry and cancellation. Saved flow diagrams, transactional event timelines, worker capabilities, and attempt tracing are implemented. Deployment preflight compares a read snapshot of required processor/version/queue combinations with the complete proposed fleet. The dashboard compares the same inventory with recent heartbeats. Windowed metrics, retention, and protocol/semantic deployment compatibility remain release-plan items.
 
 ## Lifecycle, diagnostics, and schedules
 

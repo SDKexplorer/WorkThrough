@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace WorkThrough.Storage;
 
 /// <summary>Shared data mapping; concrete providers own connection and admission locking semantics.</summary>
-public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobAdministration, IWorkflowDefinitions, IJobDiagnostics, IJobSchedules
+public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobAdministration, IWorkflowDefinitions, IJobDiagnostics, IJobSchedules, IDeploymentQueries
 {
     protected abstract DbConnection CreateConnection();
     protected abstract string ClockSql { get; }

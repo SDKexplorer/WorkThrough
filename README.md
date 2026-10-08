@@ -1,8 +1,27 @@
 # WorkThrough
 
+[![Verify](https://github.com/SDKexplorer/WorkThrough/actions/workflows/verify.yml/badge.svg)](https://github.com/SDKexplorer/WorkThrough/actions/workflows/verify.yml)
+
+**Move your code. Keep your work.**
+
 A .NET 8 library for durable jobs, persisted flows, and recurring schedules, verified on .NET 8 and .NET 10. **Move a processor between classes, namespaces, projects, and assemblies without rewriting queued job metadata.**
 
 WorkThrough is an alpha. SQLite and PostgreSQL are implemented; packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
+
+## Repository map
+
+| Location | Purpose |
+|---|---|
+| `src/WorkThrough.Core` | Stable processor identities, flows, state rules, and persistence contracts |
+| `src/WorkThrough.Hosting` | DI composition, background workers, and schedule dispatch |
+| `src/WorkThrough.Storage.*` | SQLite/PostgreSQL adapters and shared transactional operations |
+| `src/WorkThrough.Dashboard`, `dashboard-ui` | Protected HTTP APIs and the embedded Angular console |
+| `src/WorkThrough.Generators` | Compile-time processor discovery and registration |
+| `samples` | API, worker, dashboard-only, direct-processor, and relocation examples |
+| `tests`, `scripts` | Real-provider conformance, package consumers, and deployment proofs |
+| `docs`, `specs` | Architecture decisions, requirements, evidence, and the remaining plan |
+
+Start with the [samples](samples/README.md). Contributors should read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md); security boundaries are in [SECURITY.md](SECURITY.md). CI runs the verification workflow on pushes and pull requests. A green build is evidence for the tested scenarios, not a production maturity claim.
 
 ## Processor identity survives refactoring
 
@@ -24,7 +43,7 @@ public sealed record InvoiceInput(string InvoiceId);
 
 The database stores the permanent processor key, contract version, and input. It never dispatches using a stored CLR type, method, or assembly-qualified name. Several processors can accept the same input type, including `string`. Typed `[JobContract]` / `IJobHandler<T>` registration remains available through the same registry.
 
-Keep `invoices.generate/v1` and its compatible input/output meaning when moving the class. Reference and deploy its new assembly; explicit or generated registration maps the existing identity to the new implementation. Existing and newly created jobs use that mapping. Historical attempt diagnostics retain the implementation actually used. Folder moves need no engine action unless they change the compiled namespace/assembly. Incompatible business or payload changes require a new version or an explicit adapter.
+Keep `invoices.generate/v1` and its compatible input/output meaning when moving the class. Reference and deploy its new assembly; explicit or generated registration maps the existing identity to the new implementation. Existing and newly created jobs use that mapping. Historical attempt diagnostics retain the implementation actually used. A [deployment preflight](docs/deployment-preflight.md) checks whether the proposed worker fleet covers the processor versions and queues still required by saved work. Folder moves need no engine action unless they change the compiled namespace/assembly. Incompatible business or payload changes require a new version or an explicit adapter.
 
 The [published relocation proof](scripts/check-refactor.sh) creates typed, future-due raw-string, and persisted flow-step invocations on .NET 8, removes the original assembly, and executes them through a renamed processor assembly on .NET 10. It checks unchanged processor identities and inputs.
 
@@ -111,5 +130,8 @@ Open `/operations/jobs`. In Development, POST `{ "orderId": "123", "amount": 250
 ## Release boundaries
 
 Execution is at least once. Arbitrary side effects cannot be undone by rewinding engine state. Compensation/checkpoint forks, transactional business outboxes, durable external signals/child flows, SQL Server and further providers, legacy import/upcasting, retention automation, partition/rate limits, and production performance/fault campaigns remain in the [plan](docs/plan.md). External OIDC login requires a configured identity provider and has not been verified against a real account. There is no production certification or Native AOT claim.
+
+The [typed processor and lifecycle exploration](docs/processor-lifecycle-and-extensibility.md) distinguishes existing APIs from proposed middleware, retry policies, and durable subscriptions.
+The [identity evolution design](docs/identity-evolution.md) covers defining a processor before assigning its key and a proposed old-ID alias mechanism, including shared concurrency and rollout requirements.
 
 See [architecture](docs/architecture.md), [decisions](docs/adr), [requirements](specs/durable-jobs.spec.md), [community research](docs/research.md), [verification](docs/verification.md), and [contributor guardrails](AGENTS.md).

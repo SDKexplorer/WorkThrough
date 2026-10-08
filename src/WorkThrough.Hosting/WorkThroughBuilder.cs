@@ -90,6 +90,7 @@ public static class WorkThroughRegistration
         services.AddSingleton(initialization);
         services.AddSingleton<JobClient>();
         services.AddSingleton<WorkflowClient>();
+        services.AddSingleton<DeploymentPreflight>();
         services.AddHostedService<JobStorageInitializer>();
         return new(services, catalog, initialization);
     }

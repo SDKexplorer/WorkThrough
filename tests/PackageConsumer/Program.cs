@@ -13,11 +13,14 @@ try
 {
     var id = await host.Services.GetRequiredService<JobClient>().EnqueueAsync(new PackageJob("package-only"));
     var rawId = await host.Services.GetRequiredService<JobClient>().EnqueueAsync(ProcessorId.For<RawProcessor>(), "{\"raw\":true}");
+    var typedId = await host.Services.GetRequiredService<JobClient>().EnqueueAsync(ProcessorId.For<InvoiceProcessor>(), new InvoiceInput("INV-123"));
     var queries = host.Services.GetRequiredService<IJobQueries>();
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
     while ((await queries.GetAsync(id, deadline.Token))?.Status != JobStatus.Succeeded) await Task.Delay(30, deadline.Token);
     while ((await queries.GetAsync(rawId, deadline.Token))?.Status != JobStatus.Succeeded) await Task.Delay(30, deadline.Token);
+    while ((await queries.GetAsync(typedId, deadline.Token))?.Status != JobStatus.Succeeded) await Task.Delay(30, deadline.Token);
     if ((await queries.GetAsync(rawId))!.Output?.GetString() != "{\"raw\":true}") throw new InvalidOperationException("Raw input changed.");
+    if ((await queries.GetAsync(typedId))!.Output?.GetString() != "INV-123") throw new InvalidOperationException("Typed processor input changed.");
     var flows = host.Services.GetRequiredService<WorkflowClient>();
     var flow = new FlowBuilder("smoke.flow", 1).Step("raw", ProcessorId.For<RawProcessor>(), "flow input").Build();
     var run = await flows.StartAsync(flow, new { }, "package-smoke", "start-once");
@@ -42,4 +45,13 @@ public sealed record class PackageHandler : IJobHandler<PackageJob>
 public sealed class RawProcessor : IProcessor<string>
 {
     public Task<JobResult> ProcessAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(input));
+}
+
+public sealed record InvoiceInput(string InvoiceId);
+
+[Processor("smoke.invoice")]
+public sealed class InvoiceProcessor : IProcessor<InvoiceInput>
+{
+    public Task<JobResult> ProcessAsync(InvoiceInput input, JobExecutionContext context, CancellationToken cancellationToken) =>
+        Task.FromResult(JobResult.From(input.InvoiceId));
 }

@@ -22,9 +22,12 @@ public sealed class JobClient(IJobStore store)
         if (string.IsNullOrWhiteSpace(options.Queue)) throw new ArgumentException("Queue must be non-empty.", nameof(options));
         if (options.IdempotencyKey is { Length: 0 }) throw new ArgumentException("IdempotencyKey must be non-empty when supplied.", nameof(options));
         var now = DateTimeOffset.UtcNow;
+        // Immediate work has no not-before boundary. Use the current storage-resolution instant;
+        // explicit NotBefore values keep their precision and are rounded up by the provider.
+        var available = options.NotBefore ?? DateTimeOffset.FromUnixTimeMilliseconds(now.ToUnixTimeMilliseconds());
         return store.EnqueueAsync(new(Guid.NewGuid(), processor,
             JsonSerializer.SerializeToElement(job, JobJson.Options), options.Queue, options.CorrelationId,
-            JobStatus.Queued, 0, options.MaxAttempts, now, options.NotBefore ?? now,
+            JobStatus.Queued, 0, options.MaxAttempts, now, available,
             options.IdempotencyKey), cancellationToken);
     }
 }

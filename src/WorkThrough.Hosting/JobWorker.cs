@@ -101,17 +101,27 @@ internal sealed class JobWorker(
             var description = $"{registration.HandlerType.FullName}, {registration.HandlerType.Assembly.GetName().Name} ({registration.HandlerType.Assembly.GetName().Version})";
             await store.RecordHandlerAsync(job.Id, token, description, attemptCancellation.Token);
             var context = new JobExecutionContext(job.Id, job.Attempt, job.CorrelationId, job.WorkflowRunId, job.StepId, token);
+            var executionStarted = Stopwatch.GetTimestamp();
             if (store is IJobDiagnostics diagnostics)
             {
                 if (!await diagnostics.BeginAttemptAsync(job.Id, token, settings.ExecutionTimeout, settings.ProgressTimeout, attemptCancellation.Token)) return;
                 context = context with { Progress = new AttemptProgress(diagnostics, job.Id, token) };
             }
-            if (settings.ExecutionTimeout is { } timeout) executionDeadline.CancelAfter(timeout);
+            if (settings.ExecutionTimeout is { } timeout)
+            {
+                var remaining = timeout - Stopwatch.GetElapsedTime(executionStarted);
+                if (remaining <= TimeSpan.Zero) executionDeadline.Cancel();
+                else executionDeadline.CancelAfter(remaining);
+            }
             JobResult result;
             try
             {
+                invocationCancellation.Token.ThrowIfCancellationRequested();
                 result = await registration.InvokeAsync(handler, job.Payload, context, invocationCancellation.Token);
                 invocationCancellation.Token.ThrowIfCancellationRequested();
+                // Cancellation callbacks can be delayed by a busy thread pool. Elapsed budget is authoritative.
+                if (settings.ExecutionTimeout is { } budget && Stopwatch.GetElapsedTime(executionStarted) >= budget)
+                    throw new TimeoutException("The configured execution deadline elapsed.");
             }
             catch (Exception exception) when (exception is not OperationCanceledException || !attemptCancellation.IsCancellationRequested)
             {

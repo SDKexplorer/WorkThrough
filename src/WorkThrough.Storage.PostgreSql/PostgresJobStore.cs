@@ -8,7 +8,10 @@ namespace WorkThrough.Storage;
 public sealed class PostgresJobStore(string connectionString) : RelationalJobStore
 {
     protected override DbConnection CreateConnection() => new NpgsqlConnection(connectionString);
-    protected override string ClockSql => "SELECT CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS BIGINT)";
+    protected override string ClockSql => "SELECT CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)";
+
+    protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
 
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {
@@ -34,6 +37,7 @@ public static class PostgresRegistration
         builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IJobSchedules>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IDeploymentQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
         return builder;
     }
 }

@@ -142,6 +142,23 @@ public sealed class StorageConformanceTests
     }
 
     [Theory, MemberData(nameof(Providers))]
+    public async Task Submillisecond_due_times_never_round_down_and_aligned_times_stay_exact(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var client = new JobClient(harness.Store);
+        var boundary = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeMilliseconds());
+        foreach (var instant in new[] { boundary, boundary.AddTicks(1), boundary.AddTicks(9999), DateTimeOffset.UnixEpoch.AddTicks(-1) })
+        {
+            var id = await client.EnqueueAsync(new Alpha("precision"), new(NotBefore: instant));
+            var saved = (await harness.NewStore().GetAsync(id))!;
+            Assert.True(saved.AvailableAt >= instant, "Persisted eligibility must never precede the requested instant.");
+            Assert.True(saved.AvailableAt - instant < TimeSpan.FromMilliseconds(1));
+            if (instant == boundary) Assert.Equal(instant, saved.AvailableAt);
+        }
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => client.EnqueueAsync(new Alpha("unrepresentable"), new(NotBefore: DateTimeOffset.MaxValue)));
+    }
+
+    [Theory, MemberData(nameof(Providers))]
     public async Task Missing_handler_and_future_jobs_are_not_consumed(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
