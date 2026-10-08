@@ -4,11 +4,38 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
+    ignore:
+      # The shipped generator must load in the oldest supported .NET 8 compiler.
+      # Revisit this bound only with the package-consumer matrix and ADR-005.
+      - dependency-name: Microsoft.CodeAnalysis.*
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+    groups:
+      dotnet-routine:
+        patterns: ["*"]
+        update-types: [minor, patch]
   - package-ecosystem: npm
     directory: /dashboard-ui
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
+    ignore:
+      # Angular 22.2 requires TypeScript >=6.0 <6.1. Upgrade them together.
+      - dependency-name: typescript
+        versions: [">=6.1"]
+    groups:
+      angular:
+        patterns: ["@angular/*", typescript]
+        update-types: [minor, patch]
+      frontend-routine:
+        patterns: ["*"]
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      ci-routine:
+        patterns: ["*"]
+        update-types: [minor, patch]
