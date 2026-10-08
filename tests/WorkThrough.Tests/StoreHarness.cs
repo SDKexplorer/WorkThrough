@@ -59,6 +59,9 @@ internal sealed class StoreHarness : IAsyncDisposable
     {
         if (schema is not null)
         {
+            // Every test's search path creates a separate pool. Release only this test's idle connections.
+            await using var pooledConnection = new NpgsqlConnection(ConnectionString);
+            NpgsqlConnection.ClearPool(pooledConnection);
             await using var connection = new NpgsqlConnection(adminConnection);
             await connection.OpenAsync();
             await using var command = new NpgsqlCommand($"DROP SCHEMA {schema} CASCADE", connection);

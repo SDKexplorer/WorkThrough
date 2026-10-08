@@ -58,6 +58,7 @@ public sealed class DashboardTests
         Assert.Contains("MissingProcessor", deployment);
         Assert.DoesNotContain("script", deployment);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"{path}/api/jobs/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync($"{path}/api/executions")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync($"{path}/api/jobs/{id}/cancel", null)).StatusCode);
         var html = await client.GetStringAsync(path);
         Assert.Contains($"<base href=\"{path}/\"", html);
@@ -145,7 +146,12 @@ public sealed class DashboardTests
             }
 
             var claims = new List<Claim> { new(ClaimTypes.Name, "operator"), new(ClaimTypes.NameIdentifier, "operator", ClaimValueTypes.String, "test-issuer") };
-            var permissions = Request.Headers["X-Test-User"] == "viewer" ? ["executions.read"] : DashboardPermissions.All;
+            IReadOnlyList<string> permissions = Request.Headers["X-Test-User"].ToString() switch
+            {
+                "viewer" => ["executions.read"],
+                "outsider" => [],
+                _ => DashboardPermissions.All
+            };
             claims.AddRange(permissions.Select(p => new Claim(DashboardPermissions.ClaimType, p)));
             var identity = new ClaimsIdentity(claims, Scheme.Name);
 

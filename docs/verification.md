@@ -4,15 +4,15 @@ Date: 2026-10-08. Local macOS ARM64. Repository SDK 10.0.400; runtime packages t
 
 ## Completed
 
-`WORKTHROUGH_DOTNET8=<SDK 8 executable> DURABLEJOBS_POSTGRES=<disposable connection> ./scripts/verify.sh` completed successfully. The retained local log is `artifacts/verification-latest.log` (ignored by Git).
+`WORKTHROUGH_DOTNET8=<SDK 8 executable> DURABLEJOBS_POSTGRES=<disposable connection> ./scripts/verify.sh` completed successfully after the bounded execution-query change. The retained local log is `artifacts/operations-query-verification.log` (ignored by Git).
 
 | Check | Result |
 |---|---|
 | Angular formatting and production build | Passed; static console embedded for package consumers |
 | Release solution build | Passed, zero warnings and errors |
 | Repository readability gate | Passed; syntax-aware braces/spacing plus whitespace formatting; a second pass made no edits |
-| Automated suite on .NET 8 | 121 cases passed |
-| Automated suite on .NET 10 | 121 cases passed |
+| Automated suite on .NET 8 | 141 cases passed |
+| Automated suite on .NET 10 | 141 cases passed |
 | SQLite | Real file databases, independent connections and restarts |
 | PostgreSQL | Real PostgreSQL 17 Alpine container; isolated schema per case |
 | Published assembly replacement | Passed from producer runtime 8 to worker runtime 10 after removal of the original processor DLL |
@@ -21,6 +21,7 @@ Date: 2026-10-08. Local macOS ARM64. Repository SDK 10.0.400; runtime packages t
 | Local NuGet packaging | Seven WorkThrough 0.1.0-alpha.1 packages produced |
 | Package-only consumers | SDK 8 and SDK 10 passed with separate fresh caches, local package source mapping, and no project references |
 | Package registration paths | Generated typed/raw processors, manually assigned typed definitions, and idempotent flow starts executed from packages |
+| Bounded execution query consumers | `IExecutionQueries` resolved through provider DI and found completed typed work from SDK 8 and 10 package-only consumers |
 | Direct processor sample | Passed immediate processor execution and persisted recurring schedule setup |
 | Lifecycle sample | Business outbox delivered into a separate job database; typed durable approval resumed the saved flow |
 | Deployment preflight CLI | Rejected unsupported saved invoice work with exit code 2; no hosted worker started |
@@ -66,12 +67,20 @@ On the same date, the combined compatible updates from PRs 1, 2, 3, 6, 7, 8, and
 
 Angular build/compiler peer metadata was checked directly: both require TypeScript `>=6.0 <6.1`. The Roslyn 5.9 PR's SDK 8 consumer failed CS9057. These upgrades are excluded rather than weakening peer validation or compiler compatibility. See [dependency update policy](dependency-updates.md). YAML parsing passed for the workflow and Dependabot configuration; hosted validation remains specific to the maintenance PR's current head.
 
+## Bounded execution-query verification
+
+The expanded 141-case suite passed on each runtime against real SQLite files and PostgreSQL 17.11. New provider cases verify failed-attempt windows including recovered jobs, one result per logical execution, exact filters, half-open/fractional creation windows, stable pagination ties across connections, preserved default windows, mismatched/malformed cursors, cancellation, clipped long metadata and explicit live-only archive coverage. A fixture with invalid payload/output JSON still supports metadata reads, proving that the new path does not deserialize those fields. Protected HTTP routes were exercised on both providers; legacy dashboard composition without the new port returns an explicit unsupported response.
+
+The first expanded run exhausted PostgreSQL's connection limit because separate test schemas retained separate idle pools after disposal. The harness now clears only the completed test's pool before dropping its schema, using [Npgsql's scoped pool cleanup](https://www.npgsql.org/doc/api/Npgsql.NpgsqlConnection.html#Npgsql_NpgsqlConnection_ClearPool_Npgsql_NpgsqlConnection_). The subsequent full gate passed without reducing test parallelism or increasing server limits. Production connection management is unchanged.
+
+The gate also passed the release/readability build, published relocation/alias proofs, both package consumers, examples, process-kill recovery and all six provider/workload smoke runs. This is execution correctness/load smoke; the proposed 100,000-execution investigative-query contention campaign and MCP protocol/client tests have not run. The MCP adapter itself is still planned.
+
 ## Limits of this evidence
 
 - Local packing is not package publication. Hosted verification applies only to the exact commit shown by each workflow run.
 - This is an alpha correctness baseline, not an availability, performance, security, accessibility, or disaster-recovery certification.
 - The oldest consumer SDK actually executed is 8.0.425. SDK 8.0.100, .NET 9, Native AOT, and full trimming have not been verified.
-- SQL Server, MySQL, MongoDB, and further adapters are not implemented or tested.
+- SQL Server, Oracle, MySQL, MongoDB, and further adapters are not implemented or tested.
 - The standalone OIDC sample compiles; login against a real external identity provider still requires verification with deployment-specific credentials.
 - Shared limits bound valid leases, not effects from a process resuming after losing its lease.
 - The targeted process-kill, lost-acknowledgment, disconnection, and SQLite restore proofs do not replace multi-machine partitions, PostgreSQL PITR, exhaustive fault campaigns, or production soak/load tests.

@@ -15,6 +15,7 @@ PostgreSQL uses ordinary tables and a short transaction-scoped advisory lock. Th
 - Commit parent completion and successor activation together, including branch outcomes.
 - Commit idempotent flow-start receipts with the run and all steps. Identical retries return the accepted run, even after retirement; conflicting requests fail without writes.
 - Keep queries independent of handler assemblies and bound list reads. Deployment inventory uses SQLite deferred / PostgreSQL Repeatable Read snapshots, returns grouped metadata only, and refuses a complete coverage verdict when truncated.
+- Implement `IExecutionQueries` with direct metadata projections, bounded pages/time windows and deterministic continuation. SQLite/PostgreSQL use read snapshots without the admission write lock; the new indexes are additive. See [execution-query semantics](execution-queries.md).
 - Support initialization idempotently and reject unknown schema versions. Destructive production migration is never implicit.
 - Run the complete storage conformance suite against a real instance of the provider.
 

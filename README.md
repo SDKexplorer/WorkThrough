@@ -116,6 +116,8 @@ Failed attempts retain exception type, message, and stack trace behind diagnosti
 
 The Angular console reads real storage data: correlation/status filters, saved flow diagrams, attempts and protected stack traces, waiting explanations, draft lifecycle, schedules, worker observations, limits, and an administrative audit trail. It does not load application processor DLLs.
 
+[Bounded execution queries](docs/execution-queries.md) add metadata-only processor/queue/time filters and failed-attempt searches through `IExecutionQueries` and protected `/api/executions` routes. They include recovered jobs in failure investigations and paginate without loading input/output. This is the first MCP foundation; it is not yet an MCP endpoint.
+
 Configure host authentication before mapping the dashboard. Default policies require `workthrough.permission` claims; hosts can override policies and inspect route resources. Metadata, payloads, recovery, publication, schedules, limits, and audit reads have separate permissions. Administrative actions require CSRF protection, a trusted actor, a reason, a command ID, and state preconditions. Mutation, command deduplication, and successful audit commit together.
 
 The [standalone OIDC sample and security guide](docs/dashboard-security.md) reuse an identity provider for user management. The initial isolation boundary is one configured store/environment, not row-scoped multi-tenancy. `AllowAnonymous` is only for an explicitly isolated development host.

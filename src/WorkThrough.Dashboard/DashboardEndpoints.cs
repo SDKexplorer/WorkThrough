@@ -288,6 +288,7 @@ public static partial class DashboardEndpoints
             Results.Json(await administration.ChangeLimitAsync(request.Limit, Command(context, options, request.Command), ct)))
             .Mutation(options, "limits.manage");
         MapOperations(group, options);
+        MapExecutionQueries(group, options);
 
         return group;
     }

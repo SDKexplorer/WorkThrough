@@ -2,6 +2,8 @@
 
 Status: proposed, 2026-10-08. The maintainer selected **read-only diagnostics initially, administrative actions later**. This document plans the feature; no MCP endpoint or package is implemented. Retention and additional databases are companion work in [storage evolution](storage-evolution.spec.md).
 
+Implementation has begun with [bounded execution and attempt queries](../docs/execution-queries.md) and additive protected dashboard routes. Authentication for MCP, shared authorization/projection extraction, archive/audit query bounds and the MCP adapter remain pending.
+
 ## Purpose
 
 Let developers and operators investigate WorkThrough from an MCP client using the same evidence and permissions as the dashboard. The server supplies facts; the client's model can explain them and distinguish hypotheses from confirmed engine state. WorkThrough requires no embedded model, model subscription, or LLM API key.
@@ -137,7 +139,8 @@ Before release, benchmark 100,000 retained executions with varied attempt histor
 ### M0 — shared foundation
 
 - [ ] Freeze tool schemas, query semantics and permission/resource mapping with a small client spike.
-- [ ] Add bounded metadata/attempt/audit/archive read ports, provider indexes and query-plan tests. Existing `ListAsync` uses offset pagination and loads payloads; wrapping it is insufficient.
+- [x] Add bounded live execution/attempt metadata reads, keyset pagination, explicit failed-attempt windows, compatible provider indexes and protected HTTP routes. Legacy `ListAsync` remains unchanged; the new port never loads payloads.
+- [ ] Add bounded audit/archive queries, retained-history indexing and query-plan/performance gates at the planned scale.
 - [ ] Extract shared safe projections and operation/resource descriptors while preserving dashboard policy compatibility.
 - [ ] Add dedicated bearer authentication, discovery, authorization and redacted access events.
 
