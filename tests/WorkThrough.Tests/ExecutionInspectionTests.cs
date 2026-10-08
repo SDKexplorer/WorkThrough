@@ -36,6 +36,13 @@ public sealed class ExecutionInspectionTests
         var json = JsonSerializer.Serialize(selected);
         Assert.DoesNotContain("SECRET", json);
         Assert.DoesNotContain(attempt.LeaseToken.Value.ToString(), json);
+        await ExecuteAsync(harness, "DELETE FROM dj_failures WHERE job_id=@id", ("id", id.ToString()));
+        await ExecuteAsync(harness, "UPDATE dj_attempts SET error='x' WHERE job_id=@id", ("id", id.ToString()));
+        var legacy = await store.ReadDiagnosticAsync(id, 1, 1);
+        Assert.Equal("U", legacy.Failure!.ExceptionType);
+        Assert.Equal("x", legacy.Failure.Message);
+        Assert.True(legacy.TextTruncated);
+        Assert.False((await store.ReadDiagnosticAsync(id, 2, 1)).TextTruncated);
     }
 
     [Theory, MemberData(nameof(Providers))]
