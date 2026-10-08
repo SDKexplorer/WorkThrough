@@ -58,7 +58,13 @@ The schema-3 console was then checked against the same preserved demo database. 
 
 ## Hosted verification
 
-The previous main baseline `c120795` passed both GitHub Actions jobs on Ubuntu: [Verify run 37736518644](https://github.com/SDKexplorer/WorkThrough/actions/runs/37736518644). That run predates schema-3 completion. The 121-case evidence here is the completed local gate; consult the [Verify workflow](https://github.com/SDKexplorer/WorkThrough/actions/workflows/verify.yml) for the exact pushed revision's hosted result. Hosted runs now also retain performance smoke JSON artifacts.
+The schema-3 main baseline `dcb45ed` passed both GitHub Actions jobs on Ubuntu: [Verify run 37748849077](https://github.com/SDKexplorer/WorkThrough/actions/runs/37748849077). That run passed 121 tests on each runtime, package consumers, relocation/alias proofs, samples, and both providers' recovery/performance smoke exercises. Consult the [Verify workflow](https://github.com/SDKexplorer/WorkThrough/actions/workflows/verify.yml) for the exact pushed revision's hosted result; smoke JSON reports are retained as workflow artifacts.
+
+## Dependency maintenance verification
+
+On the same date, the combined compatible updates from PRs 1, 2, 3, 6, 7, 8, and 9 passed the entire local gate in an isolated checkout. Both runtimes passed 121 tests; the release build had zero warnings/errors. Fresh package-only consumers, published relocation and aliases, direct-processor/lifecycle samples, and both providers' process-kill/performance smoke checks passed. The native SQLite report identifies 3.53.4 with WAL and FULL durability; PostgreSQL was 17.11. The log is `artifacts/dependency-verification.log`. The retained 12,000-job full campaign predates these dependency upgrades and is not claimed rerun against them.
+
+Angular build/compiler peer metadata was checked directly: both require TypeScript `>=6.0 <6.1`. The Roslyn 5.9 PR's SDK 8 consumer failed CS9057. These upgrades are excluded rather than weakening peer validation or compiler compatibility. See [dependency update policy](dependency-updates.md). YAML parsing passed for the workflow and Dependabot configuration; hosted validation remains specific to the maintenance PR's current head.
 
 ## Limits of this evidence
 
