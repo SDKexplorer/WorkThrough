@@ -1,7 +1,7 @@
-using WorkThrough.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using WorkThrough.Storage;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -15,7 +15,11 @@ public sealed class WorkerTests
         var probe = new Probe();
         using var host = BuildHost(harness.ConnectionString, probe, maximum: 2);
         var client = new JobClient(harness.Store);
-        for (var i = 0; i < 6; i++) await client.EnqueueAsync(new Alpha(i.ToString()));
+        for (var i = 0; i < 6; i++)
+        {
+            await client.EnqueueAsync(new Alpha(i.ToString()));
+        }
+
         await host.StartAsync();
         try
         {
@@ -26,7 +30,11 @@ public sealed class WorkerTests
             Assert.Equal(6, probe.ScopeIds.Distinct().Count());
             Assert.Equal(2, probe.Maximum);
         }
-        finally { probe.Gate.Release(20); await host.StopAsync(); }
+        finally
+        {
+            probe.Gate.Release(20);
+            await host.StopAsync();
+        }
     }
 
     [Fact]
@@ -78,7 +86,11 @@ public sealed class WorkerTests
             Assert.Equal(2, probe.Maximum);
             Assert.Equal(["Cancelled", "Succeeded"], (await harness.Store.AttemptsAsync(id)).Select(x => x.Status));
         }
-        finally { probe.Gate.Release(20); await host.StopAsync(); }
+        finally
+        {
+            probe.Gate.Release(20);
+            await host.StopAsync();
+        }
     }
 
     [Fact]
@@ -90,8 +102,15 @@ public sealed class WorkerTests
         using var host = BuildHost(harness.ConnectionString, probe, maximum: 1, gatedStore);
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("setup"), new(MaxAttempts: 1));
         await host.StartAsync();
-        try { await gatedStore.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10)); }
-        finally { await host.StopAsync(); }
+        try
+        {
+            await gatedStore.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+
         Assert.Equal(0, probe.Active);
         Assert.Empty(probe.ScopeIds);
         var job = (await harness.Store.GetAsync(id))!;
@@ -119,11 +138,16 @@ public sealed class WorkerTests
                 Assert.Equal(1, probe.Active);
                 probe.Gate.Release();
             }
+
             await EventuallyAsync(async () => (await harness.Store.GetAsync(id))!.Status == JobStatus.Failed);
             Assert.Equal("System.TimeoutException", (await harness.Store.FailuresAsync(id)).Single().Failure.ExceptionType);
             Assert.Equal("Failed", (await harness.Store.AttemptsAsync(id)).Single().Status);
         }
-        finally { probe.Gate.Release(10); await host.StopAsync(); }
+        finally
+        {
+            probe.Gate.Release(10);
+            await host.StopAsync();
+        }
     }
 
     private static IHost BuildHost(string connection, Probe probe, int maximum, IJobStore? store = null, TimeSpan? timeout = null)
@@ -133,15 +157,28 @@ public sealed class WorkerTests
         builder.Services.AddSingleton(probe);
         builder.Services.AddScoped<ScopeMarker>();
         builder.Services.AddWorkThrough().UseSqlite(connection).AddJob<Alpha, BlockingHandler>()
-            .AddWorker(options => { options.MaxConcurrentJobs = maximum; options.PollInterval = TimeSpan.FromMilliseconds(20); options.LeaseDuration = TimeSpan.FromSeconds(3); options.ExecutionTimeout = timeout; });
-        if (store is not null) builder.Services.AddSingleton(store);
+            .AddWorker(options =>
+            {
+                options.MaxConcurrentJobs = maximum;
+                options.PollInterval = TimeSpan.FromMilliseconds(20);
+                options.LeaseDuration = TimeSpan.FromSeconds(3);
+                options.ExecutionTimeout = timeout;
+            });
+        if (store is not null)
+        {
+            builder.Services.AddSingleton(store);
+        }
+
         return builder.Build();
     }
 
     internal static async Task EventuallyAsync(Func<Task<bool>> condition)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        while (!await condition()) await Task.Delay(20, timeout.Token);
+        while (!await condition())
+        {
+            await Task.Delay(20, timeout.Token);
+        }
     }
 
     public sealed class Probe
@@ -156,17 +193,31 @@ public sealed class WorkerTests
             ScopeIds.Add(scope);
             var active = Interlocked.Increment(ref Active);
             int observed;
-            do { observed = Volatile.Read(ref Maximum); } while (active > observed && Interlocked.CompareExchange(ref Maximum, active, observed) != observed);
+            do
+            {
+                observed = Volatile.Read(ref Maximum);
+            } while (active > observed && Interlocked.CompareExchange(ref Maximum, active, observed) != observed);
         }
     }
-    public sealed class ScopeMarker { public Guid Id { get; } = Guid.NewGuid(); }
+    public sealed class ScopeMarker
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+    }
     public sealed class BlockingHandler(Probe probe, ScopeMarker marker) : IJobHandler<Alpha>
     {
         public async Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken)
         {
             probe.Enter(marker.Id);
-            try { await probe.Gate.WaitAsync(probe.IgnoreCancellation ? CancellationToken.None : cancellationToken); return JobResult.Done(); }
-            finally { Interlocked.Decrement(ref probe.Active); }
+            try
+            {
+                await probe.Gate.WaitAsync(probe.IgnoreCancellation ? CancellationToken.None : cancellationToken);
+
+                return JobResult.Done();
+            }
+            finally
+            {
+                Interlocked.Decrement(ref probe.Active);
+            }
         }
     }
     public interface IMissingDependency;

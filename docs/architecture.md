@@ -69,13 +69,13 @@ The builder produces a data-only acyclic graph of stable step IDs, contract iden
 
 Step states and outputs are persisted. Success activates eligible successors in the same transaction. Conditions are evaluated from persisted outputs and selected/skipped states are retained. Dependency joins wait for all predecessors to terminate; all must have succeeded or been deliberately skipped, and at least one predecessor must have succeeded. A skipped single predecessor skips its downstream chain. New graphs default to Suspend: terminal attempt failure creates an Incident and leaves dependent work waiting. Operator recovery preserves successful predecessors and attempt history. Stop policy retains terminal fail-and-skip semantics for schema-1 graphs; terminal runs never requeue siblings. Paused/incident runs stop admission while owned siblings may settle.
 
-Initial support includes sequences, conditional branches, parallel roots, dependency joins, and output-to-input property mappings. Arbitrary expressions, loops, human signals, child flows, compensation, and checkpoint forks are planned. Failed incident steps use the separate RecoverStep command with expected attempt, trusted actor, and idempotency. They are never retried through the standalone job endpoint.
+Initial support includes sequences, conditional branches, parallel roots, dependency joins, and output-to-input property mappings. Durable one-shot signals and timeouts are implemented. Arbitrary expressions, loops, child flows, compensation, and checkpoint forks are planned. Failed incident steps use the separate RecoverStep command with expected attempt, trusted actor, and idempotency. They are never retried through the standalone job endpoint.
 
 ## Observability and state
 
 `CorrelationId` groups unrelated runs and jobs. `WorkflowRunId` identifies one run. `StepId` identifies its definition node. `JobId` identifies one logical execution; attempt numbers identify tries. None of these substitute for an enqueue idempotency key.
 
-The dashboard reads JSON and recorded metadata without application deserialization. It filters executions by correlation and state, shows attempts and effective shared limits, and provides standalone retry and cancellation. Saved flow diagrams, transactional event timelines, worker capabilities, and attempt tracing are implemented. Deployment preflight compares a read snapshot of required processor/version/queue combinations with the complete proposed fleet. The dashboard compares the same inventory with recent heartbeats. Windowed metrics, retention, and protocol/semantic deployment compatibility remain release-plan items.
+The dashboard reads JSON and recorded metadata without application deserialization. It filters executions by correlation and state, shows attempts and effective shared limits, and provides standalone retry and cancellation. Saved flow diagrams, transactional event timelines, worker capabilities, and attempt tracing are implemented. Deployment preflight compares a read snapshot of required processor/version/queue combinations with the complete proposed fleet. The dashboard compares the same inventory with recent heartbeats. Bounded archives and separate receipt retention are implemented. Windowed metrics and arbitrary engine/semantic deployment compatibility remain release-plan items.
 
 ## Lifecycle, diagnostics, and schedules
 
@@ -84,3 +84,7 @@ Draft definitions live separately from the immutable graphs pinned by runs. CAS 
 Attempt errors retain protected exception details; progress/deadline observations never redefine lease ownership. The worker exposes standard ActivitySource/Meter instrumentation with bounded metric dimensions. Saved diagrams and event timelines use database read models rather than deployed handler assemblies.
 
 Recurring schedule lifecycle is independent of enable/pause admission. Cronos calculates five-field cron occurrences in an explicit time zone; provider transactions create occurrence/job/next-due state atomically. See scheduling.md for overlap and misfire policies and current processor-only targets.
+
+## Schema-3 operations
+
+Typed definitions/manual registration, coordinated aliases with shared admission, middleware/validation/retry policies, durable subscriptions, business transaction/outbox acceptance, signals, queue controls, replay, and bounded archival are implemented. See ADR-010, `identity-evolution.md`, `processor-lifecycle-and-extensibility.md`, and `operations-and-retention.md` for current contracts. The original design notes above remain useful context; these guides supersede earlier statements that those features were only planned.

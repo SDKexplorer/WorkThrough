@@ -36,12 +36,19 @@ public sealed class DeploymentTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var flow = new FlowBuilder("tests.deployment", 1).Step<Alpha>("first", new Alpha("a"), maxAttempts: 1)
             .Step<Beta>("next", new Beta("b")).After("first").Build();
-        var run = await new WorkflowClient(harness.Store).StartAsync(flow, new { });
+        var run = await new WorkflowClient(harness.Store).StartAsync(flow, new
+        {
+        });
         var first = (await harness.Store.ClaimAsync(new("w", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1))))!;
         await harness.Store.FailAsync(first.Id, first.LeaseToken!.Value, "incident", TimeSpan.Zero);
         var incident = await harness.Store.DeploymentRequirementsAsync();
         Assert.Equal(2, incident.Items.Count);
-        Assert.All(incident.Items, x => { Assert.Equal(1, x.OutstandingJobs); Assert.Equal(0, x.ReadyJobs); Assert.Null(x.OldestReadyAt); });
+        Assert.All(incident.Items, x =>
+        {
+            Assert.Equal(1, x.OutstandingJobs);
+            Assert.Equal(0, x.ReadyJobs);
+            Assert.Null(x.OldestReadyAt);
+        });
         await harness.Store.RecoverStepAsync(first.Id, 1, Command());
         var retry = (await harness.Store.ClaimAsync(new("w", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1))))!;
         var before = (await harness.Store.DeploymentRequirementsAsync()).ObservedAt;
@@ -69,7 +76,11 @@ public sealed class DeploymentTests
         await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command());
         var report = await store.DeploymentRequirementsAsync();
         Assert.Equal(2, report.Items.Count);
-        Assert.All(report.Items, x => { Assert.Equal(0, x.ReadyJobs); Assert.Null(x.OldestReadyAt); });
+        Assert.All(report.Items, x =>
+        {
+            Assert.Equal(0, x.ReadyJobs);
+            Assert.Null(x.OldestReadyAt);
+        });
         var target = Assert.Single(report.Items, x => x.Processor == schedule.Processor);
         Assert.Equal(1, target.EnabledSchedules);
         Assert.Equal(0, target.OutstandingJobs);

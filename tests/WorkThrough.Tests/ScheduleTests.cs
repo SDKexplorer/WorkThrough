@@ -40,7 +40,10 @@ public sealed class ScheduleTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var store = harness.Store;
-        var definition = Definition() with { Overlap = ScheduleOverlap.Coalesce };
+        var definition = Definition() with
+        {
+            Overlap = ScheduleOverlap.Coalesce
+        };
         await store.SaveScheduleDraftAsync(definition, 0, Command());
         await store.PublishScheduleAsync(definition.Key, 1, 1, Command());
         await store.SetScheduleEnabledAsync(definition.Key, 1, 2, true, Command());
@@ -58,7 +61,11 @@ public sealed class ScheduleTests
     [Fact]
     public void Daily_schedule_has_one_occurrence_on_the_fall_back_day()
     {
-        var schedule = Definition() with { Cron = "30 1 * * *", TimeZone = "America/New_York" };
+        var schedule = Definition() with
+        {
+            Cron = "30 1 * * *",
+            TimeZone = "America/New_York"
+        };
         var first = ScheduleClock.Next(schedule, DateTimeOffset.Parse("2026-11-01T00:00:00Z"))!.Value;
         var second = ScheduleClock.Next(schedule, first)!.Value;
         Assert.Equal(new DateTime(2026, 11, 1), first.UtcDateTime.Date);
@@ -71,7 +78,10 @@ public sealed class ScheduleTests
         await connection.OpenAsync();
         await using var query = connection.CreateCommand();
         query.CommandText = "UPDATE dj_schedules SET next_due=@due";
-        var parameter = query.CreateParameter(); parameter.ParameterName = "due"; parameter.Value = due.ToUnixTimeMilliseconds(); query.Parameters.Add(parameter);
+        var parameter = query.CreateParameter();
+        parameter.ParameterName = "due";
+        parameter.Value = due.ToUnixTimeMilliseconds();
+        query.Parameters.Add(parameter);
         await query.ExecuteNonQueryAsync();
     }
 }

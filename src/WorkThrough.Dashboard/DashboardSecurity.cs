@@ -9,7 +9,7 @@ namespace WorkThrough;
 public static class DashboardPermissions
 {
     public static IReadOnlyList<string> All { get; } = ["executions.read", "payloads.read", "jobs.retry", "jobs.cancel", "flows.recover",
-        "definitions.edit", "definitions.publish", "definitions.retire", "schedules.manage", "limits.manage", "audit.read"];
+        "definitions.edit", "definitions.publish", "definitions.retire", "schedules.manage", "limits.manage", "audit.read", "queues.manage", "workers.manage", "jobs.replay", "archives.manage"];
     public const string ClaimType = "workthrough.permission";
     public const string PolicyPrefix = "WorkThrough.";
 }
@@ -25,7 +25,11 @@ public static partial class DashboardEndpoints
 {
     private static Task<bool> AllowedAsync(HttpContext context, JobDashboardOptions options, string permission)
     {
-        if (options.AllowAnonymous) return Task.FromResult(true);
+        if (options.AllowAnonymous)
+        {
+            return Task.FromResult(true);
+        }
+
         return AuthorizeAsync();
         async Task<bool> AuthorizeAsync() => (await context.RequestServices.GetRequiredService<IAuthorizationService>()
             .AuthorizeAsync(context.User, new DashboardResource(context.Request.Path, new Dictionary<string, object?>(context.Request.RouteValues)),
@@ -38,9 +42,14 @@ public static partial class DashboardEndpoints
 
     private static OperationActor Actor(HttpContext context, JobDashboardOptions options)
     {
-        if (options.AllowAnonymous && context.User.Identity?.IsAuthenticated != true) return new("workthrough-development", "anonymous", "Development user");
+        if (options.AllowAnonymous && context.User.Identity?.IsAuthenticated != true)
+        {
+            return new("workthrough-development", "anonymous", "Development user");
+        }
+
         var subject = context.User.FindFirst("sub") ?? context.User.FindFirst(ClaimTypes.NameIdentifier)
             ?? throw new InvalidOperationException("Dashboard operators need a trusted sub or NameIdentifier claim.");
+
         return new(context.User.FindFirst("iss")?.Value ?? subject.Issuer, subject.Value, context.User.Identity?.Name);
     }
 
@@ -52,9 +61,24 @@ public static partial class DashboardEndpoints
         {
             var context = invocation.HttpContext;
             if (!await ValidTokenAsync(context, context.RequestServices.GetRequiredService<Microsoft.AspNetCore.Antiforgery.IAntiforgery>()))
-                return Results.BadRequest(new { error = "Invalid anti-forgery token." });
-            try { return await next(invocation); }
-            catch (StateConflictException exception) { return Results.Conflict(new { error = exception.Message }); }
-            catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+            {
+                return Results.BadRequest(new
+                {
+                    error = "Invalid anti-forgery token."
+                });
+            }
+
+            try
+            {
+                return await next(invocation);
+            }
+            catch (StateConflictException exception)
+            {
+                return Results.Conflict(new { error = exception.Message });
+            }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new { error = exception.Message });
+            }
         });
 }

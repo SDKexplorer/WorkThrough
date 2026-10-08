@@ -1,6 +1,6 @@
-using WorkThrough.Storage;
 using Microsoft.Data.Sqlite;
 using Npgsql;
+using WorkThrough.Storage;
 
 namespace WorkThrough.Tests;
 
@@ -26,16 +26,32 @@ internal sealed class StoreHarness : IAsyncDisposable
             await using var command = new NpgsqlCommand($"CREATE SCHEMA {schema}", connection);
             await command.ExecuteNonQueryAsync();
             var cs = new NpgsqlConnectionStringBuilder(admin) { SearchPath = schema }.ToString();
-            harness = new() { schema = schema, adminConnection = admin, ConnectionString = cs, NewStore = () => new PostgresJobStore(cs) };
+            harness = new()
+            {
+                schema = schema,
+                adminConnection = admin,
+                ConnectionString = cs,
+                NewStore = () => new PostgresJobStore(cs)
+            };
         }
         else
         {
             var directory = Path.Combine(Path.GetTempPath(), "durablejobs-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             var cs = new SqliteConnectionStringBuilder { DataSource = Path.Combine(directory, "jobs.db"), DefaultTimeout = 10 }.ToString();
-            harness = new() { directory = directory, ConnectionString = cs, NewStore = () => new SqliteJobStore(cs) };
+            harness = new()
+            {
+                directory = directory,
+                ConnectionString = cs,
+                NewStore = () => new SqliteJobStore(cs)
+            };
         }
-        if (initialize) await harness.Store.InitializeAsync();
+
+        if (initialize)
+        {
+            await harness.Store.InitializeAsync();
+        }
+
         return harness;
     }
 
@@ -48,6 +64,7 @@ internal sealed class StoreHarness : IAsyncDisposable
             await using var command = new NpgsqlCommand($"DROP SCHEMA {schema} CASCADE", connection);
             await command.ExecuteNonQueryAsync();
         }
+
         if (directory is not null)
         {
             SqliteConnection.ClearPool(new SqliteConnection(ConnectionString));

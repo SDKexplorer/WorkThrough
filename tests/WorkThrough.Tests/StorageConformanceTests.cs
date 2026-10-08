@@ -14,7 +14,10 @@ public sealed class StorageConformanceTests
     public static IEnumerable<object[]> Providers()
     {
         yield return ["sqlite"];
-        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_POSTGRES"))) yield return ["postgres"];
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_POSTGRES")))
+        {
+            yield return ["postgres"];
+        }
     }
 
     private static ClaimRequest Claim(string worker = "worker", TimeSpan? lease = null) =>
@@ -32,7 +35,9 @@ public sealed class StorageConformanceTests
             .OnFailure(FlowFailurePolicy.Stop)
             .Step<Alpha>("fails", new Alpha("a"), maxAttempts: 1)
             .Step<Beta>("sibling", new Beta("b"), maxAttempts: 3).Build();
-        var run = await new WorkflowClient(harness.Store).StartAsync(definition, new { });
+        var run = await new WorkflowClient(harness.Store).StartAsync(definition, new
+        {
+        });
         var first = (await harness.Store.ClaimAsync(Claim(lease: TimeSpan.FromMilliseconds(600))))!;
         var second = (await harness.Store.ClaimAsync(Claim(lease: TimeSpan.FromMilliseconds(600))))!;
         var failed = first.StepId == "fails" ? first : second;
@@ -41,11 +46,20 @@ public sealed class StorageConformanceTests
         Assert.Equal("Failed", (await harness.Store.GetWorkflowAsync(run))!.Status);
         switch (outcome)
         {
-            case "fail": Assert.True(await harness.Store.FailAsync(sibling.Id, sibling.LeaseToken!.Value, "retryable", TimeSpan.Zero)); break;
-            case "release": Assert.True(await harness.Store.ReleaseAsync(sibling.Id, sibling.LeaseToken!.Value, "shutdown")); break;
-            case "complete": Assert.True(await harness.Store.CompleteAsync(sibling.Id, sibling.LeaseToken!.Value, JobResult.Done())); break;
-            case "expire": await Task.Delay(750); break;
+            case "fail":
+                Assert.True(await harness.Store.FailAsync(sibling.Id, sibling.LeaseToken!.Value, "retryable", TimeSpan.Zero));
+                break;
+            case "release":
+                Assert.True(await harness.Store.ReleaseAsync(sibling.Id, sibling.LeaseToken!.Value, "shutdown"));
+                break;
+            case "complete":
+                Assert.True(await harness.Store.CompleteAsync(sibling.Id, sibling.LeaseToken!.Value, JobResult.Done()));
+                break;
+            case "expire":
+                await Task.Delay(750);
+                break;
         }
+
         Assert.Null(await harness.NewStore().ClaimAsync(Claim()));
         var saved = (await harness.Store.GetAsync(sibling.Id))!;
         Assert.Equal(outcome == "complete" ? JobStatus.Succeeded : JobStatus.Skipped, saved.Status);
@@ -86,13 +100,22 @@ public sealed class StorageConformanceTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         await harness.Store.SeedLimitsAsync([new(null, 3), new("tests.alpha", 1)]);
         var client = new JobClient(harness.Store);
-        for (var i = 0; i < 5; i++) { await client.EnqueueAsync(new Alpha(i.ToString())); await client.EnqueueAsync(new Beta(i.ToString())); }
+        for (var i = 0; i < 5; i++)
+        {
+            await client.EnqueueAsync(new Alpha(i.ToString()));
+            await client.EnqueueAsync(new Beta(i.ToString()));
+        }
+
         var claims = await Task.WhenAll(Enumerable.Range(0, 12).Select(i => Task.Run(() => harness.NewStore().ClaimAsync(Claim($"worker-{i}")))));
         var admitted = claims.OfType<JobRecord>().ToArray();
         Assert.Equal(3, admitted.Length);
         Assert.Single(admitted, x => x.Contract.Key == "tests.alpha");
         Assert.Equal(3, admitted.Select(x => x.Id).Distinct().Count());
-        foreach (var job in admitted) Assert.True(await harness.Store.CompleteAsync(job.Id, job.LeaseToken!.Value, JobResult.Done()));
+        foreach (var job in admitted)
+        {
+            Assert.True(await harness.Store.CompleteAsync(job.Id, job.LeaseToken!.Value, JobResult.Done()));
+        }
+
         Assert.NotNull(await harness.Store.ClaimAsync(Claim()));
     }
 
@@ -102,7 +125,11 @@ public sealed class StorageConformanceTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         await harness.Store.SetLimitAsync(new("tests.alpha", 0));
         var client = new JobClient(harness.Store);
-        for (var i = 0; i < 105; i++) await client.EnqueueAsync(new Alpha(i.ToString()));
+        for (var i = 0; i < 105; i++)
+        {
+            await client.EnqueueAsync(new Alpha(i.ToString()));
+        }
+
         var beta = await client.EnqueueAsync(new Beta("eligible"));
         Assert.Equal(beta, (await harness.Store.ClaimAsync(Claim()))!.Id);
         Assert.All((await harness.Store.ListAsync(new(Limit: 200))).Where(x => x.Contract.Key == "tests.alpha"), job => Assert.Equal(0, job.Attempt));
@@ -130,7 +157,11 @@ public sealed class StorageConformanceTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var client = new JobClient(harness.Store);
-        for (var i = 0; i < 3; i++) await client.EnqueueAsync(new Alpha(i.ToString()));
+        for (var i = 0; i < 3; i++)
+        {
+            await client.EnqueueAsync(new Alpha(i.ToString()));
+        }
+
         var first = (await harness.Store.ClaimAsync(Claim()))!;
         await harness.Store.SetLimitAsync(new(null, 0));
         await harness.Store.SeedLimitsAsync([new(null, 20)]);
@@ -153,8 +184,12 @@ public sealed class StorageConformanceTests
             var saved = (await harness.NewStore().GetAsync(id))!;
             Assert.True(saved.AvailableAt >= instant, "Persisted eligibility must never precede the requested instant.");
             Assert.True(saved.AvailableAt - instant < TimeSpan.FromMilliseconds(1));
-            if (instant == boundary) Assert.Equal(instant, saved.AvailableAt);
+            if (instant == boundary)
+            {
+                Assert.Equal(instant, saved.AvailableAt);
+            }
         }
+
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => client.EnqueueAsync(new Alpha("unrepresentable"), new(NotBefore: DateTimeOffset.MaxValue)));
     }
 
@@ -217,12 +252,22 @@ public sealed class StorageConformanceTests
             .Step<Beta>("approved").After("check").WhenOutput("check", "approved", true).BindInput("value", "value", "check")
             .Step<Beta>("rejected").After("check").WhenOutput("check", "approved", false).BindInput("value", "value", "check")
             .Build();
-        var runId = await new WorkflowClient(harness.Store).StartAsync(definition, new { value = "order-123" }, "flow:123");
+        var runId = await new WorkflowClient(harness.Store).StartAsync(definition, new
+        {
+            value = "order-123"
+        }, "flow:123");
         var root = (await harness.Store.ClaimAsync(Claim()))!;
         Assert.Equal("order-123", root.Payload.GetProperty("value").GetString());
-        Assert.True(await harness.Store.CompleteAsync(root.Id, root.LeaseToken!.Value, JobResult.From(new { approved = true, value = "from-output" })));
+        Assert.True(await harness.Store.CompleteAsync(root.Id, root.LeaseToken!.Value, JobResult.From(new
+        {
+            approved = true,
+            value = "from-output"
+        })));
         // Simulate a lost completion response. Retrying settlement cannot activate another child.
-        Assert.False(await harness.Store.CompleteAsync(root.Id, root.LeaseToken.Value, JobResult.From(new { approved = false })));
+        Assert.False(await harness.Store.CompleteAsync(root.Id, root.LeaseToken.Value, JobResult.From(new
+        {
+            approved = false
+        })));
         var restarted = harness.NewStore();
         var child = (await restarted.ClaimAsync(Claim()))!;
         Assert.Equal("approved", child.StepId);
@@ -241,10 +286,17 @@ public sealed class StorageConformanceTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var flow = new FlowBuilder("tests.versioned", 1).Step<Alpha>("first", new Alpha("v1")).Build();
         var client = new WorkflowClient(harness.Store);
-        await client.StartAsync(flow, new { });
+        await client.StartAsync(flow, new
+        {
+        });
         var changed = new FlowBuilder("tests.versioned", 1).Step<Beta>("different", new Beta("v2")).Build();
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.StartAsync(changed, new { }));
-        await client.StartAsync(changed with { Version = 2 }, new { });
+        await client.StartAsync(changed with
+        {
+            Version = 2
+        }, new
+        {
+        });
         var jobs = await harness.Store.ListAsync(new());
         Assert.Equal(2, jobs.Count);
         Assert.Contains(jobs, x => x.Contract.Key == "tests.alpha");
@@ -257,7 +309,9 @@ public sealed class StorageConformanceTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var flow = new FlowBuilder("tests.bad-output", 1).Step<Alpha>("first", new Alpha("x"))
             .Step<Beta>("next").After("first").BindInput("value", "missing", "first").Build();
-        var id = await new WorkflowClient(harness.Store).StartAsync(flow, new { });
+        var id = await new WorkflowClient(harness.Store).StartAsync(flow, new
+        {
+        });
         var root = (await harness.Store.ClaimAsync(Claim()))!;
         Assert.True(await harness.Store.CompleteAsync(root.Id, root.LeaseToken!.Value, JobResult.Done()));
         Assert.Equal(JobStatus.Succeeded, (await harness.Store.GetAsync(root.Id))!.Status);

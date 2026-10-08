@@ -1,78 +1,56 @@
-# Defining a processor before naming it, and renaming an identity
+# Stable identity and deliberate renames
 
-Status: design exploration, 2026-10-08. Attributed registration and stable execution identity already exist. The explicit-identity registration overload and alias attribute below are **proposed APIs**, not features in the current packages.
+Implemented in the local alpha. `IdentityTests` covers both providers, and `scripts/check-refactor.sh` uses separately published applications with the original processor DLL removed.
 
-## Separate implementation, identity, and display name
+Moving a class, namespace, folder, project, or assembly needs no job-data migration. Keep the permanent address, reference the new implementation project/package, rebuild the registration manifest, and deploy the worker. Stored work contains no CLR dispatch address.
 
-The processor class defines behavior. Its permanent identity addresses that behavior in stored jobs, schedules, and flow steps. A display name makes it readable in the console. These are separate choices.
-
-A processor class can be written before choosing its identity. Durable enqueue must still specify an identity before acceptance; a stored job cannot safely depend on a temporary class name or a fresh random value generated at startup. An identifier generated once by a scaffolding command and committed as a constant could be supported later. Regenerating it on builds, moves, or restarts would break queued work.
-
-The current package supports `[Processor("process.myorder", Version = 1)]`. Producers can enqueue with `new JobContractId("process.myorder", 1)` without referencing that class. That already survives class, namespace, project, and assembly moves.
-
-The existing identifier format is a lowercase key beginning with a letter. An opaque key such as `job.92d42c3a-62a9-4e50-ae24-89bd0b9b07ad` fits that format. Bare GUID strings are not a separate supported identity type. If this key is already persisted, changing a human-readable name should leave it intact. Display-name propagation to saved definitions/the console remains a separate roadmap item.
-
-## Proposed: assign the identity at composition time
+## Define the behavior first, assign its address later
 
 ```csharp
-public sealed record OrderInput(Guid OrderId);
-
-// No identity tied to this class's name or location.
-public sealed class ProcessOrder : IProcessor<OrderInput>
+[ManualProcessorRegistration]
+public sealed class SubmitOrder : IProcessor<OrderInput>
 {
-    public Task<JobResult> ProcessAsync(
-        OrderInput message, JobExecutionContext context, CancellationToken ct)
-        => Task.FromResult(JobResult.Done());
+    public Task<JobResult> ProcessAsync(OrderInput input,
+        JobExecutionContext context, CancellationToken ct) =>
+        Task.FromResult(JobResult.From(new OrderReceipt(input.OrderId)));
 }
 
 public static class OrderJobs
 {
-    public static readonly JobContractId Process = new("process.myorder", 1);
+    public static JobDefinition<OrderInput> Submit { get; } =
+        new("orders.submit", version: 1, displayName: "Submit order");
 }
 
-// Proposed overload: chooses the identity when assembling the worker.
-builder.Services.AddWorkThrough()
-    .AddProcessor<OrderInput, ProcessOrder>(OrderJobs.Process);
+services.AddWorkThrough()
+    .UsePostgreSql(connectionString)
+    .AddProcessor<OrderInput, SubmitOrder>(OrderJobs.Submit)
+    .AddWorker();
 
-// Existing producer API, independent of processor registration.
-await jobs.EnqueueAsync(OrderJobs.Process, new OrderInput(orderId), cancellationToken: ct);
+await jobs.EnqueueAsync(OrderJobs.Submit, order, cancellationToken: ct);
 ```
 
-The constant can live in a small contracts package shared by producers and workers. `ProcessorId.For<ProcessOrder>()` remains an attribute helper; it must not guess identities by looking at mutable global DI state. Explicit registration should reject a conflicting attribute rather than silently let generated and explicit registration create two different identities.
+The shared definition belongs in a contracts project. Producers need that project and Core; they do not need the processor assembly. `ManualProcessorRegistration` tells the optional generator that the composition root owns registration. Attributed and manual registration use the same catalog and conflict checks. `ReadInput` can deserialize saved compatibility fixtures using the engine's JSON settings.
 
-The current generator reports missing identity attributes. This addition therefore needs a deliberate manual-registration opt-out, including missing-registration/startup tests. Silencing diagnostics globally or silently skipping all unmarked processors would remove a useful guardrail. Both registration paths must compose into the existing catalog, with the same collision validation and invocation path.
+Display names describe behavior and may change independently. Permanent identities and their input/output meaning remain compatibility contracts. A new business meaning requires a new version or an explicit adapter; aliases do not transform payloads.
 
-## Proposed: retain an old identity as an explicit compatibility alias
+## Rename an address deliberately
 
-For a real identity change, prefer an old-to-current mapping to an attribute that mutates stored data at startup:
+A class move does not require this operation. When replacing an old arbitrary address with a meaningful one, retain the historical address as a direct alias:
 
 ```csharp
-// Proposed attribute, not available today.
-[Processor("process.myorder", Version = 1)]
-[ProcessorAlias("job.92d42c3a-62a9-4e50-ae24-89bd0b9b07ad", Version = 1)]
-public sealed class ProcessOrder : IProcessor<OrderInput>
-{
-    // Compatible implementation of the original input/output behavior.
-}
+var previous = new JobContractId("processor-7f40", 1);
+var current = new JobDefinition<OrderInput>("orders.submit");
+
+services.AddWorkThrough()
+    .UsePostgreSql(connectionString)
+    .AddProcessor<OrderInput, SubmitOrder>(current, previous)
+    .AddWorker();
 ```
 
-New producers use `process.myorder/v1`. Already saved work keeps its original identity and input and resolves through the declared alias to the deployed processor. Old producers can continue enqueueing the old key during a controlled rollout. Saved flow revisions and recurring schedule definitions remain immutable; an existing schedule continues creating jobs under its saved target until explicitly replaced. Do not silently rewrite that target just because a worker starts.
+The attributed equivalent is `[Processor("orders.submit")]` plus `[ProcessorAlias("processor-7f40")]`. Attribute and explicit canonical identity must agree. Aliases cannot collide, point at themselves, form chains, or divide versions of one key into different admission groups.
 
-This is a compatibility declaration, not a payload migration. An incompatible input/output shape or changed business meaning needs a versioned adapter/upcaster with tests. Aliasing arbitrary versions to the latest code is unsafe.
+Activate the complete reviewed mapping through `IProcessorRegistry.SetProcessorAliasesAsync(mappings, expectedRevision, administrativeCommand)`. This commits an audit entry and a new revision. Drain/stop workers and wait for every active valid lease to settle first. Deploy consumers for both addresses and restart them after activation. The registry refuses activation while leases are valid; workers presenting an old registry revision cannot claim another job. Do not mix schema-2 engines with schema-3 engines.
 
-### Required safety rules
+Old and new names share global and local per-type capacity. Limits configured under either name continue to apply. Old queued jobs, saved flow revisions, schedules, diagnostics, and request receipts retain their original identities. New producers use the new definition. A key reused with a different request is a conflict, even if both addresses dispatch to the same processor.
 
-- An old identity/version maps directly to exactly one target; reject collisions, alias chains, cycles, self-aliases, and ambiguous generated registrations before claiming work.
-- New workers advertise support for both identities. Preflight includes alias coverage and reports which compatibility mapping supplies it. Removing an alias must account for delayed work, active/paused/incident runs, enabled or paused schedule definitions, manual retries, old producers, and restore/retention windows; an empty ready queue is insufficient.
-- Keep the original identity in execution and attempt history. Record the resolved implementation/mapping as diagnostics. Ordinary reads and dashboards still need no application assemblies.
-- **Concurrency must span both names.** A catalog-only alias could let old-key and new-key jobs each consume a full per-type limit. A shared, persisted admission group and a fleet rollout rule are required before promising alias-transparent limits. Local worker limits must use the same group. Old workers unaware of the grouping must be drained before activating that guarantee.
-- Preserve the original logical JobId and effect idempotency key across retries. Define enqueue receipt behavior for old/new names explicitly: the current implementation rejects reuse of an enqueue key with a different processor identity. Do not silently change that rule or manufacture a second logical job during deployment.
-- Define who owns the mapping and how it is reconciled across workers. An old deployment must never overwrite a newer mapping. Changes affecting shared admission need revision checks and audit, not an uncoordinated write by every startup.
-
-These cross-cutting rules are why an alias needs more than another dictionary entry. Until implemented and provider-tested, keeping the permanent key unchanged is the supported refactoring path.
-
-## Explicit data migration remains a different operation
-
-Importing legacy Hangfire metadata, converting old payloads, and moving selected runs to another definition version are migration tools, not class-discovery behavior. They need a preview, counts and conflicts, explicit mappings, resumable/idempotent batches, source evidence, and audit. A random old key can only be mapped if it is known; no engine can infer a safe replacement from a renamed class.
-
-Recommended order: explicit identity-at-registration, useful display names, then coordinated aliases with shared admission and deployment checks. Keep payload upcasting and legacy import separate. Verification must include a package-only consumer, generated/manual coexistence, mixed-name concurrency on both providers, unchanged persisted jobs/flow definitions, idempotency conflicts, and a published old-to-new assembly replacement.
+Aliases cannot be removed through this API. Further renames must retain every historical address and flatten their mappings. Old producers, archived records, delayed schedules, and restored backups can outlive an empty queue. Automatic payload upcasting, Hangfire import, and alias retirement remain separate future work.

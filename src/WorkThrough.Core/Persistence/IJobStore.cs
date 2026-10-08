@@ -11,6 +11,8 @@ public interface IJobStore
     Task<bool> RenewAsync(Guid jobId, Guid leaseToken, TimeSpan duration, CancellationToken cancellationToken = default);
     Task<bool> CompleteAsync(Guid jobId, Guid leaseToken, JobResult result, CancellationToken cancellationToken = default);
     Task<bool> FailAsync(Guid jobId, Guid leaseToken, string error, TimeSpan retryDelay, CancellationToken cancellationToken = default);
+    Task<bool> RejectAsync(Guid jobId, Guid leaseToken, JobFailure failure, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This provider does not implement permanent rejection.");
     Task<bool> ReleaseAsync(Guid jobId, Guid leaseToken, string reason, CancellationToken cancellationToken = default);
     Task<bool> RetryAsync(Guid jobId, CancellationToken cancellationToken = default);
     Task<bool> CancelAsync(Guid jobId, CancellationToken cancellationToken = default);

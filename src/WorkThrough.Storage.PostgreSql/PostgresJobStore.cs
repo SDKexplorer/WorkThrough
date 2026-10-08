@@ -20,9 +20,14 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
         {
             // One short write boundary per store. Handlers never run while this lock is held.
             await ExecuteAsync(connection, transaction, "SELECT pg_advisory_xact_lock(68491730251)", cancellationToken);
+
             return transaction;
         }
-        catch { await transaction.DisposeAsync(); throw; }
+        catch
+        {
+            await transaction.DisposeAsync();
+            throw;
+        }
     }
 }
 
@@ -38,6 +43,13 @@ public static class PostgresRegistration
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IJobSchedules>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IDeploymentQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IProcessorRegistry>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IExecutionOperations>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IExecutionArchives>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IWorkflowSignals>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IJobOutbox>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IExecutionEvents>(sp => sp.GetRequiredService<PostgresJobStore>());
+
         return builder;
     }
 }

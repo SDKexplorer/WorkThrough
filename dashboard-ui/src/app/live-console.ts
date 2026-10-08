@@ -81,6 +81,11 @@ interface Schedule {
     misfire: string;
 }
 interface Worker {
+    descriptions?: {
+        identity: Processor;
+        canonicalIdentity: Processor;
+        displayName: string | null;
+    }[];
     workerId: string;
     seenAt: string;
     processors: Processor[];
@@ -118,6 +123,36 @@ interface DeploymentReport {
         workers: string[];
     }[];
 }
+interface QueueControl {
+    queue: string;
+    paused: boolean;
+    revision: number;
+}
+interface WorkerControl {
+    workerId: string;
+    draining: boolean;
+    revision: number;
+}
+interface Controls {
+    queues: QueueControl[];
+    workers: WorkerControl[];
+}
+interface Archive {
+    id: string;
+    kind: string;
+    correlationId: string | null;
+    archivedAt: string;
+    jobs: number;
+    sha256: string;
+    bodyAvailable: boolean;
+}
+interface Candidate {
+    id: string;
+    kind: string;
+    correlationId: string | null;
+    completedAt: string;
+    jobs: number;
+}
 interface Pending {
     title: string;
     path: string;
@@ -148,6 +183,10 @@ export class LiveConsoleComponent {
     readonly workers = signal<Worker[]>([]);
     readonly schedules = signal<Schedule[]>([]);
     readonly deployment = signal<DeploymentReport | null>(null);
+    readonly controls = signal<Controls>({ queues: [], workers: [] });
+    readonly archives = signal<Archive[]>([]);
+    readonly archiveCandidates = signal<Candidate[] | null>(null);
+    archiveBefore = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 16);
     readonly audit = signal<Audit[]>([]);
     readonly detail = signal<Detail | null>(null);
     readonly flow = signal<Flow | null>(null);
@@ -222,15 +261,27 @@ export class LiveConsoleComponent {
                 const filter = new URLSearchParams({ offset: String(this.offset) });
                 if (this.correlation) filter.set('correlationId', this.correlation);
                 if (this.status) filter.set('status', this.status);
-                const [jobs, stats, definitions, workers, schedules, deployment] =
-                    await Promise.all([
-                        this.request<Job[]>('/api/jobs?' + filter),
-                        this.request<Statistics>('/api/stats'),
-                        this.request<Definition[]>('/api/definitions'),
-                        this.request<Worker[]>('/api/workers'),
-                        this.request<Schedule[]>('/api/schedules'),
-                        this.request<DeploymentReport>('/api/deployment'),
-                    ]);
+                const [
+                    jobs,
+                    stats,
+                    definitions,
+                    workers,
+                    schedules,
+                    deployment,
+                    controls,
+                    archives,
+                ] = await Promise.all([
+                    this.request<Job[]>('/api/jobs?' + filter),
+                    this.request<Statistics>('/api/stats'),
+                    this.request<Definition[]>('/api/definitions'),
+                    this.request<Worker[]>('/api/workers'),
+                    this.request<Schedule[]>('/api/schedules'),
+                    this.request<DeploymentReport>('/api/deployment'),
+                    this.request<Controls>('/api/controls'),
+                    this.request<Archive[]>('/api/archives?' + filter),
+                ]);
+                this.controls.set(controls);
+                this.archives.set(archives);
                 this.jobs.set(jobs);
                 this.stats.set(stats);
                 this.definitions.set(definitions);
@@ -291,13 +342,90 @@ export class LiveConsoleComponent {
     openAction(action: string, job: Job) {
         this.ask({
             title:
-                action === 'recover'
-                    ? 'Recover failed step'
-                    : action === 'retry'
-                      ? 'Retry job'
-                      : 'Cancel job',
+                action === 'replay'
+                    ? 'Replay as a new job with a new effect key'
+                    : action === 'recover'
+                      ? 'Recover failed step'
+                      : action === 'retry'
+                        ? 'Retry job'
+                        : 'Cancel job',
             path: `/api/jobs/${job.id}/${action}`,
             expectedAttempt: job.attempt,
+        });
+    }
+    queues(): QueueControl[] {
+        const names = new Set([
+            ...this.controls().queues.map((q) => q.queue),
+            ...this.workers().flatMap((w) => w.queues),
+            ...this.jobs().map((j) => j.queue),
+        ]);
+        return [...names].sort().map(
+            (queue) =>
+                this.controls().queues.find((q) => q.queue === queue) ?? {
+                    queue,
+                    paused: false,
+                    revision: 0,
+                },
+        );
+    }
+    processorName(worker: Worker, processor: Processor): string {
+        return (
+            worker.descriptions?.find(
+                (d) => d.identity.key === processor.key && d.identity.version === processor.version,
+            )?.displayName ?? processor.key
+        );
+    }
+    workerControl(workerId: string): WorkerControl {
+        return (
+            this.controls().workers.find((w) => w.workerId === workerId) ?? {
+                workerId,
+                draining: false,
+                revision: 0,
+            }
+        );
+    }
+    queueAction(queue: QueueControl) {
+        this.ask({
+            title: `${queue.paused ? 'Resume' : 'Pause'} queue ${queue.queue}`,
+            path: '/api/queues',
+            expectedRevision: queue.revision,
+            wrapper: 'command',
+            value: { queue: queue.queue, paused: !queue.paused },
+        });
+    }
+    workerAction(workerId: string) {
+        const control = this.workerControl(workerId);
+        this.ask({
+            title: `${control.draining ? 'Resume' : 'Drain'} worker ${workerId}`,
+            path: '/api/workers',
+            expectedRevision: control.revision,
+            wrapper: 'command',
+            value: { workerId, draining: !control.draining },
+        });
+    }
+    async previewArchive() {
+        try {
+            const before = new Date(this.archiveBefore + 'Z').toISOString();
+            this.archiveCandidates.set(
+                await this.request<Candidate[]>(
+                    '/api/archives/preview?' + new URLSearchParams({ succeededBefore: before }),
+                ),
+            );
+        } catch (e) {
+            this.error.set(this.message(e));
+        }
+    }
+    archiveAction() {
+        this.ask({
+            title: 'Archive up to 10 completed executions or whole flows',
+            path: '/api/archives',
+            wrapper: 'command',
+            value: {
+                policy: {
+                    succeededBefore: new Date(this.archiveBefore + 'Z').toISOString(),
+                    batchSize: 10,
+                },
+            },
         });
     }
     definitionAction(action: string, definition: Definition) {
@@ -400,6 +528,7 @@ export class LiveConsoleComponent {
             if (pending.path.endsWith('/draft') && typeof result === 'number')
                 this.draftRevision.set(result);
             this.confirmation()?.nativeElement.close();
+            this.archiveCandidates.set(null);
             await this.refresh();
         } catch (e) {
             this.commandError.set(this.message(e) + ' Retrying here uses the same command ID.');
@@ -413,6 +542,9 @@ export class LiveConsoleComponent {
                 {
                     FlowIncident: 'Blocked by a flow incident',
                     FlowPaused: 'Flow admission paused',
+                    AwaitingSignal: 'Waiting for an external signal',
+                    QueuePaused: 'Queue admission paused',
+                    WorkersDraining: 'Capable workers are draining',
                     Dependencies: 'Waiting for predecessor steps',
                     RetryScheduled: 'Waiting for the next retry',
                     Scheduled: 'Scheduled for later',

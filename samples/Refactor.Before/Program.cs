@@ -1,9 +1,13 @@
-using WorkThrough;
-using WorkThrough.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using WorkThrough;
+using WorkThrough.Storage;
 
-if (args.Length != 2) throw new ArgumentException("Expected connection string and receipt path.");
+if (args.Length != 2)
+{
+    throw new ArgumentException("Expected connection string and receipt path.");
+}
+
 var builder = Host.CreateApplicationBuilder();
 builder.Services.AddWorkThrough().UseSqlite(args[0]).AddGeneratedJobs(typeof(Program).Assembly);
 using var host = builder.Build();
@@ -17,9 +21,15 @@ var rawId = await jobs.EnqueueAsync(ProcessorId.For<Legacy.Application.OldRawPro
     new(CorrelationId: "refactor-proof", NotBefore: due));
 var store = host.Services.GetRequiredService<IJobStore>();
 var premature = await store.ClaimAsync(new("proof", [ProcessorId.For<Legacy.Application.OldRawProcessor>()], ["default"], TimeSpan.FromSeconds(30)));
-if (premature is not null) throw new InvalidOperationException("Future-due work executed too early.");
+if (premature is not null)
+{
+    throw new InvalidOperationException("Future-due work executed too early.");
+}
+
 var flowId = await host.Services.GetRequiredService<WorkflowClient>().StartAsync(
-    new FlowBuilder("documents.raw-flow", 1).Step("generate", ProcessorId.For<Legacy.Application.OldRawProcessor>(), rawInput).Build(), new { });
+    new FlowBuilder("documents.raw-flow", 1).Step("generate", ProcessorId.For<Legacy.Application.OldRawProcessor>(), rawInput).Build(), new
+    {
+    });
 await File.WriteAllTextAsync(args[1], System.Text.Json.JsonSerializer.Serialize(new { id, rawId, flowId, due, rawInput }));
 Console.WriteLine($"Producer runtime: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
 await host.StopAsync();

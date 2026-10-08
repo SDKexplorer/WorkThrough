@@ -12,14 +12,15 @@
         <p class="nav-label">WORKSPACE</p>
         <nav aria-label="Console sections">
             @if (can('executions.read')) { @for (item of ['executions', 'definitions', 'schedules',
-            'workers']; track item) {
+            'workers', 'archives']; track item) {
             <button
                 type="button"
                 [attr.aria-current]="section() === item ? 'page' : null"
                 (click)="navigate(item)"
             >
                 {{ item === 'definitions' ? 'Flow definitions' : item === 'schedules' ? 'Schedules'
-                : item === 'workers' ? 'Workers & capacity' : 'Executions' }}
+                : item === 'workers' ? 'Workers & capacity' : item === 'archives' ? 'Archives' :
+                'Executions' }}
             </button>
             } } @if (can('audit.read')) {
             <button
@@ -44,8 +45,9 @@
                 <p class="eyebrow">WORKTHROUGH / OPERATIONS</p>
                 <h1>
                     {{ section() === 'definitions' ? 'Built to evolve.' : section() === 'workers' ?
-                    'Know your capacity.' : section() === 'audit' ? 'Every action, attributed.' :
-                    'Keep work moving.' }}
+                    'Know your capacity.' : section() === 'archives' ? 'Keep the history. Clear the
+                    queue.' : section() === 'audit' ? 'Every action, attributed.' : 'Keep work
+                    moving.' }}
                 </h1>
                 <p class="muted">
                     {{ section() === 'definitions' ? 'Draft, publish, and retire immutable flow
@@ -94,7 +96,8 @@
                     >Status<select [value]="status" (change)="status = $any($event.target).value">
                         <option value="">All statuses</option>
                         @for (state of ['Waiting', 'Queued', 'Running', 'Succeeded', 'Failed',
-                        'Skipped', 'Cancelled']; track state) {
+                        'Skipped', 'Cancelled', 'Rejected', 'Expired', 'AwaitingSignal']; track
+                        state) {
                         <option>{{ state }}</option>
                         }
                     </select></label
@@ -253,17 +256,24 @@
                 ['Failed','Cancelled'].includes(detail.job.status)) {
                 <button class="primary" (click)="openAction('retry', detail.job)">Retry job</button>
                 } @if (can('flows.recover') && flow()?.flow?.status === 'Incident' &&
-                ['Failed','Cancelled'].includes(detail.job.status)) {
+                ['Failed','Cancelled','Rejected','Expired'].includes(detail.job.status)) {
                 <button class="primary" (click)="openAction('recover', detail.job)">
                     Recover failed step
                 </button>
                 } @if (can('jobs.cancel') &&
-                ['Waiting','Queued','Running'].includes(detail.job.status)) {
+                ['Waiting','Queued','Running','AwaitingSignal'].includes(detail.job.status)) {
                 <button class="outline" (click)="openAction('cancel', detail.job)">
                     Cancel job
                 </button>
+                } @if (can('jobs.replay') && detail.job.contract.key !== 'workthrough.signal' &&
+                ['Succeeded','Failed','Cancelled','Rejected','Expired','Skipped'].includes(detail.job.status))
+                {
+                <button class="outline" (click)="openAction('replay', detail.job)">
+                    Replay as new job
+                </button>
                 }<span class="muted"
-                    >Attempts and external-effect idempotency keys are preserved.</span
+                    >Retry and recovery preserve effect keys. Replay creates a new job and effect
+                    key.</span
                 >
             </div>
             @if (flow(); as flow) {
@@ -552,6 +562,7 @@
                             <th>Local slots</th>
                             <th>Queues</th>
                             <th>Processors</th>
+                            <th>Admission</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -564,12 +575,27 @@
                             <td>
                                 @for (processor of worker.processors; track processor.key +
                                 processor.version) {
-                                <small>{{ processor.key }} · v{{ processor.version }}</small> }
+                                <small
+                                    >{{ processorName(worker, processor) }} · v{{ processor.version
+                                    }}</small
+                                ><small class="muted">{{ processor.key }}</small> }
+                            </td>
+                            <td>
+                                <span class="badge"
+                                    >{{ workerControl(worker.workerId).draining ? 'Draining' :
+                                    'Accepting' }}</span
+                                >
+                                @if (can('workers.manage')) {
+                                <button class="outline" (click)="workerAction(worker.workerId)">
+                                    {{ workerControl(worker.workerId).draining ? 'Resume' : 'Drain'
+                                    }}
+                                </button>
+                                }
                             </td>
                         </tr>
                         } @empty {
                         <tr>
-                            <td colspan="5" class="live-empty">No worker heartbeats recorded.</td>
+                            <td colspan="6" class="live-empty">No worker heartbeats recorded.</td>
                         </tr>
                         }
                     </tbody>
@@ -588,6 +614,132 @@
                 } @empty {
                 <p class="muted">No shared limits configured.</p>
                 }
+            </div>
+        </section>
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Queue admission</h2>
+                    <p class="muted">Pausing stops new attempts. Running processors can finish.</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Queue</th>
+                            <th>State</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (queue of queues(); track queue.queue) {
+                        <tr>
+                            <td><code>{{ queue.queue }}</code></td>
+                            <td>{{ queue.paused ? 'Paused' : 'Accepting' }}</td>
+                            <td>
+                                @if (can('queues.manage')) {
+                                <button class="outline" (click)="queueAction(queue)">
+                                    {{ queue.paused ? 'Resume' : 'Pause' }}
+                                </button>
+                                }
+                            </td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="3" class="live-empty">No queues observed.</td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        } @if (section() === 'archives') {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Execution archives</h2>
+                    <p class="muted">
+                        Completed flows are kept together. Request receipts and audit history remain
+                        available.
+                    </p>
+                </div>
+            </div>
+            <div class="live-filters">
+                <label
+                    >Correlation ID<input
+                        [value]="correlation"
+                        (input)="correlation = $any($event.target).value"
+                        placeholder="All correlations" /></label
+                ><button class="outline" (click)="applyFilters()">Filter</button>
+            </div>
+            @if (can('archives.manage')) {
+            <div class="live-filters">
+                <label
+                    >Succeeded before (UTC)<input
+                        type="datetime-local"
+                        [value]="archiveBefore"
+                        (input)="archiveBefore = $any($event.target).value; archiveCandidates.set(null)" /></label
+                ><button class="outline" (click)="previewArchive()">Preview archive batch</button>
+            </div>
+            @if (archiveCandidates(); as candidates) {
+            <div class="live-panel-heading">
+                <p>
+                    {{ candidates.length }} eligible units. Active and incident flows stay in the
+                    live store. Preview is store-wide; correlation filtering applies only to the
+                    list below.
+                </p>
+                <button
+                    class="primary"
+                    [disabled]="candidates.length === 0"
+                    (click)="archiveAction()"
+                >
+                    Archive completed work
+                </button>
+            </div>
+            } }
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Execution</th>
+                            <th>Correlation</th>
+                            <th>Archived</th>
+                            <th>Jobs</th>
+                            <th>Evidence</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (archive of archives(); track archive.id) {
+                        <tr>
+                            <td>
+                                <strong>{{ archive.kind }}</strong
+                                ><small><code>{{ archive.id }}</code></small>
+                            </td>
+                            <td>{{ archive.correlationId ?? '—' }}</td>
+                            <td>{{ archive.archivedAt | date:'medium' }}</td>
+                            <td>{{ archive.jobs }}</td>
+                            <td>
+                                @if (can('payloads.read') && archive.bodyAvailable) {
+                                <a
+                                    class="outline"
+                                    [href]="base + '/api/archives/' + archive.id + '/export'"
+                                    >Export JSON</a
+                                >
+                                }<small
+                                    ><code [title]="archive.sha256"
+                                        >SHA-256 {{ archive.sha256.slice(0, 12) }}…</code
+                                    ></small
+                                >
+                            </td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="5" class="live-empty">No archives match this filter.</td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
             </div>
         </section>
         } @if (section() === 'audit') {

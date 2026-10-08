@@ -17,8 +17,15 @@ public sealed record JobContractId
     public JobContractId(string key, int version)
     {
         if (string.IsNullOrWhiteSpace(key) || !Regex.IsMatch(key, "^[a-z][a-z0-9.-]{0,119}$"))
+        {
             throw new ArgumentException("Job keys must be lowercase identifiers, for example invoices.generate.", nameof(key));
-        if (version < 1) throw new ArgumentOutOfRangeException(nameof(version));
+        }
+
+        if (version < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(version));
+        }
+
         Key = key;
         Version = version;
     }
@@ -32,6 +39,7 @@ public sealed record JobContractId
     {
         var attribute = type.GetCustomAttribute<JobContractAttribute>()
             ?? throw new InvalidOperationException($"{type.FullName} needs an explicit [JobContract] identity.");
+
         return new(attribute.Key, attribute.Version);
     }
 

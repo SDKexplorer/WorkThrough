@@ -47,3 +47,9 @@ Read `README.md`, `docs/architecture.md`, and `docs/plan.md` before changing beh
 Run `./scripts/verify.sh` for build, tests, refactor survival, and local packages. PostgreSQL tests require `DURABLEJOBS_POSTGRES` pointing to a disposable test database; see `docs/providers.md`. Do not point integration tests at production data.
 
 Repository skills live under `.agents/skills/`. Use the provider skill for persistence changes and the release skill for packaging or release verification.
+
+## Readability
+
+Use four-space indentation and consistent Allman braces. Expand multi-statement blocks. Separate a completed control-flow block from the next statement with a blank line; do not add a blank line merely before a closing brace. Put a blank line before a return that follows other statements in the same scope. A scope containing only a return needs no extra blank line. Keep related statements together, prefer named application definitions/configuration to repeated string literals, and extract focused methods when a lifecycle operation becomes difficult to read.
+
+Run `scripts/format.sh` to apply Roslyn brace/whitespace formatting and the syntax-aware spacing rules, and `scripts/format.sh --check` to enforce them. Strings, raw SQL, comments, and generated output are not edited as executable statements.

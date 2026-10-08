@@ -3,8 +3,14 @@ using Cronos;
 
 namespace WorkThrough;
 
-public enum ScheduleOverlap { Allow, SkipIfActive, Coalesce }
-public enum ScheduleMisfire { Skip, Coalesce, CatchUp }
+public enum ScheduleOverlap
+{
+    Allow, SkipIfActive, Coalesce
+}
+public enum ScheduleMisfire
+{
+    Skip, Coalesce, CatchUp
+}
 public sealed record ScheduleDefinition(string Key, int Version, string Cron, string TimeZone, JobContractId Processor,
     JsonElement Input, string Queue = "default", int MaxAttempts = 3, ScheduleOverlap Overlap = ScheduleOverlap.SkipIfActive,
     ScheduleMisfire Misfire = ScheduleMisfire.Coalesce, string? CorrelationId = null);
@@ -20,15 +26,23 @@ public static class ScheduleClock
         ArgumentNullException.ThrowIfNull(definition.Processor);
         if (definition.Input.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null || string.IsNullOrWhiteSpace(definition.Queue)
             || definition.MaxAttempts < 1 || !Enum.IsDefined(definition.Overlap) || !Enum.IsDefined(definition.Misfire))
+        {
             throw new ArgumentException("Invalid schedule input, queue, retry count, or policy.");
+        }
+
         _ = Next(definition, DateTimeOffset.UtcNow);
     }
 
     public static DateTimeOffset? Next(ScheduleDefinition definition, DateTimeOffset after)
     {
-        try { return CronExpression.Parse(definition.Cron).GetNextOccurrence(after, TimeZoneInfo.FindSystemTimeZoneById(definition.TimeZone)); }
+        try
+        {
+            return CronExpression.Parse(definition.Cron).GetNextOccurrence(after, TimeZoneInfo.FindSystemTimeZoneById(definition.TimeZone));
+        }
         catch (Exception exception) when (exception is CronFormatException or TimeZoneNotFoundException or InvalidTimeZoneException)
-        { throw new ArgumentException("The schedule requires a valid five-field cron expression and installed time zone.", exception); }
+        {
+            throw new ArgumentException("The schedule requires a valid five-field cron expression and installed time zone.", exception);
+        }
     }
 }
 

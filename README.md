@@ -26,19 +26,27 @@ Start with the [samples](samples/README.md). Contributors should read [CONTRIBUT
 ## Processor identity survives refactoring
 
 ```csharp
-[Processor("invoices.generate", Version = 1, DisplayName = "Generate invoice")]
-public sealed class GenerateInvoice : IProcessor<string>
+public static class InvoiceJobs
+{
+    public static JobDefinition<InvoiceInput> Generate { get; } =
+        new("invoices.generate", displayName: "Generate invoice");
+}
+
+[ManualProcessorRegistration]
+public sealed class GenerateInvoice : IProcessor<InvoiceInput>
 {
     public async Task<JobResult> ProcessAsync(
-        string message, JobExecutionContext context, CancellationToken ct)
+        InvoiceInput invoice, JobExecutionContext context, CancellationToken ct)
     {
-        var invoice = JsonSerializer.Deserialize<InvoiceInput>(message, JobJson.Options)!;
         await context.ReportProgressAsync("Input validated", ct);
-        // Call your service; deduplicate external effects using context.IdempotencyKey.
-        return JobResult.From(new { invoice.InvoiceId, generated = true });
+        // Call your service; deduplicate effects using context.IdempotencyKey.
+
+        return JobResult.From(new InvoiceOutput(invoice.InvoiceId, Generated: true));
     }
 }
+
 public sealed record InvoiceInput(string InvoiceId);
+public sealed record InvoiceOutput(string InvoiceId, bool Generated);
 ```
 
 The database stores the permanent processor key, contract version, and input. It never dispatches using a stored CLR type, method, or assembly-qualified name. Several processors can accept the same input type, including `string`. Typed `[JobContract]` / `IJobHandler<T>` registration remains available through the same registry.
@@ -54,27 +62,27 @@ Seven local NuGet packages separate Core, Hosting, Dashboard, Generators, relati
 ```csharp
 builder.Services.AddWorkThrough()
     .UseSqlite("Data Source=jobs.db") // Or UsePostgreSql(connectionString).
-    .AddGeneratedJobs(typeof(Program).Assembly)
-    .SeedClusterLimits(new(null, 20), new("invoices.generate", 3))
+    .AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)
+    .SeedClusterLimits(new(null, 20), new(InvoiceJobs.Generate.Identity.Key, 3))
     .AddScheduler()
     .AddWorker(options =>
     {
         options.MaxConcurrentJobs = 8;
-        options.PerJobLimits["invoices.generate"] = 2;
+        options.PerJobLimits[InvoiceJobs.Generate.Identity.Key] = 2;
         options.ExecutionTimeout = TimeSpan.FromMinutes(5);
         options.ProgressTimeout = TimeSpan.FromMinutes(1);
     });
 ```
 
-Reference `WorkThrough.Generators` with `PrivateAssets="all"` in processor projects and the worker composition root, or use `.AddProcessor<string, GenerateInvoice>()`. Generated registration rejects inaccessible processors and missing stable IDs; conflicting implementations fail at catalog composition. Worker startup resolves handler dependencies before claiming work.
+Reference `WorkThrough.Generators` with `PrivateAssets="all"` in processor projects and the worker composition root, or register explicitly with `.AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)`. Generated registration rejects inaccessible processors and missing stable IDs; conflicting implementations fail at catalog composition. Worker startup resolves handler dependencies before claiming work.
 
 Inject `JobClient`:
 
 ```csharp
-await jobs.EnqueueAsync(ProcessorId.For<GenerateInvoice>(), json,
-    new(CorrelationId: "invoice:123", IdempotencyKey: "invoice:123"), ct);
-await jobs.EnqueueAsync(new JobContractId("invoices.generate", 1), json,
-    new(NotBefore: DateTimeOffset.UtcNow.AddHours(1)), ct);
+await jobs.EnqueueAsync(InvoiceJobs.Generate, invoice,
+    new(CorrelationId: correlationId, IdempotencyKey: requestKey), ct);
+await jobs.EnqueueAsync(InvoiceJobs.Generate, invoice,
+    new(NotBefore: scheduledAt), ct);
 ```
 
 The explicit key overload lets producer-only hosts enqueue without the processor DLL. Producer, scheduler, BackgroundService worker, API dashboard, and standalone dashboard roles can be deployed independently. The host controls port/address; `MapWorkThroughDashboard("/operations/jobs")` controls the mount path. Generic workers need no HTTP listener. SQLite requires a shared **absolute local file path** for separate local processes; use PostgreSQL for a multi-machine fleet.
@@ -123,15 +131,23 @@ dotnet build WorkThrough.slnx -m:1
 ASPNETCORE_ENVIRONMENT=Development dotnet run --project samples/Demo.Host --urls http://127.0.0.1:5295
 ```
 
-Open `/operations/jobs`. In Development, POST `{ "orderId": "123", "amount": 250 }` to `/demo/orders`; an amount above 1000 selects the review branch, and a negative amount creates an intentional incident. The [direct processor sample](samples/Demo.Processor) demonstrates raw-string, delayed, and recurring work; `--once` performs a smoke test.
+Open `/operations/jobs`. In Development, POST `{ "orderId": "123", "amount": 250 }` to `/demo/orders`; an amount above 1000 selects the review branch, and a negative amount creates an intentional incident. The [direct processor sample](samples/Demo.Processor) demonstrates typed definitions, configurable delayed and recurring work; `--once` performs a smoke test.
 
 `./scripts/verify.sh` builds the frontend and libraries, tests both runtimes, proves cross-runtime assembly relocation, packs NuGet artifacts, and runs isolated package-only consumers with SDK 8 and SDK 10. Set `DURABLEJOBS_POSTGRES` to a disposable database to include PostgreSQL; see [provider instructions](docs/providers.md). If .NET 8 is installed separately, set `WORKTHROUGH_DOTNET8` to its absolute executable path. Local packages are written to `artifacts/packages`.
 
+## Operational extensions and performance
+
+Typed `JobDefinition<T>` addresses let producers and processors share contracts without sharing implementation DLLs. Assign identities at registration, add compatible historical aliases, and activate the reviewed mapping with fleet fencing. See [identity evolution](docs/identity-evolution.md).
+
+The engine includes scoped middleware/validation/retry policies, rejection/deferral, local observers, durable event cursors, queue pause, worker drain, expiry, causation-aware replay, signals/timeouts, transaction/outbox acceptance, and bounded whole-execution archives. The [operations guide](docs/operations-and-retention.md) explains their boundaries; schema-3 upgrades require stopping old engine writers.
+
+Run `scripts/format.sh` for braces, statement spacing, and the requested blank lines; CI enforces `--check`. `scripts/performance.sh --full` starts independent worker processes on disposable SQLite/PostgreSQL stores and records latency distributions, throughput, CPU/memory, environment, and correctness assertions. See [performance methodology and results](docs/performance.md).
+
 ## Release boundaries
 
-Execution is at least once. Arbitrary side effects cannot be undone by rewinding engine state. Compensation/checkpoint forks, transactional business outboxes, durable external signals/child flows, SQL Server and further providers, legacy import/upcasting, retention automation, partition/rate limits, and production performance/fault campaigns remain in the [plan](docs/plan.md). External OIDC login requires a configured identity provider and has not been verified against a real account. There is no production certification or Native AOT claim.
+Execution is at least once. Arbitrary side effects cannot be undone by rewinding engine state. Compensation/checkpoint forks, child flows, SQL Server and further providers, legacy import/upcasting, automatic retention policy, partition/rate limits, and deployment-specific production soak/partition campaigns remain in the [plan](docs/plan.md). External OIDC login requires a configured identity provider and has not been verified against a real account. There is no production certification or Native AOT claim.
 
-The [typed processor and lifecycle exploration](docs/processor-lifecycle-and-extensibility.md) distinguishes existing APIs from proposed middleware, retry policies, and durable subscriptions.
-The [identity evolution design](docs/identity-evolution.md) covers defining a processor before assigning its key and a proposed old-ID alias mechanism, including shared concurrency and rollout requirements.
+The [typed processor and lifecycle exploration](docs/processor-lifecycle-and-extensibility.md) distinguishes existing APIs from implemented middleware, retry policies, and durable subscriptions.
+The [identity evolution design](docs/identity-evolution.md) covers defining a processor before assigning its key and coordinated old-ID aliases, including shared concurrency and rollout requirements.
 
 See [architecture](docs/architecture.md), [decisions](docs/adr), [requirements](specs/durable-jobs.spec.md), [community research](docs/research.md), [verification](docs/verification.md), and [contributor guardrails](AGENTS.md).

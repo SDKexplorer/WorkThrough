@@ -6,8 +6,12 @@ public sealed record InputBinding(string TargetProperty, string? SourceStep, str
 public sealed record FlowCondition(string SourceStep, string Property, JsonElement Expected);
 public sealed record FlowStep(
     string Id, JobContractId Contract, JsonElement Input, string Queue,
-    string[] After, InputBinding[] Bindings, FlowCondition? Condition, int MaxAttempts);
-public enum FlowFailurePolicy { Stop, Suspend }
+    string[] After, InputBinding[] Bindings, FlowCondition? Condition, int MaxAttempts,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] SignalWait? Signal = null);
+public enum FlowFailurePolicy
+{
+    Stop, Suspend
+}
 public sealed record FlowDefinition(string Key, int Version, FlowStep[] Steps, FlowFailurePolicy FailurePolicy = FlowFailurePolicy.Stop);
 public sealed record WorkflowRun(Guid Id, string FlowKey, int Version, string? CorrelationId, string Status, string? Error);
 
@@ -20,7 +24,12 @@ public sealed class FlowBuilder
     private FlowFailurePolicy failurePolicy = FlowFailurePolicy.Suspend;
 
     /// <summary>Suspend retains dependent work for recovery; Stop permanently skips remaining work.</summary>
-    public FlowBuilder OnFailure(FlowFailurePolicy policy) { failurePolicy = policy; return this; }
+    public FlowBuilder OnFailure(FlowFailurePolicy policy)
+    {
+        failurePolicy = policy;
+
+        return this;
+    }
 
     public FlowBuilder(string key, int version)
     {
@@ -32,16 +41,38 @@ public sealed class FlowBuilder
     public FlowBuilder Step<TJob>(string id, object? input = null, string queue = "default", int maxAttempts = 3)
         => Step(id, JobContractId.For<TJob>(), input, queue, maxAttempts);
 
+    /// <summary>Adds an invocation using a shared typed definition.</summary>
+    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition, TInput input, string queue = "default", int maxAttempts = 3)
+        => Step(id, definition.Identity, input, queue, maxAttempts);
+
     /// <summary>Adds a processor invocation without a dependency on its implementation assembly.</summary>
     public FlowBuilder Step(string id, JobContractId processor, object? input = null, string queue = "default", int maxAttempts = 3)
     {
         ArgumentNullException.ThrowIfNull(processor);
         if (string.IsNullOrWhiteSpace(id) || steps.Any(x => x.Id == id))
+        {
             throw new ArgumentException("Step IDs must be non-empty and unique.", nameof(id));
-        if (string.IsNullOrWhiteSpace(queue) || maxAttempts < 1) throw new ArgumentException("Invalid queue or retry policy.");
-        steps.Add(new(id, processor, JsonSerializer.SerializeToElement(input ?? new { }, JobJson.Options),
+        }
+
+        if (string.IsNullOrWhiteSpace(queue) || maxAttempts < 1)
+        {
+            throw new ArgumentException("Invalid queue or retry policy.");
+        }
+
+        steps.Add(new(id, processor, JsonSerializer.SerializeToElement(input ?? new
+        {
+        }, JobJson.Options),
             queue, [], [], null, maxAttempts));
+
         return this;
+    }
+
+    /// <summary>Persists a signal wait without invoking a processor or holding a worker lease.</summary>
+    public FlowBuilder WaitForSignal<TInput>(string id, SignalDefinition<TInput> signal, TimeSpan timeout)
+    {
+        Step(id, SignalWait.Processor);
+
+        return Change(step => step with { Signal = new(signal.Name, timeout) });
     }
 
     public FlowBuilder After(params string[] predecessors) => Change(step => step with { After = predecessors.Distinct().ToArray() });
@@ -56,23 +87,41 @@ public sealed class FlowBuilder
     {
         var definition = new FlowDefinition(key, version, steps.ToArray(), failurePolicy);
         FlowValidator.Validate(definition);
+
         return definition;
     }
 
     private FlowBuilder Change(Func<FlowStep, FlowStep> change)
     {
-        if (steps.Count == 0) throw new InvalidOperationException("Add a step first.");
+        if (steps.Count == 0)
+        {
+            throw new InvalidOperationException("Add a step first.");
+        }
+
         steps[^1] = change(steps[^1]);
+
         return this;
     }
 }
 
 public sealed class WorkflowClient(IJobStore store)
 {
+    public Task<bool> SignalAsync<TInput>(Guid runId, SignalDefinition<TInput> signal, TInput input, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (store is not IWorkflowSignals signals)
+        {
+            throw new NotSupportedException("This provider does not support durable signals.");
+        }
+
+        return signals.SignalAsync(runId, signal.Name, JsonSerializer.SerializeToElement(input, JobJson.Options), idempotencyKey, cancellationToken);
+    }
+
     /// <summary>Starts a new run. Correlation groups observations and does not deduplicate requests.</summary>
     public Task<Guid> StartAsync<T>(FlowDefinition definition, T input, string? correlationId = null, CancellationToken cancellationToken = default)
     {
         FlowValidator.Validate(definition);
+
         return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), correlationId, cancellationToken);
     }
 
@@ -82,6 +131,7 @@ public sealed class WorkflowClient(IJobStore store)
     {
         FlowValidator.Validate(definition);
         ValidateIdempotencyKey(idempotencyKey);
+
         return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), correlationId, idempotencyKey, cancellationToken);
     }
 
@@ -89,6 +139,8 @@ public sealed class WorkflowClient(IJobStore store)
     public static void ValidateIdempotencyKey(string idempotencyKey)
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 256)
+        {
             throw new ArgumentException("Flow idempotency keys must contain 1–256 characters and cannot be whitespace.", nameof(idempotencyKey));
+        }
     }
 }

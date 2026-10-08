@@ -7,6 +7,7 @@ runtime8="${WORKTHROUGH_DOTNET8:-dotnet}"
 (cd dashboard-ui && npm ci && npm run format:check && npm run build)
 dotnet restore WorkThrough.slnx --disable-parallel -m:1 -nr:false
 dotnet build WorkThrough.slnx -c Release --no-restore -m:1 -nr:false -p:UseSharedCompilation=false
+./scripts/format.sh --check
 dotnet test tests/WorkThrough.Tests -c Release -f net10.0 --no-build --no-restore -m:1 -nr:false
 sdk8_dir="$(mktemp -d "$repo_dir/artifacts/consumer-sdk8-XXXXXXXX")"
 cp tests/PackageConsumer/PackageConsumer.csproj tests/PackageConsumer/Program.cs "$sdk8_dir/"
@@ -32,3 +33,9 @@ else
   test "$preflight_status" -eq 2
   echo 'PASS: deployment preflight rejected a worker that does not support persisted invoice work.'
 fi
+
+lifecycle_dir="$(mktemp -d "$repo_dir/artifacts/lifecycle-sample-XXXXXXXX")"
+Lifecycle__BusinessConnection="Data Source=$lifecycle_dir/business.db" Lifecycle__JobsConnection="Data Source=$lifecycle_dir/jobs.db" "$runtime8" samples/Demo.Lifecycle/bin/Release/net8.0/Demo.Lifecycle.dll
+
+# Independent process termination and a bounded performance/correctness smoke campaign.
+WORKTHROUGH_DOTNET8="$runtime8" ./scripts/performance.sh --smoke

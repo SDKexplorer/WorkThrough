@@ -26,6 +26,7 @@ public static class ProcessorId
     {
         var attribute = processorType.GetCustomAttribute<ProcessorAttribute>()
             ?? throw new InvalidOperationException($"{processorType.FullName} needs an explicit [Processor] identity.");
+
         return new(attribute.Id, attribute.Version);
     }
 }

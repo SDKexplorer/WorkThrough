@@ -44,11 +44,13 @@ import { Component, computed, input, output } from '@angular/core';
                     (click)="choose.emit(node.id)"
                 >
                     <span class="muted">{{
-                        node.conditional
-                            ? 'Conditional step'
-                            : node.after.length
-                              ? 'After ' + node.after.join(', ')
-                              : 'Start'
+                        node.contract.key === 'workthrough.signal'
+                            ? 'Wait for signal'
+                            : node.conditional
+                              ? 'Conditional step'
+                              : node.after.length
+                                ? 'After ' + node.after.join(', ')
+                                : 'Start'
                     }}</span>
                     <strong>{{ node.id }}</strong
                     ><code>{{ node.contract.key }}</code>

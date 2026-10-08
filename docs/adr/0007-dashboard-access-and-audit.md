@@ -2,6 +2,8 @@
 
 ## Status
 
+Implemented in the local alpha. The detailed proposal below is retained as decision history; current APIs and tested boundaries are in `docs/dashboard-security.md` and `docs/verification.md`. Live OIDC account login remains deployment-specific.
+
 Proposed implementation direction, 7 October 2026, following the user's request for authentication, user management, and attribution of administrative actions. Basic host authentication and anti-forgery validation already exist. Fine-grained permissions, account integration samples, and durable administrative audit are not implemented.
 
 WorkThrough is the accepted working product name. Existing source namespaces, APIs, NuGet IDs, and the earlier Angular concept still use their previous names pending a coordinated rename. This ADR does not describe available package APIs.

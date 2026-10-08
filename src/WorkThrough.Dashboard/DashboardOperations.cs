@@ -1,0 +1,53 @@
+using System.Text;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+
+namespace WorkThrough;
+
+public sealed record QueueControlCommand(string Queue, bool Paused, DashboardCommand Command);
+public sealed record WorkerControlCommand(string WorkerId, bool Draining, DashboardCommand Command);
+public sealed record ArchiveCommand(ArchivePolicy Policy, DashboardCommand Command);
+
+public static partial class DashboardEndpoints
+{
+    private static void MapOperations(RouteGroupBuilder group, JobDashboardOptions options)
+    {
+        group.MapGet("/api/controls", async (IExecutionOperations operations, CancellationToken ct) =>
+            Results.Json(new
+            {
+                queues = await operations.QueuesAsync(ct),
+                workers = await operations.WorkerControlsAsync(ct)
+            }, JsonOptions))
+            .WithPermission(options, "executions.read");
+        group.MapPost("/api/queues", async (QueueControlCommand request, HttpContext context, IExecutionOperations operations, CancellationToken ct) =>
+            Results.Json(await operations.SetQueuePausedAsync(request.Queue, request.Paused, request.Command.ExpectedRevision, Command(context, options, request.Command), ct)))
+            .Mutation(options, "queues.manage");
+        group.MapPost("/api/workers", async (WorkerControlCommand request, HttpContext context, IExecutionOperations operations, CancellationToken ct) =>
+            Results.Json(await operations.SetWorkerDrainingAsync(request.WorkerId, request.Draining, request.Command.ExpectedRevision, Command(context, options, request.Command), ct)))
+            .Mutation(options, "workers.manage");
+        group.MapPost("/api/jobs/{id:guid}/replay", async (Guid id, DashboardCommand request, HttpContext context, IExecutionOperations operations, CancellationToken ct) =>
+            Results.Json(await operations.ReplayAsync(id, Command(context, options, request), ct)))
+            .Mutation(options, "jobs.replay");
+        group.MapGet("/api/archives", async (string? correlationId, IExecutionArchives archives, CancellationToken ct) =>
+            Results.Json(await archives.ArchivesAsync(correlationId, cancellationToken: ct), JsonOptions))
+            .WithPermission(options, "executions.read");
+        group.MapGet("/api/archives/preview", async (DateTimeOffset succeededBefore, DateTimeOffset? failedBefore, IExecutionArchives archives, CancellationToken ct) =>
+            Results.Json(await archives.ArchiveCandidatesAsync(new(succeededBefore, failedBefore), ct), JsonOptions))
+            .WithPermission(options, "archives.manage");
+        group.MapPost("/api/archives", async (ArchiveCommand request, HttpContext context, IExecutionArchives archives, CancellationToken ct) =>
+            Results.Json(await archives.ArchiveCompletedAsync(request.Policy, Command(context, options, request.Command), ct), JsonOptions))
+            .Mutation(options, "archives.manage");
+        group.MapGet("/api/archives/{id:guid}/export", async (Guid id, IExecutionArchives archives, CancellationToken ct) =>
+        {
+            if (await archives.ExportArchiveAsync(id, ct) is not { } archive)
+            {
+                return Results.NotFound();
+            }
+
+            return Results.File(Encoding.UTF8.GetBytes(archive.Json), "application/json", $"workthrough-{id}.json");
+        }).WithPermission(options, "executions.read").WithPermission(options, "payloads.read");
+        group.MapGet("/api/processors/registry", async (IProcessorRegistry registry, CancellationToken ct) =>
+            Results.Json(await registry.ProcessorRegistryAsync(ct), JsonOptions)).WithPermission(options, "executions.read");
+    }
+}

@@ -6,8 +6,8 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -31,7 +31,12 @@ public sealed class DashboardTests
         builder.Services.AddSingleton<IWorkflowDefinitions>(harness.Store);
         builder.Services.AddSingleton<IJobSchedules>(harness.Store);
         builder.Services.AddSingleton<IDeploymentQueries>(harness.Store);
-        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ => { });
+        builder.Services.AddSingleton<IExecutionOperations>(harness.Store);
+        builder.Services.AddSingleton<IExecutionArchives>(harness.Store);
+        builder.Services.AddSingleton<IProcessorRegistry>(harness.Store);
+        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ =>
+        {
+        });
         builder.Services.AddWorkThroughDashboard();
         await using var app = builder.Build();
         app.UsePathBase(pathBase);
@@ -97,7 +102,12 @@ public sealed class DashboardTests
         builder.Services.AddSingleton<IWorkflowDefinitions>(harness.Store);
         builder.Services.AddSingleton<IJobSchedules>(harness.Store);
         builder.Services.AddSingleton<IDeploymentQueries>(harness.Store);
-        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ => { });
+        builder.Services.AddSingleton<IExecutionOperations>(harness.Store);
+        builder.Services.AddSingleton<IExecutionArchives>(harness.Store);
+        builder.Services.AddSingleton<IProcessorRegistry>(harness.Store);
+        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ =>
+        {
+        });
         builder.Services.AddWorkThroughDashboard();
         await using var app = builder.Build();
         app.MapWorkThroughDashboard();
@@ -114,6 +124,9 @@ public sealed class DashboardTests
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/retry", new DashboardCommand(Guid.NewGuid(), "unauthorized", 1))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/jobs/api/audit")).StatusCode);
         Assert.Equal(JobStatus.Failed, (await harness.Store.GetAsync(id))!.Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/replay", new DashboardCommand(Guid.NewGuid(), "unauthorized"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/jobs/api/queues", new QueueControlCommand("default", true, new(Guid.NewGuid(), "unauthorized")))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/jobs/api/archives/{id}/export")).StatusCode);
         Assert.Empty(await harness.Store.AuditAsync());
         client.DefaultRequestHeaders.Remove("X-Test-User");
         client.DefaultRequestHeaders.Add("X-Test-User", "operator");
@@ -125,11 +138,17 @@ public sealed class DashboardTests
     {
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
-            if (!Request.Headers.ContainsKey("X-Test-User")) return Task.FromResult(AuthenticateResult.NoResult());
+
+            if (!Request.Headers.ContainsKey("X-Test-User"))
+            {
+                return Task.FromResult(AuthenticateResult.NoResult());
+            }
+
             var claims = new List<Claim> { new(ClaimTypes.Name, "operator"), new(ClaimTypes.NameIdentifier, "operator", ClaimValueTypes.String, "test-issuer") };
             var permissions = Request.Headers["X-Test-User"] == "viewer" ? ["executions.read"] : DashboardPermissions.All;
             claims.AddRange(permissions.Select(p => new Claim(DashboardPermissions.ClaimType, p)));
             var identity = new ClaimsIdentity(claims, Scheme.Name);
+
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
         }
     }

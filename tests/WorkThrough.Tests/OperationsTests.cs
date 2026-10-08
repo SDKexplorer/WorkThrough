@@ -1,5 +1,5 @@
-using System.Text.Json;
 using System.Data.Common;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Npgsql;
 using Xunit;
@@ -49,7 +49,9 @@ public sealed class OperationsTests
         await Assert.ThrowsAsync<StateConflictException>(() => store.SaveDraftAsync(draft, 0, Command()));
         await Assert.ThrowsAsync<StateConflictException>(() => new WorkflowClient(store).StartAsync(draft, new { }));
         Assert.Equal(2, await store.PublishAsync(draft.Key, draft.Version, 1, Command()));
-        var run = await new WorkflowClient(store).StartAsync(draft, new { });
+        var run = await new WorkflowClient(store).StartAsync(draft, new
+        {
+        });
         await Assert.ThrowsAsync<StateConflictException>(() => store.SaveDraftAsync(draft, 2, Command()));
         Assert.Equal(3, await store.RetireAsync(draft.Key, draft.Version, 2, Command()));
         await Assert.ThrowsAsync<StateConflictException>(() => new WorkflowClient(store).StartAsync(draft, new { }));
@@ -68,7 +70,9 @@ public sealed class OperationsTests
         var flow = new FlowBuilder("tests.recovery", 1)
             .Step<Alpha>("one", new Alpha("original"), maxAttempts: 1)
             .Step<Beta>("two", new Beta("next")).After("one").Build();
-        var run = await new WorkflowClient(store).StartAsync(flow, new { }, "incident");
+        var run = await new WorkflowClient(store).StartAsync(flow, new
+        {
+        }, "incident");
         var first = (await store.ClaimAsync(Claim()))!;
         var exception = new JobFailure("RemoteFailure", "Service unavailable", "protected stack at Processor.cs:42");
         Assert.True(await store.FailWithDetailsAsync(first.Id, first.LeaseToken!.Value, exception, TimeSpan.Zero));
@@ -118,7 +122,9 @@ public sealed class OperationsTests
         var store = harness.Store;
         var flow = new FlowBuilder("tests.pause", 1).Step<Alpha>("a", new Alpha("a"))
             .Step<Beta>("b", new Beta("b")).After("a").Build();
-        var run = await new WorkflowClient(store).StartAsync(flow, new { });
+        var run = await new WorkflowClient(store).StartAsync(flow, new
+        {
+        });
         var first = (await store.ClaimAsync(Claim()))!;
         Assert.True(await store.SetFlowPausedAsync(run, true, Command()));
         Assert.True(await store.CompleteAsync(first.Id, first.LeaseToken!.Value, JobResult.Done()));

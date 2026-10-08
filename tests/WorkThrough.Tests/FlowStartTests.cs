@@ -18,7 +18,10 @@ public sealed class FlowStartTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var definition = Definition();
         var ids = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() =>
-            new WorkflowClient(harness.NewStore()).StartAsync(definition, new { order = 123 }, "order:123", "start:123"))));
+            new WorkflowClient(harness.NewStore()).StartAsync(definition, new
+            {
+                order = 123
+            }, "order:123", "start:123"))));
         var id = Assert.Single(ids.Distinct());
         var jobs = await harness.Store.ListFlowJobsAsync(id);
         Assert.Equal(2, jobs.Count);
@@ -30,9 +33,15 @@ public sealed class FlowStartTests
         await restarted.InitializeAsync();
         await restarted.RetireAsync(definition.Key, 1, 1,
             new(Guid.NewGuid(), new("test", "maintainer"), "Prevent new starts"));
-        Assert.Equal(id, await new WorkflowClient(restarted).StartAsync(definition, new { order = 123 }, "order:123", "start:123"));
+        Assert.Equal(id, await new WorkflowClient(restarted).StartAsync(definition, new
+        {
+            order = 123
+        }, "order:123", "start:123"));
         await Assert.ThrowsAsync<StateConflictException>(() =>
-            new WorkflowClient(restarted).StartAsync(definition, new { order = 123 }, "order:123", "another-request"));
+            new WorkflowClient(restarted).StartAsync(definition, new
+            {
+                order = 123
+            }, "order:123", "another-request"));
         Assert.Equal(jobs.Select(j => j.Id).Order(), (await restarted.ListFlowJobsAsync(id)).Select(j => j.Id).Order());
     }
 
@@ -42,7 +51,10 @@ public sealed class FlowStartTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var client = new WorkflowClient(harness.Store);
         var definition = Definition();
-        await client.StartAsync(definition, new { order = 123 }, "order:123", "start:123");
+        await client.StartAsync(definition, new
+        {
+            order = 123
+        }, "order:123", "start:123");
         await Assert.ThrowsAsync<StateConflictException>(() => client.StartAsync(definition, new { order = 456 }, "order:123", "start:123"));
         await Assert.ThrowsAsync<StateConflictException>(() => client.StartAsync(definition, new { order = 123 }, "other", "start:123"));
         await Assert.ThrowsAsync<StateConflictException>(() => client.StartAsync(definition with { Version = 2 }, new { order = 123 }, "order:123", "start:123"));
@@ -57,10 +69,17 @@ public sealed class FlowStartTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var client = new WorkflowClient(harness.Store);
         foreach (var invalid in new[] { "", " ", new string('x', 257) })
+        {
             await Assert.ThrowsAsync<ArgumentException>(() => client.StartAsync(Definition(), new { }, "same", invalid));
+        }
+
         Assert.Empty(await harness.Store.ListAsync(new()));
-        var first = await client.StartAsync(Definition(), new { }, "same");
-        var second = await client.StartAsync(Definition(), new { }, "same");
+        var first = await client.StartAsync(Definition(), new
+        {
+        }, "same");
+        var second = await client.StartAsync(Definition(), new
+        {
+        }, "same");
         Assert.NotEqual(first, second);
         Assert.Equal(4, (await harness.Store.ListAsync(new("same"))).Count);
     }
@@ -90,8 +109,12 @@ public sealed class FlowStartTests
         Assert.Equal(0, Convert.ToInt32(await command.ExecuteScalarAsync()));
         command.CommandText = provider == "postgres" ? "DROP TRIGGER reject_start ON dj_flow_starts" : "DROP TRIGGER reject_start";
         await command.ExecuteNonQueryAsync();
-        var run = await client.StartAsync(Definition(), new { }, null, "retry-after-failure");
-        Assert.Equal(run, await client.StartAsync(Definition(), new { }, null, "retry-after-failure"));
+        var run = await client.StartAsync(Definition(), new
+        {
+        }, null, "retry-after-failure");
+        Assert.Equal(run, await client.StartAsync(Definition(), new
+        {
+        }, null, "retry-after-failure"));
         Assert.Equal(2, (await harness.Store.ListFlowJobsAsync(run)).Count);
     }
 }

@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/samples/">
+    <Project Path="samples/Demo.Lifecycle/Demo.Lifecycle.csproj" />
     <Project Path="samples/Demo.Contracts/Demo.Contracts.csproj" />
     <Project Path="samples/Demo.Dashboard/Demo.Dashboard.csproj" />
     <Project Path="samples/Demo.Host/Demo.Host.csproj" />
@@ -19,7 +20,11 @@
     <Project Path="src/WorkThrough.Storage.Relational/WorkThrough.Storage.Relational.csproj" />
     <Project Path="src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/WorkThrough.CodeStyle/WorkThrough.CodeStyle.csproj" />
+  </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/WorkThrough.Exercises/WorkThrough.Exercises.csproj" />
     <Project Path="tests/WorkThrough.Tests/WorkThrough.Tests.csproj" />
   </Folder>
 </Solution>

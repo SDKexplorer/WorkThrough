@@ -17,7 +17,10 @@ public interface IJobAdministration
     Task<IReadOnlyList<AuditEntry>> AuditAsync(int limit = 100, CancellationToken cancellationToken = default);
 }
 
-public enum DefinitionStatus { Draft, Published, Retired }
+public enum DefinitionStatus
+{
+    Draft, Published, Retired
+}
 public sealed record StoredFlowDefinition(FlowDefinition Definition, DefinitionStatus Status, int Revision);
 
 /// <summary>Draft revisions use optimistic concurrency; published graph versions are immutable.</summary>
