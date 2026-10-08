@@ -1,6 +1,6 @@
 # Bounded execution queries
 
-`IExecutionQueries` supplies metadata-only investigation for operational clients. SQLite and PostgreSQL implement it, and their `UseSqlite` / `UsePostgreSql` registrations expose it through dependency injection. These reads back the optional [authenticated MCP endpoint](mcp.md) and additive dashboard routes. Richer flow, capacity, diagnostic-text and archive queries remain planned.
+`IExecutionQueries` supplies metadata-only investigation for operational clients. SQLite and PostgreSQL implement it, and their `UseSqlite` / `UsePostgreSql` registrations expose it through dependency injection. These reads back the optional [authenticated MCP endpoint](mcp.md) and additive dashboard routes. The separate `IExecutionInspectionQueries` supplies protected, selected-attempt text and paged pinned-flow node/dependency/event reads; see the MCP guide for its bounds and coverage. Capacity, audit and archive queries remain planned.
 
 ```csharp
 var queries = services.GetRequiredService<IExecutionQueries>();

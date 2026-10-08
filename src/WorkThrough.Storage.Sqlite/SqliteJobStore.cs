@@ -66,6 +66,15 @@ public sealed class SqliteJobStore : RelationalJobStore
 
     protected override DbConnection CreateConnection() => new SqliteConnection(connectionString);
     protected override string ClockSql => "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)";
+    protected override string FlowDependencySql => """
+        SELECT DISTINCT predecessor_job.id,successor_job.id
+        FROM dj_flows f JOIN dj_definitions d ON d.flow_key=f.flow_key AND d.version=f.version
+        JOIN json_each(CASE WHEN LENGTH(d.definition)<=@maximum THEN d.definition ELSE '{"steps":[]}' END,'$.steps') step
+        JOIN json_each(step.value,'$.after') dependency
+        JOIN dj_jobs successor_job ON successor_job.workflow_run_id=f.id AND successor_job.step_id=json_extract(step.value,'$.id')
+        JOIN dj_jobs predecessor_job ON predecessor_job.workflow_run_id=f.id AND predecessor_job.step_id=dependency.value
+        WHERE f.id=@run ORDER BY successor_job.id,predecessor_job.id LIMIT @limit OFFSET @offset
+        """;
 
     protected override Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken)
     {
@@ -94,6 +103,7 @@ public static class SqliteRegistration
         builder.Services.AddSingleton<IJobStore>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IExecutionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
+        builder.Services.AddSingleton<IExecutionInspectionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobAdministration>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<SqliteJobStore>());

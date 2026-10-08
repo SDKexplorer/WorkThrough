@@ -9,13 +9,13 @@ public sealed record McpExecutionContext(string Environment, string Resource, st
     int DefaultPageSize, int MaximumPageSize, int MaximumWindowDays, int MaximumResultBytes, int QueryDeadlineSeconds);
 
 [McpServerToolType]
-internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQueries queries)
+internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQueries queries, IExecutionInspectionQueries? inspection = null)
 {
     internal const string Context = "workthrough_get_context";
     internal const string Search = "workthrough_search_executions";
     internal const string Get = "workthrough_get_execution";
     internal const string Attempts = "workthrough_get_attempts";
-    internal static readonly string[] Names = [Context, Search, Get, Attempts];
+    internal static readonly string[] Names = [Context, Search, Get, Attempts, .. InspectionTools.Names];
 
     [McpServerTool(Name = Context, ReadOnly = true, Destructive = false, OpenWorld = false, UseStructuredContent = true)]
     [Description("Describe this configured read-only endpoint, query limits and unavailable capabilities. No cross-store or tenant discovery.")]
@@ -23,8 +23,13 @@ internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQu
     {
         var store = await queries.GetExecutionContextAsync(cancellationToken);
 
+        var inspectionAvailable = inspection is not null;
+        var names = inspectionAvailable ? Names : Names.Except(InspectionTools.Names).ToArray();
+        string[] unavailable = inspectionAvailable ? ["capacity", "audit", "archives", "retention", "mutations"]
+            : ["diagnostic-text", "flow-graph", "capacity", "audit", "archives", "retention", "mutations"];
+
         return new(options.Environment, options.Resource.AbsoluteUri, store.StoreId, store.ObservedAt, "1", "live", true,
-            Names, ["diagnostic-text", "flow-graph", "capacity", "audit", "archives", "retention", "mutations"], 25, 100, 7, 65536, 5);
+            names, unavailable, 25, 100, 7, 65536, 5);
     }
 
     [McpServerTool(Name = Search, ReadOnly = true, Destructive = false, OpenWorld = false, UseStructuredContent = true)]

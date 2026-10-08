@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -10,9 +11,19 @@ namespace WorkThrough;
 
 internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorizationService authorization, IMcpAccessSink accessSink)
 {
-    internal Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal? user, Guid? id = null) => authorization.AuthorizeAsync(
-        user ?? new ClaimsPrincipal(), new OperationResource(options.Resource.AbsoluteUri, options.Environment, id),
-        OperationPermissions.PolicyPrefix + OperationPermissions.ReadExecutions);
+    internal async Task<bool> AuthorizeAsync(ClaimsPrincipal? user, string? tool = null, Guid? id = null, Guid? runId = null)
+    {
+        var principal = user ?? new ClaimsPrincipal();
+        var resource = new OperationResource(options.Resource.AbsoluteUri, options.Environment, id) { WorkflowRunId = runId };
+        if (!(await authorization.AuthorizeAsync(principal, resource,
+            OperationPermissions.PolicyPrefix + OperationPermissions.ReadExecutions)).Succeeded)
+        {
+            return false;
+        }
+
+        return tool != InspectionTools.Diagnostics || (await authorization.AuthorizeAsync(principal, resource,
+            OperationPermissions.PolicyPrefix + OperationPermissions.ReadPayloads)).Succeeded;
+    }
 
     internal async ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> context,
         McpRequestHandler<CallToolRequestParams, CallToolResult> next, CancellationToken cancellationToken)
@@ -21,12 +32,9 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
         var started = Stopwatch.GetTimestamp();
         var name = context.Params?.Name;
         var known = name is not null && ExecutionTools.Names.Contains(name, StringComparer.Ordinal);
-        Guid? id = null;
-        if (context.Params?.Arguments?.TryGetValue("id", out var argument) == true
-            && argument.ValueKind == JsonValueKind.String && Guid.TryParse(argument.GetString(), out var parsed))
-        {
-            id = parsed;
-        }
+        var executionTarget = name is ExecutionTools.Get or ExecutionTools.Attempts or InspectionTools.Diagnostics;
+        var id = executionTarget ? ReadTarget(context, "id") : null;
+        var runId = name == InspectionTools.Flow ? ReadTarget(context, "runId") : null;
 
         var outcome = "unavailable";
         CallToolResult result;
@@ -39,14 +47,20 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
                 outcome = "unsupported_tool";
                 result = Error(outcome, requestId);
             }
-            else if (name is ExecutionTools.Get or ExecutionTools.Attempts && id is null)
+            else if (executionTarget && id is null
+                || name == InspectionTools.Flow && runId is null)
             {
                 outcome = "invalid_arguments";
                 result = Error(outcome, requestId);
             }
-            else if (!(await AuthorizeAsync(context.User, id)).Succeeded)
+            else if (!await AuthorizeAsync(context.User, name, id, runId))
             {
                 outcome = "forbidden";
+                result = Error(outcome, requestId);
+            }
+            else if (InspectionTools.Names.Contains(name!) && context.Services!.GetService<IExecutionInspectionQueries>() is null)
+            {
+                outcome = "capability_unavailable";
                 result = Error(outcome, requestId);
             }
             else
@@ -61,7 +75,7 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
                 {
                     // Reserve space for the protocol envelope/request ID within the 64 KiB response budget.
                     outcome = "response_too_large";
-                    result = Error(outcome, requestId, "Reduce the page limit; no partial page was returned.");
+                    result = Error(outcome, requestId, "Reduce the page limit or maximumCharacters; no partial result was returned.");
                 }
             }
         }
@@ -86,7 +100,8 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
             using var auditDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
             await accessSink.WriteAsync(new(requestId, Claim(context.User, "iss") ?? "unknown", Claim(context.User, "sub") ?? "unknown",
                 Claim(context.User, "client_id") ?? Claim(context.User, "azp"), known ? name! : "unregistered",
-                options.Resource.AbsoluteUri, options.Environment, id, outcome, Stopwatch.GetElapsedTime(started).TotalMilliseconds), auditDeadline.Token)
+                options.Resource.AbsoluteUri, options.Environment, id, outcome, Stopwatch.GetElapsedTime(started).TotalMilliseconds)
+            { WorkflowRunId = runId, SensitiveRead = name == InspectionTools.Diagnostics }, auditDeadline.Token)
                 .AsTask().WaitAsync(auditDeadline.Token);
         }
         catch (Exception)
@@ -100,6 +115,10 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
     }
 
     private static string? Claim(ClaimsPrincipal? user, string type) => user?.FindFirst(type)?.Value;
+
+    private static Guid? ReadTarget(RequestContext<CallToolRequestParams> context, string name) =>
+        context.Params?.Arguments?.TryGetValue(name, out var argument) == true && argument.ValueKind == JsonValueKind.String
+        && Guid.TryParse(argument.GetString(), out var parsed) ? parsed : null;
 
     private static CallToolResult Error(string code, string requestId, string? guidance = null)
     {

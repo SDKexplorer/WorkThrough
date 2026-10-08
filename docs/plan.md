@@ -2,6 +2,22 @@
 
 This plan combines the user's requirements with a purposive review of 20 Hangfire/Wolverine discussions. It is not a ranking of market-wide complaint frequency. See `research.md` for evidence and fixed-versus-open distinctions.
 
+## Remaining delivery order
+
+The core engine and processor relocation guarantee are implemented. Completing an individual PR does not complete this roadmap. Current work adds protected attempt diagnostics and paged pinned-flow inspection to the MCP foundation; the ordered remaining work is:
+
+| Order | Work | Completion evidence |
+|---|---|---|
+| 1 | Finish read-only MCP: bounded wait/capacity explanations, audit, archive lookup and retention preview | Permission/resource tests, explicit coverage, real-provider query bounds and client/package verification for every tool |
+| 2 | Automatic retention: opt-in maintenance, holds, bounded fenced batches, export verification and separate purge policy | Crash/race tests proving active work, receipts and held evidence survive; restart-safe progress |
+| 3 | SQL Server, then Oracle | Provider dialect/transaction implementation and the complete conformance suite against each actual database |
+| 4 | Operational UX: windowed metrics, step display labels and worker acquisition health | Real measurements and saved-data inspection in the Angular console; no invented counts or missing-history claims |
+| 5 | Advanced recovery/compatibility: validated input correction, checkpoint forks, compensation, child flows, upcasters/imports and partition/fairness controls | Explicit semantics and targeted fault/concurrency/compatibility tests; no claim that state rewind undoes effects |
+| 6 | Controlled MCP actions, after the read-only release | Trusted approval, exact target/parameters, revocation/state preconditions and existing atomic command/audit reconciliation |
+| 7 | Production/public release readiness | External IdP/AI-client checks, 100k-job investigative contention and two-hour soak, multi-host/PITR evidence, license/package/visibility decisions and enforced branch policies |
+
+Branch protection remains blocked by GitHub's current private-repository plan. Changing account plan or repository visibility is a maintainer decision. Public visibility, package publication and a project license are not authorized by completing implementation. Advanced architecture items remain design-and-implementation work, not hidden completed features.
+
 ## P0 — identity and durable execution
 
 - [x] Implement the direct processor identity and raw/typed input API in ADR-006. Permit multiple processors for the same input type; retain one shared dispatch path for all registration styles.
@@ -16,7 +32,7 @@ This plan combines the user's requirements with a purposive review of 20 Hangfir
 
 ## P1 — orchestration and operations
 
-- [ ] Complete the read-only MCP integration in [MCP operations](../specs/mcp-operations.spec.md) and [ADR-011](adr/0011-mcp-operations.md). The optional [MCP package](mcp.md) now implements four typed tools for context, execution search/lookup and attempt history, dedicated bearer authentication/discovery, resource policies, access evidence and bounded requests/results. C# SDK and independent HTTP clients plus .NET 8/10 NuGet consumers are tested. Richer flow/diagnostic/capacity/audit/archive/retention tools, real-IdP/AI-client setup and the large contention/soak gate remain. Controlled actions are a later phase.
+- [ ] Complete the read-only MCP integration in [MCP operations](../specs/mcp-operations.spec.md) and [ADR-011](adr/0011-mcp-operations.md). The optional [MCP package](mcp.md) implements six typed tools: context, execution search/lookup, attempt history, protected diagnostic text and paged saved-flow inspection. Dedicated bearer authentication/discovery, resource policies, access evidence and request/result bounds are implemented. Wait/capacity explanations, audit/archive/retention tools, real-IdP/AI-client setup and the large contention/soak gate remain. Controlled actions are a later phase.
 - [x] Implement explicit Draft → Published → Retired flow-definition lifecycle. Drafts are editable with optimistic concurrency and cannot execute; publishing validates an immutable revision; retiring prevents new runs without changing pinned active runs. Add corresponding draft/publish lifecycle for schedules, independently of enabled/paused admission, with permissions and audit.
 - [x] Implement ADR-007: separate metadata/payload/action permissions, trusted user/service actors, atomic administrative audit and command deduplication, and embedded/standalone authentication samples. The OIDC sample builds; actual identity-provider login needs deployment-specific validation. Store/environment isolation is implemented; tenant row filtering remains outside the initial scope.
 - [ ] Deliver the console direction in `dashboard-direction.md`: useful backlog/timing/capacity signals, saved-flow inspection, processor deployment visibility, and accessible dark/light themes. The Angular console is now embedded and uses real APIs. Deployment identity/queue coverage and oldest eligible timestamps are implemented; windowed timing/throughput metrics and advanced authoring remain incomplete.

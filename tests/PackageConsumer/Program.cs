@@ -54,7 +54,8 @@ try
     }
 
     var flows = host.Services.GetRequiredService<WorkflowClient>();
-    var flow = new FlowBuilder("smoke.flow", 1).Step("raw", ProcessorId.For<RawProcessor>(), "flow input").Build();
+    var flow = new FlowBuilder("smoke.flow", 1).Step("raw", ProcessorId.For<RawProcessor>(), "flow input")
+        .Step("last", ProcessorId.For<RawProcessor>(), "follow-up").After("raw").Build();
     var run = await flows.StartAsync(flow, new { }, "package-smoke", "start-once");
     if (run != await flows.StartAsync(flow, new { }, "package-smoke", "start-once"))
     {
@@ -73,7 +74,7 @@ try
         throw new InvalidOperationException("The packaged metadata query did not find the completed processor.");
     }
 
-    await McpPackageSmoke.RunAsync(database, manualId);
+    await McpPackageSmoke.RunAsync(database, manualId, run);
     Console.WriteLine("PASS: package-only consumer executed processors, flows, bounded queries and a protected MCP call over loopback HTTP.");
 }
 finally
