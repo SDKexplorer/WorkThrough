@@ -36,7 +36,7 @@ dotnet test tests/WorkThrough.Tests --configuration Release
 docker stop durablejobs-postgres-test
 ```
 
-When server environment variables are absent, the shared suite enumerates SQLite cases only. CI supplies PostgreSQL and SQL Server explicitly. SQL Server is implemented with native qualification recorded separately; Oracle remains planned. See the [portability, migration and verification plan](../specs/storage-evolution.spec.md). MySQL and MongoDB remain unprioritized possibilities.
+When server environment variables are absent, the shared suite enumerates SQLite cases only. CI supplies PostgreSQL and SQL Server explicitly. SQL Server passed native Linux x64 qualification; Oracle implementation is in progress. See the [portability, migration and verification plan](../specs/storage-evolution.spec.md). MySQL and MongoDB remain unprioritized possibilities.
 
 The MCP verification gate also exercises metadata/context queries through SQLite `Mode=ReadOnly` and PostgreSQL connections with `default_transaction_read_only=on`, without storage initialization. Both passed on .NET 8 and 10. Production read-only roles still need deployment-specific grants; this is query compatibility evidence, not a role provisioning test. See [MCP hosting](mcp.md) and [verification](verification.md).
 

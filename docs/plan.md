@@ -10,7 +10,7 @@ The core engine and processor relocation guarantee are implemented. Completing a
 |---|---|---|
 | 1 | Finish read-only MCP: external client/load verification; bounded wait/capacity explanations, attempt metrics, audit/archive metadata and manual retention preview are implemented | Permission/resource tests, explicit coverage, real-provider query bounds and client/package verification for every tool |
 | 2 | Automatic retention implemented: opt-in maintenance, holds, fenced batches, verified file exports and separate purge/event policies; large contention/restore qualification remains | Crash/race tests proving active work, receipts and held evidence survive; restart-safe progress |
-| 3 | SQL Server implemented; native qualification pending, then Oracle | Provider dialect/transaction implementation and the complete conformance suite against each actual database |
+| 3 | SQL Server implemented and native CI verified; Oracle implementation in progress | Provider dialect/transaction implementation and the complete conformance suite against each actual database |
 | 4 | Implemented operational UX: windowed metrics, step display labels, worker acquisition health and retention status | Real measurements and saved-data inspection in the Angular console; no invented counts or missing-history claims |
 | 5 | Partition-key concurrency, rate limits, queue fairness and tenant isolation | Separate lock/tenant identities, resource-policy tests and multi-host admission/fairness evidence |
 | 6 | Controlled MCP actions, after the read-only release | Trusted approval, exact target/parameters, revocation/state preconditions and existing atomic command/audit reconciliation |
@@ -71,7 +71,7 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [ ] Add contract upcasters and rolling-deployment capability checks. Preserve pending old versions until compatible consumers exist.
 - [ ] Evaluate automatic canonical flow revisions with optional human labels; pin executions to the chosen revision and make activation/migration explicit. Mandatory integer versions remain the current API.
 - [ ] Add partition-key concurrency and rate limits. Correlation must remain independent from lock identity.
-- [ ] Add SQL Server, then Oracle, following the portability refactor and real-provider gates in [storage evolution](../specs/storage-evolution.spec.md) and [ADR-012](adr/0012-retention-and-provider-expansion.md). SQL Server is implemented and its native qualification is pending; Oracle remains planned. SQLite/PostgreSQL retain their existing verification.
+- [ ] Add SQL Server, then Oracle, following the portability refactor and real-provider gates in [storage evolution](../specs/storage-evolution.spec.md) and [ADR-012](adr/0012-retention-and-provider-expansion.md). SQL Server is implemented and verified on its initial Linux x64 matrix; Oracle implementation is in progress. SQLite/PostgreSQL retain their existing verification.
 - [x] Add durable signals with deduplication, storage of signals arriving before their wait step, and race-tested timeout behavior; never park a worker thread while waiting.
 - [x] Define cron time zones, daylight-saving transitions, and missed-schedule policy alongside overlap controls.
 - [ ] Add bounded fan-out, queue fairness, per-tenant quotas where applicable, and load tests that measure both database contention and memory growth.

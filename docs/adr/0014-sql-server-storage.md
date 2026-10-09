@@ -1,6 +1,6 @@
 # ADR-014: SQL Server storage and explicit identity bounds
 
-Status: implementation under verification, 2026-10-10. Native x64 CI and the complete package/runtime gate must pass before the provider is listed as verified.
+Status: implemented and verified on the declared native Linux x64 matrix, 2026-10-10. See [CI run 37995454966](https://github.com/SDKexplorer/WorkThrough/actions/runs/37995454966) and the retained evidence in `verification.md`; this is not production certification.
 
 ## Decision
 
