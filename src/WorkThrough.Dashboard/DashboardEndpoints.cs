@@ -295,6 +295,7 @@ public static partial class DashboardEndpoints
             .Mutation(options, "limits.manage");
         MapOperations(group, options);
         MapExecutionQueries(group, options);
+        MapRetention(group, options);
 
         return group;
     }

@@ -1,6 +1,6 @@
 # Read-only MCP hosting
 
-`WorkThrough.Mcp` is an optional NuGet package over `IExecutionQueries` and the optional `IExecutionInspectionQueries` / `IOperationHistoryQueries` / `IRuntimeQueries`, using the official C# MCP SDK 2.2.0 and ASP.NET Core Streamable HTTP in stateless mode. It references neither Dashboard/Angular nor application processors. No model account or API key is needed on the server.
+`WorkThrough.Mcp` is an optional NuGet package over `IExecutionQueries` and the optional `IExecutionInspectionQueries` / `IOperationHistoryQueries` / `IRuntimeQueries` / `IRetentionQueries`, using the official C# MCP SDK 2.2.0 and ASP.NET Core Streamable HTTP in stateless mode. It references neither Dashboard/Angular nor application processors. No model account or API key is needed on the server.
 
 | Implemented tool | Evidence |
 |---|---|
@@ -16,12 +16,13 @@
 | `workthrough_preview_retention` | Advisory preview of a caller-supplied manual archive policy; never deletes data |
 | `workthrough_get_capacity` | Snapshot of waiting reasons, shared limits/admitted leases and bounded recent worker evidence |
 | `workthrough_get_metrics` | Windowed live attempt counts, successful attempt throughput and mean/max attempt duration |
+| `workthrough_get_retention` | Persisted automatic policy, pending/last batch, holds/incidents and journal/subscriber positions |
 
 Search accepts a `query` object matching `ExecutionQuery`; enums use names such as `FailedAttempt`. Lookup tools take `id`; attempts also accept `afterAttempt` and `limit`. Discovery includes typed input/output schemas and read-only annotations. Direct calls enforce authorization independently.
 
 Search can investigate failed attempts even after recovery, and follow correlation or flow IDs. Results include stable processor identities and causation/run references. They contain no input/output, exception/progress text, implementation names, effect keys or lease tokens. Stored labels remain untrusted business data. Metadata can itself be sensitive; grant access only to principals allowed to read all metadata in this store.
 
-Automatic-retention status is **not implemented**. Context reports this explicitly. There are no administrative tools. A custom provider without any optional ports keeps the original four tools; unavailable inspection/history tools are hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
+Automatic-retention status is read-only. There are no administrative tools. A custom provider without any optional ports keeps the original four tools; unavailable inspection/history tools are hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
 
 ## Diagnostic and flow inspection
 
@@ -53,9 +54,9 @@ The Angular console uses the same port for its one-hour metrics and detailed wai
 
 Archive summaries expose kind, unit ID, correlation, archival time, job count and `bodyAvailable`. They never select the body or its hash. The existing summary format does not record original execution outcome, so no outcome is inferred. `workthrough_get_archive` takes `archiveId` without a time restriction: use a standalone job ID or whole-flow run ID. Individual archived step IDs are not indexed; a missing lookup does not prove a step never existed. Purged bodies leave searchable summaries. Lookup enforces `OperationResource.ArchiveId`; archive search requires store-wide metadata access.
 
-`workthrough_preview_retention` accepts `policy` with `succeededBefore`, optional `failedBefore` and `batchSize` (default/max 10). It shares the manual archive selector in a bounded read snapshot. Missing failure cutoff retains failed/cancelled/rejected/expired work. Active work, paused/incident flows, individual flow steps and flows exceeding 500 jobs are excluded. A whole flow is one unit. `hasMoreCandidates` reports an observed extra candidate, not an estimated total. No payload is loaded; byte/evidence limits are not preflighted (`evidenceSizeVerified=false`). Eligibility can change before an actual archive transaction.
+`workthrough_preview_retention` accepts `policy` with `succeededBefore`, optional `failedBefore` and `batchSize` (default/max 10). It shares the manual archive selector in a bounded read snapshot. Missing failure cutoff retains failed/cancelled/rejected/expired work. Active work, paused/incident flows, held units and individual flow steps are excluded. A whole flow is one unit. `hasMoreCandidates` reports an observed extra candidate, not an estimated total. No payload is loaded; byte/evidence limits are not preflighted (`evidenceSizeVerified=false`). Eligibility can change before an actual archive transaction.
 
-The preview describes the supplied manual policy (`policySource=caller-supplied`), not a persisted automatic-retention configuration. Holds, automatic maintenance, verified exports and automatic purge remain planned. It requires `retention.read` in addition to `executions.read`; `archives.manage` does not implicitly grant it. Existing dashboard preview authorization is unchanged. History tools use the same result budgets, cancellation and access evidence as other tools. Audit reads set the sensitive-read flag; archive lookups also record the archive ID without recording query arguments or results.
+The preview describes the supplied manual policy (`policySource=caller-supplied`), not a persisted automatic-retention configuration. Automatic policies, holds, fenced maintenance and verified-copy purge are described in the [operations guide](operations-and-retention.md#opt-in-automatic-maintenance). This preview does not evaluate the automatic policy or its incident exclusions. It requires `retention.read` in addition to `executions.read`; `archives.manage` does not implicitly grant it. `workthrough_get_retention` requires the same two read permissions and returns the stored policy (null when unconfigured), pending/last batch, hold/incident counts, up to 100 incident examples, bounded failure codes and journal/subscriber positions. It omits archive bodies, hold reasons, owner identities and secret lease tokens. Status does not enable maintenance or grant control access. Existing dashboard preview authorization is unchanged. History tools use the same result budgets, cancellation and access evidence as other tools. Audit reads set the sensitive-read flag; archive lookups also record the archive ID without recording query arguments or results.
 
 ## Composition
 

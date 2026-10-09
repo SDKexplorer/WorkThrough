@@ -123,6 +123,9 @@ public static class SqliteRegistration
         builder.Services.AddSingleton<IExecutionInspectionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IOperationHistoryQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IRuntimeQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
+        builder.Services.AddSingleton<IRetentionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
+        builder.Services.AddSingleton<IRetentionAdministration>(sp => sp.GetRequiredService<SqliteJobStore>());
+        builder.Services.AddSingleton<IRetentionMaintenance>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobAdministration>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<SqliteJobStore>());
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<SqliteJobStore>());

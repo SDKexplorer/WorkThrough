@@ -278,7 +278,7 @@ public sealed partial class McpTests
         internal static async Task<McpTestHost> CreateAsync(StoreHarness harness, Guid? deniedId = null, int requestsPerMinute = 120,
             IExecutionQueries? queries = null, int concurrentRequests = 16, Guid? deniedRun = null,
             bool includeInspection = true, IMcpDiagnosticRedactor? redactor = null, ILoggerProvider? loggerProvider = null,
-            bool includeHistory = true, Guid? deniedArchive = null, bool includeRuntime = true)
+            bool includeHistory = true, Guid? deniedArchive = null, bool includeRuntime = true, bool includeRetention = true)
         {
             var key = RSA.Create(2048);
             var audit = new AccessRecorder();
@@ -304,6 +304,11 @@ public sealed partial class McpTests
             if (includeRuntime)
             {
                 builder.Services.AddSingleton<IRuntimeQueries>((IRuntimeQueries)ReadOnlyQueries(harness));
+            }
+
+            if (includeRetention)
+            {
+                builder.Services.AddSingleton<IRetentionQueries>((IRetentionQueries)ReadOnlyQueries(harness));
             }
 
             if (redactor is not null)

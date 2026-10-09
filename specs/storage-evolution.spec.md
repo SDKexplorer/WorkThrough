@@ -1,16 +1,16 @@
 # Retention automation and additional providers
 
-Status: proposed, 2026-10-08. The maintainer requested cleanup/archiving and SQL Server/Oracle support. Existing archive operations are implemented; automatic retention and these two providers are not. This plan complements [MCP operations](mcp-operations.spec.md) and [current retention semantics](../docs/operations-and-retention.md).
+Status: retention implemented on SQLite/PostgreSQL, 2026-10-10; expanded load/restore qualification and SQL Server/Oracle remain pending. The maintainer requested cleanup/archiving and additional providers. This plan complements [MCP operations](mcp-operations.spec.md) and [current retention semantics](../docs/operations-and-retention.md).
 
 ## Current capability and intended result
 
 | Area | Implemented today | Planned addition |
 |---|---|---|
-| Active execution cleanup | Atomic archive of terminal standalone jobs or whole completed flows | Configurable, bounded maintenance service with status and failure reporting |
-| Eligibility | Success cutoff, optional separate failure cutoff, at most ten units per batch | Persistent policy revision, named presets, retention holds and resumable progress |
-| Archive storage | Same-database JSON package, SHA-256, summary and optional body purge | Metadata index, verified export receipts and optional external destination |
+| Active execution cleanup | Atomic archive of whole terminal units; opt-in fenced hosting with status/failures | Large contention and restore qualification |
+| Eligibility | Persisted policy revisions, holds, separate outcome durations, 1–10 units, stable batch progress | Named presets |
+| Archive storage | Same-database packages/summaries, verified directory export and opt-in body purge | Original-outcome and individual archived-step lookup index |
 | Evidence protection | Active/Paused/Incident flows remain live; receipts survive archival/purge | Explicit policy for other growing tables without weakening deduplication |
-| Event cleanup | Audited trimming checks subscriptions and unarchived jobs | Bounded automatic trimming with lag visibility and a safe watermark |
+| Event cleanup | Opt-in bounded trimming respects subscribers, live work and holds; positions are visible | Production subscriber/backlog qualification |
 | Database providers | SQLite and PostgreSQL | SQL Server first; Oracle after portability and migration proofs |
 
 Archive location is independent of execution outcome. A successful archived job is still successful. Archiving is neither a backup nor a way to resume an old run. Live flow dependencies stay in one store.
@@ -130,9 +130,9 @@ Run the same contention workload with and without maintenance on each provider. 
 
 ## Delivery checklist
 
-- [ ] R0: Add persisted retention policy/holds and readable maintenance status; reuse them in dashboard and MCP. Bounded audit/archive metadata and caller-supplied manual-policy preview are implemented through `IOperationHistoryQueries`; they do not configure automatic maintenance.
-- [ ] R1: Implement opt-in fenced maintenance service, atomic bounded batches, oversized-candidate handling and durable command reconciliation.
-- [ ] R2: Add one export destination, verified receipts, restart proofs and explicit automatic purge policy; add safe event trimming separately.
+- [x] R0: Persisted policy/holds and bounded maintenance status are available through `IRetentionQueries`, dashboard and MCP. Audited configuration uses `IRetentionAdministration`; manual preview stays separate.
+- [x] R1: Opt-in fenced hosting, atomic bounded batches, incident exclusions and stable batch receipts are implemented and provider-tested.
+- [x] R2: Immutable directory export, read-back hash verification, batch-scoped receipts, lease takeover/lost-response tests and explicit purge/event policies are implemented. Production destination durability/restore qualification remains.
 - [ ] P0: Extract focused provider seams; keep existing SQLite/PostgreSQL conformance and saved-schema tests passing.
 - [ ] P1: Implement SQL Server, declare its matrix and add real-instance CI, fault, retention and MCP query tests.
 - [ ] P2: Prove Oracle migration/binding/locking semantics, implement Oracle and run the same full real-instance gates.

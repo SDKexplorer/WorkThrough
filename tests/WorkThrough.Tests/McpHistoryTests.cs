@@ -46,7 +46,29 @@ public sealed partial class McpTests
         Assert.Contains(server.Audit.Events, entry => entry.Tool == "workthrough_get_audit" && entry.SensitiveRead && entry.Outcome == "succeeded");
         using var all = server.Client(payloads: true, audit: true, retention: true);
         var fullDiscovery = await ResultAsync(await CallAsync(all, "tools/list"));
-        Assert.Equal(12, fullDiscovery.GetProperty("tools").GetArrayLength());
+        Assert.Equal(13, fullDiscovery.GetProperty("tools").GetArrayLength());
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Automatic_retention_status_is_read_only_permission_gated_and_excludes_lease_secrets(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        await harness.Store.ConfigureRetentionAsync(new(TimeSpan.FromDays(7), Enabled: true), 0,
+            new(Guid.NewGuid(), new("issuer", "operator"), "SECRET-REASON"));
+        var lease = (await harness.Store.AcquireMaintenanceAsync("SECRET-OWNER", new("issuer", "service"), TimeSpan.FromMinutes(1)))!;
+        await using var server = await McpTestHost.CreateAsync(harness);
+        using var viewer = server.Client();
+        var request = new { name = "workthrough_get_retention", arguments = new { } };
+        Assert.Equal("forbidden", (await ResultAsync(await CallAsync(viewer, "tools/call", request))).GetProperty("structuredContent").GetProperty("code").GetString());
+        using var permitted = server.Client(retention: true);
+        var result = await ResultAsync(await CallAsync(permitted, "tools/call", request));
+        Assert.True(result.GetProperty("structuredContent").GetProperty("maintenanceActive").GetBoolean());
+        Assert.DoesNotContain("SECRET", result.GetRawText());
+        Assert.DoesNotContain(lease.Token.ToString(), result.GetRawText());
+        Assert.Single(await harness.Store.AuditAsync());
+        await using var missing = await McpTestHost.CreateAsync(harness, includeRetention: false);
+        using var missingClient = missing.Client(retention: true);
+        Assert.Equal("capability_unavailable", (await ResultAsync(await CallAsync(missingClient, "tools/call", request))).GetProperty("structuredContent").GetProperty("code").GetString());
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -87,7 +109,7 @@ public sealed partial class McpTests
         await using var server = await McpTestHost.CreateAsync(harness, includeHistory: false);
         using var client = server.Client(payloads: true, audit: true, retention: true);
         var listed = await ResultAsync(await CallAsync(client, "tools/list"));
-        Assert.Equal(8, listed.GetProperty("tools").GetArrayLength());
+        Assert.Equal(9, listed.GetProperty("tools").GetArrayLength());
         foreach (var name in new[] { "workthrough_get_audit", "workthrough_search_archives", "workthrough_get_archive", "workthrough_preview_retention" })
         {
             var result = await ResultAsync(await CallAsync(client, "tools/call", new { name, arguments = new { archiveId = Guid.NewGuid() } }));

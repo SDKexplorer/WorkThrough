@@ -90,3 +90,6 @@ Recurring schedule lifecycle is independent of enable/pause admission. Cronos ca
 ## Schema-3 operations
 
 Typed definitions/manual registration, coordinated aliases with shared admission, middleware/validation/retry policies, durable subscriptions, business transaction/outbox acceptance, signals, queue controls, replay, and bounded archival are implemented. See ADR-010, `identity-evolution.md`, `processor-lifecycle-and-extensibility.md`, and `operations-and-retention.md` for current contracts. The original design notes above remain useful context; these guides supersede earlier statements that those features were only planned.
+
+
+Schema 4 adds opt-in fenced retention maintenance, whole-unit holds, persisted policies, verified directory exports and bounded journal cleanup. See [ADR-013](adr/0013-fenced-retention-maintenance.md) and the operations guide. Older writers must stop before upgrade; active flows remain in one store. SQL Server/Oracle and tenant/partition controls remain separate work.

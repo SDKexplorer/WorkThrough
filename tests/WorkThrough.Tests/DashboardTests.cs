@@ -109,6 +109,8 @@ public sealed class DashboardTests
         builder.Services.AddSingleton<IExecutionArchives>(harness.Store);
         builder.Services.AddSingleton<IProcessorRegistry>(harness.Store);
         builder.Services.AddSingleton<IRuntimeQueries>(harness.Store);
+        builder.Services.AddSingleton<IRetentionQueries>(harness.Store);
+        builder.Services.AddSingleton<IRetentionAdministration>(harness.Store);
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ =>
         {
         });
@@ -130,6 +132,9 @@ public sealed class DashboardTests
         client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", token.RootElement.GetProperty("token").GetString());
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/retry", new DashboardCommand(Guid.NewGuid(), "unauthorized", 1))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/jobs/api/audit")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/jobs/api/retention")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/jobs/api/retention/policy",
+            new RetentionPolicyCommand(new(TimeSpan.FromDays(7), Enabled: true), new(Guid.NewGuid(), "unauthorized")))).StatusCode);
         Assert.Equal(JobStatus.Failed, (await harness.Store.GetAsync(id))!.Status);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/replay", new DashboardCommand(Guid.NewGuid(), "unauthorized"))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/jobs/api/queues", new QueueControlCommand("default", true, new(Guid.NewGuid(), "unauthorized")))).StatusCode);
@@ -138,6 +143,11 @@ public sealed class DashboardTests
         client.DefaultRequestHeaders.Remove("X-Test-User");
         client.DefaultRequestHeaders.Add("X-Test-User", "operator");
         Assert.Contains("SECRET-STACK", await client.GetStringAsync($"/jobs/api/jobs/{id}"));
+        var retentionCommand = new RetentionPolicyCommand(new(TimeSpan.FromDays(7)), new(Guid.NewGuid(), "Configure disabled retention"));
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/jobs/api/retention/policy", retentionCommand)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/jobs/api/retention/policy", retentionCommand with { Command = new(Guid.NewGuid(), "Stale revision") })).StatusCode);
+        Assert.Contains("\"enabled\":false", await client.GetStringAsync("/jobs/api/retention"));
+        Assert.Equal("operator", Assert.Single(await harness.Store.AuditAsync()).Actor.Subject);
     }
 
     public sealed class TestAuthentication(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)

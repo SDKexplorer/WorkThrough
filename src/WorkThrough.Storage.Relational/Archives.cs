@@ -9,14 +9,15 @@ public abstract partial class RelationalJobStore : IExecutionArchives
 {
     private const string EligibleArchiveUnitsSql = """
         SELECT j.id,'Job' AS kind,j.correlation_id,j.terminal_at AS completed,1 AS jobs FROM dj_jobs j
-        WHERE j.workflow_run_id IS NULL AND
+        WHERE j.workflow_run_id IS NULL AND NOT EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=j.id AND h.held=1) AND
           ((j.status IN ('Succeeded','Skipped') AND j.terminal_at<=@success) OR
            (j.status IN ('Failed','Cancelled','Rejected','Expired') AND j.terminal_at<=@failure))
         UNION ALL
         SELECT f.id,'Flow' AS kind,f.correlation_id,MAX(j.terminal_at) AS completed,COUNT(*) AS jobs
         FROM dj_flows f JOIN dj_jobs j ON j.workflow_run_id=f.id WHERE f.status IN ('Succeeded','Failed')
+          AND NOT EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=f.id AND h.held=1)
         GROUP BY f.id,f.correlation_id,f.status
-        HAVING COUNT(*)=COUNT(j.terminal_at) AND COUNT(*)<=500
+        HAVING COUNT(*)=COUNT(j.terminal_at)
           AND MAX(j.terminal_at)<=CASE WHEN f.status='Succeeded' THEN @success ELSE @failure END
         """;
 
@@ -37,11 +38,13 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         return await ReadCandidatesAsync(connection, null, policy, cancellationToken);
     }
 
-    private static async Task<IReadOnlyList<ArchiveCandidate>> ReadCandidatesAsync(DbConnection connection, DbTransaction? transaction, ArchivePolicy policy, CancellationToken ct)
+    private static async Task<IReadOnlyList<ArchiveCandidate>> ReadCandidatesAsync(DbConnection connection, DbTransaction? transaction, ArchivePolicy policy, CancellationToken ct, bool maintenance = false)
     {
         await using var command = Command(connection, transaction, $"""
-            SELECT id,kind,correlation_id,completed,jobs FROM ({EligibleArchiveUnitsSql}) candidates ORDER BY completed,id LIMIT @limit
-            """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()), ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()), ("limit", policy.BatchSize));
+            SELECT id,kind,correlation_id,completed,jobs FROM ({EligibleArchiveUnitsSql}) candidates
+            WHERE (@maintenance=0 OR NOT EXISTS (SELECT 1 FROM dj_retention_incidents i WHERE i.unit_id=candidates.id))
+            ORDER BY completed,id LIMIT @limit
+            """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()), ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()), ("limit", policy.BatchSize), ("maintenance", maintenance ? 1 : 0));
         await using var reader = await command.ExecuteReaderAsync(ct);
         var result = new List<ArchiveCandidate>();
         while (await reader.ReadAsync(ct))
@@ -105,6 +108,8 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         {
             await ExecuteAsync(connection, transaction, "DELETE FROM dj_signal_waits WHERE run_id=@id; DELETE FROM dj_signals WHERE run_id=@id; DELETE FROM dj_flows WHERE id=@id", ct, ("id", flow.Id.ToString()));
         }
+
+        await ExecuteAsync(connection, transaction, "DELETE FROM dj_retention_incidents WHERE unit_id=@id", ct, ("id", candidate.Id.ToString()));
     }
 
     public async Task<IReadOnlyList<ArchiveSummary>> ArchivesAsync(string? correlationId = null, int limit = 100, CancellationToken cancellationToken = default)
@@ -147,6 +152,7 @@ public abstract partial class RelationalJobStore : IExecutionArchives
             expectedSha256
         }, async (connection, transaction, ct) =>
         {
+            await RejectHeldArchiveAsync(connection, transaction, id, ct);
             var hash = await ScalarAsync(connection, transaction, "SELECT sha256 FROM dj_archives WHERE id=@id", ct, ("id", id.ToString()));
             if (hash is not string saved || !string.Equals(saved, expectedSha256, StringComparison.Ordinal))
             {

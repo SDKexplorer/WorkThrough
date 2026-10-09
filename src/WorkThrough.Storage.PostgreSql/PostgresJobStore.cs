@@ -68,6 +68,9 @@ public static class PostgresRegistration
         builder.Services.AddSingleton<IExecutionInspectionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IOperationHistoryQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IRuntimeQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IRetentionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IRetentionAdministration>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IRetentionMaintenance>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IJobAdministration>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<PostgresJobStore>());

@@ -25,7 +25,7 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
         {
             InspectionTools.Diagnostics => OperationPermissions.ReadPayloads,
             HistoryTools.Audit => OperationPermissions.ReadAudit,
-            HistoryTools.Retention => OperationPermissions.ReadRetention,
+            HistoryTools.Retention or RetentionTools.Status => OperationPermissions.ReadRetention,
             _ => null
         };
 
@@ -36,7 +36,8 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
     internal static bool IsAvailable(IServiceProvider services, string name) =>
         (!InspectionTools.Names.Contains(name) || services.GetService<IExecutionInspectionQueries>() is not null)
         && (!HistoryTools.Names.Contains(name) || services.GetService<IOperationHistoryQueries>() is not null)
-        && (!RuntimeTools.Names.Contains(name) || services.GetService<IRuntimeQueries>() is not null);
+        && (!RuntimeTools.Names.Contains(name) || services.GetService<IRuntimeQueries>() is not null)
+        && (name != RetentionTools.Status || services.GetService<IRetentionQueries>() is not null);
 
     internal async ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> context,
         McpRequestHandler<CallToolRequestParams, CallToolResult> next, CancellationToken cancellationToken)

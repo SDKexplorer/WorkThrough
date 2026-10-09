@@ -3,6 +3,13 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore
 {
     private const string Schema = """
+        CREATE TABLE IF NOT EXISTS dj_retention_policy (id INTEGER PRIMARY KEY,revision INTEGER NOT NULL,policy TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS dj_retention_holds (unit_id TEXT PRIMARY KEY,held INTEGER NOT NULL,revision INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS dj_retention_incidents (unit_id TEXT PRIMARY KEY,code TEXT NOT NULL,at BIGINT NOT NULL);
+        CREATE TABLE IF NOT EXISTS dj_maintenance (id INTEGER PRIMARY KEY,batch_id TEXT,token TEXT,owner TEXT,lease_expires_at BIGINT,last_batch_id TEXT,failure_code TEXT,failed_at BIGINT);
+        INSERT INTO dj_maintenance(id) VALUES (1) ON CONFLICT DO NOTHING;
+        CREATE TABLE IF NOT EXISTS dj_maintenance_batches (id TEXT PRIMARY KEY,descriptor TEXT NOT NULL,result TEXT);
+        CREATE TABLE IF NOT EXISTS dj_archive_exports (archive_id TEXT NOT NULL,destination TEXT NOT NULL,sha256 TEXT NOT NULL,object_version TEXT NOT NULL,bytes BIGINT NOT NULL,verified_at BIGINT NOT NULL,batch_id TEXT NOT NULL,PRIMARY KEY(archive_id,destination));
         CREATE TABLE IF NOT EXISTS dj_signals (run_id TEXT NOT NULL,name TEXT NOT NULL,payload TEXT NOT NULL,received_at BIGINT NOT NULL,PRIMARY KEY(run_id,name));
         CREATE TABLE IF NOT EXISTS dj_signal_receipts (run_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(run_id,idempotency_key));
         CREATE TABLE IF NOT EXISTS dj_signal_waits (job_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,name TEXT NOT NULL,deadline BIGINT NOT NULL);

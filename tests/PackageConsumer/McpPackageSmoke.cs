@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Text.Json;
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -79,6 +80,12 @@ internal static class McpPackageSmoke
             }
 
             var audit = await client.CallToolAsync("workthrough_get_audit", new Dictionary<string, object?> { ["query"] = new AuditQuery() });
+            var retention = await client.CallToolAsync("workthrough_get_retention");
+            if (retention.IsError == true || retention.StructuredContent!.Value.GetProperty("configuration").ValueKind != JsonValueKind.Null)
+            {
+                throw new InvalidOperationException("Packaged MCP must show that retention is unconfigured by default.");
+            }
+
             var capacity = await client.CallToolAsync("workthrough_get_capacity", new Dictionary<string, object?> { ["id"] = executionId });
             var metrics = await client.CallToolAsync("workthrough_get_metrics", new Dictionary<string, object?> { ["query"] = new RuntimeMetricsQuery() });
             if (capacity.IsError == true || metrics.IsError == true

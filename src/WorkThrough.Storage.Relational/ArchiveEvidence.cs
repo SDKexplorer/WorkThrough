@@ -7,6 +7,11 @@ public abstract partial class RelationalJobStore
 {
     private static async Task EnsureArchiveFitsAsync(DbConnection connection, DbTransaction transaction, ArchiveCandidate candidate, string predicate, CancellationToken ct)
     {
+        if (candidate.Jobs > 500)
+        {
+            throw new StateConflictException("Archive exceeds the 500-job evidence limit; export this execution separately.");
+        }
+
         var size = Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM(LENGTH(payload)+LENGTH(COALESCE(output,''))),0) FROM dj_jobs WHERE {predicate}", ct, ("id", candidate.Id.ToString())));
         size += Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM(LENGTH(exception_type)+LENGTH(message)+LENGTH(COALESCE(stack_trace,''))),0) FROM dj_failures WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));
         size += Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM(LENGTH(COALESCE(error,''))+LENGTH(COALESCE(handler,''))),0) FROM dj_attempts WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));

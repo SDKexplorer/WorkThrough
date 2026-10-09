@@ -178,6 +178,41 @@ interface Pending {
     command?: object;
 }
 
+interface RetentionStatus {
+    lastFailureCode: string | null;
+    lastFailureAt: string | null;
+    configuration: {
+        revision: number;
+        policy: {
+            enabled: boolean;
+            succeededAfter: string;
+            failedAfter: string | null;
+            purgeAfter: string | null;
+            exportDestination: string | null;
+            eventsAfter: string | null;
+            batchSize: number;
+        };
+    } | null;
+    pendingBatchId: string | null;
+    maintenanceActive: boolean;
+    leaseExpiresAt: string | null;
+    lastBatch: {
+        batchId: string;
+        outcome: string;
+        completedAt: string;
+        archived: string[];
+        purged: string[];
+        blocked: string[];
+        eventsTrimmed: number;
+    } | null;
+    heldUnits: number;
+    incidentCount: number;
+    incidentExamples: { unitId: string; code: string; at: string }[];
+    retainedAfterEvent: number;
+    lastEventSequence: number;
+    slowestSubscriberPosition: number | null;
+}
+
 @Component({
     selector: 'app-console',
     imports: [DatePipe, DecimalPipe, JsonPipe, SavedFlowGraph],
@@ -203,6 +238,8 @@ export class LiveConsoleComponent {
     readonly controls = signal<Controls>({ queues: [], workers: [] });
     readonly archives = signal<Archive[]>([]);
     readonly archiveCandidates = signal<Candidate[] | null>(null);
+    readonly retention = signal<RetentionStatus | null>(null);
+    readonly retentionError = signal('');
     archiveBefore = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 16);
     readonly audit = signal<Audit[]>([]);
     readonly detail = signal<Detail | null>(null);
@@ -316,6 +353,15 @@ export class LiveConsoleComponent {
                 }
             }
             if (this.can('audit.read')) this.audit.set(await this.request<Audit[]>('/api/audit'));
+            if (this.can('executions.read') && this.can('retention.read')) {
+                try {
+                    this.retention.set(await this.request<RetentionStatus>('/api/retention'));
+                    this.retentionError.set('');
+                } catch {
+                    this.retention.set(null);
+                    this.retentionError.set('Automatic retention status is unavailable.');
+                }
+            }
             this.updated.set(new Date());
             const selected = this.detail();
             if (selected) await this.inspect(selected.job);

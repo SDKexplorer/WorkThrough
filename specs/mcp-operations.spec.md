@@ -1,8 +1,8 @@
 # MCP operations
 
-Status: partially implemented, 2026-10-08. The maintainer selected **read-only diagnostics initially, administrative actions later**. The [current MCP package and hosting guide](../docs/mcp.md) define the implemented subset; this specification retains the broader target. Retention and additional databases are companion work in [storage evolution](storage-evolution.spec.md).
+Status: read-only investigation implemented, external client/load qualification and controlled actions pending, 2026-10-10. The maintainer selected **read-only diagnostics initially, administrative actions later**. The [current MCP package and hosting guide](../docs/mcp.md) define the implemented subset; this specification retains the broader target. Retention and additional databases are companion work in [storage evolution](storage-evolution.spec.md).
 
-Implemented: bounded execution/attempt queries, additive protected dashboard routes, ten MCP tools (context/search/lookup/attempts/diagnostics/flow/audit/archive search/archive lookup/manual retention preview), dedicated JWT authentication and discovery, per-call resource checks, access evidence and query/result bounds. Diagnostics, audit and retention preview require distinct additional permissions. Templates, condition values, audit reasons/change contents and archive bodies are excluded from metadata tools. Deterministic wait/capacity reasons and effective automatic-policy status remain pending. Context lists unavailable capabilities; dashboard policy compatibility is preserved.
+Implemented: bounded execution/attempt queries, additive protected dashboard routes, thirteen MCP tools (context/search/lookup/attempts/diagnostics/flow/audit/archive search/archive lookup/manual retention preview/capacity/metrics/retention status), dedicated JWT authentication and discovery, per-call resource checks, access evidence and query/result bounds. Diagnostics, audit and retention preview require distinct additional permissions. Templates, condition values, audit reasons/change contents and archive bodies are excluded from metadata tools. Deterministic wait/capacity observations, windowed attempt metrics and effective automatic-policy status are implemented with explicit coverage. Context lists unavailable capabilities; dashboard policy compatibility is preserved.
 
 ## Purpose
 
@@ -148,7 +148,7 @@ Before release, benchmark 100,000 retained executions with varied attempt histor
 
 - [x] Add selected-attempt diagnostics with dual permissions/read-time redaction and bounded pinned-flow node/dependency/event inspection, including missing/trimmed coverage and optional provider capability.
 - [x] Add permission-protected audit metadata, archive search/lookup and supplied manual-policy preview without loading sensitive evidence or mutating storage.
-- [ ] Complete wait/capacity tools and effective automatic-retention policy/status once its persistence prerequisites are implemented.
+- [x] Add metadata-only wait/capacity explanations, windowed attempt metrics and permission-protected persisted retention status; all use bounded snapshots and explicit coverage.
 - [x] Add a standalone authenticated sample and composable endpoint for an API/web worker; no processor or Angular dependency.
 - [x] Exercise the official C# 2.2.0 client and an independent HTTP JSON-RPC client over Streamable HTTP; document their protocol coverage. These are not two third-party AI applications.
 - [x] Test .NET 8/10 NuGet consumers, permission/resource bypass attempts, metadata projections, paging, cancellation, limits and access-sink failure for the shipped tools.
@@ -156,7 +156,7 @@ Before release, benchmark 100,000 retained executions with varied attempt histor
 
 ### M1 follow-up — richer investigation
 
-- [ ] Add schedule/misfire explanations, deterministic failure grouping and true windowed aggregates through bounded queries.
+- [ ] Add schedule/misfire explanations and deterministic failure grouping. Bounded attempt completion-window aggregates are implemented.
 - [ ] Add explicit declared-fleet deployment preflight and retained-history lookup without full archive export.
 - [ ] Consider authorized runbook resources/prompts and dashboard diagram links. Inline MCP Apps diagrams and local stdio hosting are optional later integrations.
 

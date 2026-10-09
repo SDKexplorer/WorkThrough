@@ -16,7 +16,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         {
             await ExecuteAsync(connection, transaction, "CREATE TABLE IF NOT EXISTS dj_schema (version INTEGER NOT NULL PRIMARY KEY)", ct);
             var version = await ScalarAsync(connection, transaction, "SELECT MAX(version) FROM dj_schema", ct);
-            if (version is not null and not DBNull && Convert.ToInt32(version) is not (1 or 2 or 3))
+            if (version is not null and not DBNull && Convert.ToInt32(version) is not (1 or 2 or 3 or 4))
             {
                 throw new InvalidOperationException("Unsupported WorkThrough schema version. Use a compatible package and migration.");
             }
@@ -39,7 +39,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             await ExecuteAsync(connection, transaction, """
                 INSERT INTO dj_definition_lifecycle(flow_key,version,definition,status,revision)
                 SELECT flow_key,version,definition,'Published',1 FROM dj_definitions WHERE 1=1 ON CONFLICT DO NOTHING;
-                INSERT INTO dj_schema(version) VALUES (3) ON CONFLICT DO NOTHING;
+                INSERT INTO dj_schema(version) VALUES (4) ON CONFLICT DO NOTHING;
                 """, ct);
 
             return true;
