@@ -18,7 +18,7 @@ var id = receipt.RootElement.GetProperty("id").GetGuid();
 var rawId = receipt.RootElement.GetProperty("rawId").GetGuid();
 var flowId = receipt.RootElement.GetProperty("flowId").GetGuid();
 var builder = Host.CreateApplicationBuilder();
-builder.Services.AddWorkThrough().UseSqlite(args[0]).AddGeneratedJobs(typeof(Program).Assembly)
+RefactorStorage.Configure(builder.Services.AddWorkThrough(), args[0]).AddGeneratedJobs(typeof(Program).Assembly)
     .AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
 using var host = builder.Build();
 await host.StartAsync();
@@ -83,7 +83,7 @@ finally
 }
 
 // A deliberate address rename is a separate, coordinated deployment from moving the class.
-var store = new SqliteJobStore(args[0]);
+var store = RefactorStorage.Open(args[0]);
 var oldAddress = new JobContractId("documents.raw", 1);
 var newAddress = new JobDefinition<string>("documents.render");
 var client = new JobClient(store);
@@ -93,7 +93,7 @@ var waitingNew = await client.EnqueueAsync(newAddress, originalInput);
 await store.SetProcessorAliasesAsync([new(oldAddress, newAddress.Identity)], 0,
     new(Guid.NewGuid(), new("refactor-proof", "deployment"), "Activate the reviewed processor address alias"));
 var replacement = Host.CreateApplicationBuilder();
-replacement.Services.AddWorkThrough().UseSqlite(args[0])
+RefactorStorage.Configure(replacement.Services.AddWorkThrough(), args[0])
     .AddProcessor<string, NewCompany.Documents.RenamedAddressProcessor>(newAddress, oldAddress)
     .AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
 using var renamedHost = replacement.Build();

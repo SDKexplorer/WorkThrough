@@ -26,10 +26,7 @@ public abstract partial class RelationalJobStore
                 throw new StateConflictException("Schedule draft changed or is already published. Create a new version to change published content.");
             }
 
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_schedules(schedule_key,version,definition,status,revision,enabled) VALUES (@key,@version,@definition,'Draft',@revision,0)
-                ON CONFLICT(schedule_key,version) DO UPDATE SET definition=excluded.definition,revision=excluded.revision
-                """, ct, ("key", definition.Key), ("version", definition.Version), ("definition", JsonSerializer.Serialize(definition, JobJson.Options)), ("revision", checked(expectedRevision + 1)));
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_schedules", "schedule_key,version,definition,status,revision,enabled", "@key,@version,@definition,'Draft',@revision,0", "schedule_key,version", "definition,revision"), ct, ("key", definition.Key), ("version", definition.Version), ("definition", JsonSerializer.Serialize(definition, JobJson.Options)), ("revision", checked(expectedRevision + 1)));
 
             return checked(expectedRevision + 1);
         }, cancellationToken);
@@ -81,7 +78,7 @@ public abstract partial class RelationalJobStore
             return checked(expectedRevision + 1);
         }, cancellationToken);
 
-    private static async Task<StoredSchedule> ExpectedScheduleAsync(DbConnection connection, DbTransaction transaction, string key, int version, int revision, CancellationToken ct)
+    private async Task<StoredSchedule> ExpectedScheduleAsync(DbConnection connection, DbTransaction transaction, string key, int version, int revision, CancellationToken ct)
     {
         var schedule = (await ReadSchedulesAsync(connection, transaction, "WHERE schedule_key=@key AND version=@version", ct, ("key", key), ("version", version))).SingleOrDefault();
         if (schedule is null || schedule.Revision != revision)
@@ -96,10 +93,10 @@ public abstract partial class RelationalJobStore
     {
         await using var connection = await OpenAsync(cancellationToken);
 
-        return await ReadSchedulesAsync(connection, null, "ORDER BY schedule_key,version DESC LIMIT 500", cancellationToken);
+        return await ReadSchedulesAsync(connection, null, $"ORDER BY schedule_key,version DESC {PageSql("500")}", cancellationToken);
     }
 
-    private static async Task<List<StoredSchedule>> ReadSchedulesAsync(DbConnection connection, DbTransaction? transaction, string suffix, CancellationToken ct, params (string, object?)[] values)
+    private async Task<List<StoredSchedule>> ReadSchedulesAsync(DbConnection connection, DbTransaction? transaction, string suffix, CancellationToken ct, params (string, object?)[] values)
     {
         await using var command = Command(connection, transaction, "SELECT * FROM dj_schedules " + suffix, values);
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -124,7 +121,7 @@ public abstract partial class RelationalJobStore
         {
             var now = DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct));
             var schedules = await ReadSchedulesAsync(connection, transaction,
-                "WHERE status='Published' AND enabled=1 AND next_due<=@now ORDER BY checked_at,next_due,schedule_key,version LIMIT @limit", ct,
+                $"WHERE status='Published' AND enabled=1 AND next_due<=@now ORDER BY checked_at,next_due,schedule_key,version {PageSql("@limit")}", ct,
                 ("now", now.ToUnixTimeMilliseconds()), ("limit", batchSize));
             var created = 0;
             foreach (var schedule in schedules)
@@ -171,7 +168,7 @@ public abstract partial class RelationalJobStore
     public async Task<IReadOnlyList<ScheduleOccurrence>> OccurrencesAsync(string key, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
-        await using var query = Command(connection, null, "SELECT version,due,outcome,job_id FROM dj_schedule_occurrences WHERE schedule_key=@key ORDER BY due DESC LIMIT 100", ("key", key));
+        await using var query = Command(connection, null, $"SELECT version,due,outcome,job_id FROM dj_schedule_occurrences WHERE schedule_key=@key ORDER BY due DESC {PageSql("100")}", ("key", key));
         await using var reader = await query.ExecuteReaderAsync(cancellationToken);
         var occurrences = new List<ScheduleOccurrence>();
         while (await reader.ReadAsync(cancellationToken))

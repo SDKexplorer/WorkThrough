@@ -13,6 +13,7 @@ namespace WorkThrough.Tests;
 public sealed class RetentionTests
 {
     public static IEnumerable<object[]> Providers() => StorageConformanceTests.Providers();
+    public static IEnumerable<object[]> LegacyProviders() => Providers().Where(row => (string)row[0] != "sqlserver");
     private static readonly JobDefinition<string> Invoice = new("retention.invoice");
     private static readonly OperationActor Actor = new("tests", "maintenance");
     private static AdministrativeCommand Command() => new(Guid.NewGuid(), new("tests", "operator"), "retention fixture");
@@ -104,7 +105,7 @@ public sealed class RetentionTests
         var id = await CompletedAsync(harness, "rollback-receipt");
         await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command());
         var lease = await Lease(harness.Store);
-        await ExecuteAsync(harness, provider == "sqlite" ? """
+        await ExecuteAsync(harness, provider == "sqlserver" ? "CREATE TRIGGER expire_batch ON dj_archives AFTER INSERT AS UPDATE dj_maintenance SET lease_expires_at=0;" : provider == "sqlite" ? """
             CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN
               UPDATE dj_maintenance SET lease_expires_at=0; END
             """ : """
@@ -120,12 +121,12 @@ public sealed class RetentionTests
         Assert.Equal(lease.BatchId, pending.PendingBatchId);
         Assert.Null(pending.LastBatch);
         Assert.True(pending.MaintenanceActive);
-        await ExecuteAsync(harness, provider == "sqlite" ? "DROP TRIGGER expire_batch" : "DROP TRIGGER expire_batch ON dj_archives; DROP FUNCTION expire_batch()");
+        await ExecuteAsync(harness, provider != "postgres" ? "DROP TRIGGER expire_batch" : "DROP TRIGGER expire_batch ON dj_archives; DROP FUNCTION expire_batch()");
         Assert.Equal(new[] { id }, (await harness.Store.RunMaintenanceBatchAsync(lease)).Archived);
         Assert.Equal(id, await new JobClient(harness.Store).EnqueueAsync(Invoice, "input", new(IdempotencyKey: "rollback-receipt")));
     }
 
-    [Theory, MemberData(nameof(Providers))]
+    [Theory, MemberData(nameof(LegacyProviders))]
     public async Task Schema_three_upgrades_preserve_invocations_and_create_disabled_maintenance_state(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
@@ -345,8 +346,7 @@ public sealed class RetentionTests
 
     private static async Task ExecuteAsync(StoreHarness harness, string sql, params (string Name, object Value)[] values)
     {
-        await using DbConnection connection = harness.ConnectionString.Contains("Host=", StringComparison.OrdinalIgnoreCase)
-            ? new NpgsqlConnection(harness.ConnectionString) : new SqliteConnection(harness.ConnectionString);
+        await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = sql;

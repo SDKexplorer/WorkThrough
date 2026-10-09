@@ -25,11 +25,11 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
         var attemptExists = false;
         JobFailure? failure = null;
         var truncated = false;
-        await using (var command = OperationCommand(connection, transaction, """
-            SELECT a.number,SUBSTR(COALESCE(f.exception_type,'Unspecified'),1,@length) AS exception_type,
-              SUBSTR(COALESCE(f.message,a.error),1,@length) AS message,SUBSTR(f.stack_trace,1,@length) AS stack_trace,
-              CASE WHEN LENGTH(COALESCE(f.exception_type,'Unspecified'))>@length OR LENGTH(COALESCE(f.message,a.error))>@length
-                OR LENGTH(f.stack_trace)>@length THEN 1 ELSE 0 END AS clipped
+        await using (var command = OperationCommand(connection, transaction, $"""
+            SELECT a.number,{SubstringFunction}(COALESCE(f.exception_type,'Unspecified'),1,@length) AS exception_type,
+              {SubstringFunction}(COALESCE(f.message,a.error),1,@length) AS message,{SubstringFunction}(f.stack_trace,1,@length) AS stack_trace,
+              CASE WHEN {LengthSql("COALESCE(f.exception_type,'Unspecified')")}>@length OR {LengthSql("COALESCE(f.message,a.error)")}>@length
+                OR {LengthSql("f.stack_trace")}>@length THEN 1 ELSE 0 END AS clipped
             FROM dj_jobs j LEFT JOIN dj_attempts a ON a.job_id=j.id AND a.number=@attempt
             LEFT JOIN dj_failures f ON f.job_id=a.job_id AND f.attempt=a.number WHERE j.id=@id
             """, ("id", id.ToString()), ("attempt", attempt), ("length", maximumCharacters)))
@@ -70,7 +70,7 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
         var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
         var (flow, graphStatus) = await ReadFlowMetadataAsync(connection, transaction, runId, ct);
         await using var nodesCommand = OperationCommand(connection, transaction,
-            $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE j.workflow_run_id=@run ORDER BY j.id LIMIT @limit OFFSET @offset",
+            $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE j.workflow_run_id=@run ORDER BY j.id {PageSql("@limit", "@offset")}",
             ("run", runId.ToString()), ("limit", limit + 1), ("offset", nodeOffset));
         var nodes = await ReadExecutionMetadataAsync(nodesCommand, ct);
         var nextNode = TrimPage(nodes, limit) ? nodeOffset + limit : (int?)null;
@@ -91,12 +91,12 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
             nextEvent, position.RetainedAfter, position.LastSequence, afterEvent < position.RetainedAfter);
     }
 
-    private static async Task<(FlowMetadata? Flow, string GraphStatus)> ReadFlowMetadataAsync(
+    private async Task<(FlowMetadata? Flow, string GraphStatus)> ReadFlowMetadataAsync(
         DbConnection connection, DbTransaction transaction, Guid runId, CancellationToken ct)
     {
-        await using var command = OperationCommand(connection, transaction, """
-            SELECT f.flow_key,f.version,SUBSTR(f.correlation_id,1,512) AS correlation_id,f.status,
-              CASE WHEN LENGTH(f.correlation_id)>512 THEN 1 ELSE 0 END AS clipped,LENGTH(d.definition) AS characters
+        await using var command = OperationCommand(connection, transaction, $"""
+            SELECT f.flow_key,f.version,{SubstringFunction}(f.correlation_id,1,512) AS correlation_id,f.status,
+              CASE WHEN {LengthSql("f.correlation_id")}>512 THEN 1 ELSE 0 END AS clipped,{LengthSql("d.definition")} AS characters
             FROM dj_flows f LEFT JOIN dj_definitions d ON d.flow_key=f.flow_key AND d.version=f.version WHERE f.id=@run
             """, ("run", runId.ToString()));
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -125,7 +125,7 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
         return dependencies;
     }
 
-    private static async Task<EventPosition> ReadInspectionEventPositionAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
+    private async Task<EventPosition> ReadInspectionEventPositionAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
     {
         await using var command = OperationCommand(connection, transaction, "SELECT value,floor FROM dj_event_sequence WHERE id=1");
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -134,11 +134,11 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
         return new(reader.GetInt64(0), reader.GetInt64(1));
     }
 
-    private static async Task<List<ExecutionEvent>> ReadFlowEventsAsync(DbConnection connection, DbTransaction transaction,
+    private async Task<List<ExecutionEvent>> ReadFlowEventsAsync(DbConnection connection, DbTransaction transaction,
         Guid runId, long after, int limit, CancellationToken ct)
     {
-        await using var command = OperationCommand(connection, transaction, """
-            SELECT sequence,job_id,at,kind,attempt FROM dj_events WHERE run_id=@run AND sequence>@after ORDER BY sequence LIMIT @limit
+        await using var command = OperationCommand(connection, transaction, $"""
+            SELECT sequence,job_id,at,kind,attempt FROM dj_events WHERE run_id=@run AND sequence>@after ORDER BY sequence {PageSql("@limit")}
             """, ("run", runId.ToString()), ("after", after), ("limit", limit + 1));
         await using var reader = await command.ExecuteReaderAsync(ct);
         var events = new List<ExecutionEvent>();

@@ -1,6 +1,6 @@
 # Retention automation and additional providers
 
-Status: retention implemented on SQLite/PostgreSQL, 2026-10-10; expanded load/restore qualification and SQL Server/Oracle remain pending. The maintainer requested cleanup/archiving and additional providers. This plan complements [MCP operations](mcp-operations.spec.md) and [current retention semantics](../docs/operations-and-retention.md).
+Status: retention implemented on SQLite/PostgreSQL, 2026-10-10; SQL Server implemented under qualification; expanded load/restore qualification and Oracle remain pending. The maintainer requested cleanup/archiving and additional providers. This plan complements [MCP operations](mcp-operations.spec.md) and [current retention semantics](../docs/operations-and-retention.md).
 
 ## Current capability and intended result
 
@@ -11,7 +11,7 @@ Status: retention implemented on SQLite/PostgreSQL, 2026-10-10; expanded load/re
 | Archive storage | Same-database packages/summaries, verified directory export and opt-in body purge | Original-outcome and individual archived-step lookup index |
 | Evidence protection | Active/Paused/Incident flows remain live; receipts survive archival/purge | Explicit policy for other growing tables without weakening deduplication |
 | Event cleanup | Opt-in bounded trimming respects subscribers, live work and holds; positions are visible | Production subscriber/backlog qualification |
-| Database providers | SQLite and PostgreSQL | SQL Server first; Oracle after portability and migration proofs |
+| Database providers | SQLite, PostgreSQL; SQL Server implementation under qualification | Oracle after portability and migration proofs |
 
 Archive location is independent of execution outcome. A successful archived job is still successful. Archiving is neither a backup nor a way to resume an old run. Live flow dependencies stay in one store.
 
@@ -133,7 +133,7 @@ Run the same contention workload with and without maintenance on each provider. 
 - [x] R0: Persisted policy/holds and bounded maintenance status are available through `IRetentionQueries`, dashboard and MCP. Audited configuration uses `IRetentionAdministration`; manual preview stays separate.
 - [x] R1: Opt-in fenced hosting, atomic bounded batches, incident exclusions and stable batch receipts are implemented and provider-tested.
 - [x] R2: Immutable directory export, read-back hash verification, batch-scoped receipts, lease takeover/lost-response tests and explicit purge/event policies are implemented. Production destination durability/restore qualification remains.
-- [ ] P0: Extract focused provider seams; keep existing SQLite/PostgreSQL conformance and saved-schema tests passing.
+- [x] P0: Extract focused provider seams; keep existing SQLite/PostgreSQL conformance and saved-schema tests passing.
 - [ ] P1: Implement SQL Server, declare its matrix and add real-instance CI, fault, retention and MCP query tests.
 - [ ] P2: Prove Oracle migration/binding/locking semantics, implement Oracle and run the same full real-instance gates.
 - [ ] Run independent-process races, stale-token recovery, database-time precision, lost acknowledgments, duplicate starts, aliases, branch activation, signals, schedules, audit/receipts, restore and interrupted initialization tests for each advertised backend.

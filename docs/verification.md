@@ -128,3 +128,15 @@ New tests cover disabled defaults, audited policy/hold revisions, whole-flow hol
 The Angular production build and formatting gate pass. An isolated local sample visibly reports disabled/unconfigured retention and current hold/incident/journal state; the Archives view has no document overflow at 375px. Existing demo data and retention settings were not modified. This was a focused dark-theme UI check, not a complete accessibility audit.
 
 These checks are not the proposed large maintenance-versus-worker performance gate. The 100k retained-execution investigative campaign, two-hour soak, real external IdP/desktop AI-client integration, destination durability/restore checks, PostgreSQL PITR and multi-machine partitions remain pending. SQL Server and Oracle remain unimplemented.
+
+
+## SQL Server implementation campaign — 2026-10-10 (in progress)
+
+The SQL Server provider uses Microsoft.Data.SqlClient 7.1.0 and a pinned SQL Server 2022 CU27 Developer image (16.0.4295.3, Ubuntu 22.04 x64). Local Docker is ARM64 and runs that image through emulation; these local results are debugging evidence, not a supported platform claim. Native Linux x64 CI is being added before qualification.
+
+The shared SQLite/PostgreSQL/SQL Server suite passed 299 tests on .NET 10, then 308 tests after adding identity-boundary and initialization cases. The first full gate passed all 308 on .NET 10 but had 26 .NET 8 failures involving immediate claims and default query windows on the network databases. An isolated .NET 8 rerun passed all 308. A 100-job per-runtime PostgreSQL timing probe reproduced no failures; measured idle host/database differences were approximately 1–2 ms after warmup. The initial failure remains recorded rather than being called fixed. Native CI and a complete rerun are required. No scheduled eligibility boundary was weakened to hide a failure.
+
+Read-only MCP cases provision real SELECT-only SQL Server logins, with no storage initialization. Additional package/runtime, published relocation, process-kill and two-worker performance gates are wired into `scripts/verify.sh`; their results are pending below.
+
+
+The complete local rerun passed: 308 tests on each of .NET 8.0.31 and .NET 10.0.11, zero build warnings/errors, all nine local NuGet packages, isolated SDK 8/10 consumers (including SQL Server generated handlers and hosted workers), published relocation/alias proofs on all three providers, and process-kill recovery plus the two-worker performance smoke. SQL Server's emulated smoke measured 37.5/25.6/29.1 jobs/s for mixed/flows/outbox, with 60/120/60 successful jobs checked. These small local workloads are correctness/regression evidence, not production performance or soak qualification. Logs: `artifacts/sqlserver-verification.log` and `artifacts/performance/sqlserver-smoke.json`. A final constructor guard rejects implicit/system databases; its targeted checks and native CI run follow this gate.

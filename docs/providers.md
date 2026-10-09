@@ -1,6 +1,6 @@
 # Storage providers
 
-SQLite and PostgreSQL implement the initial storage port. Claims of verification must refer to the test run recorded in `verification.md`; a compiled provider is not enough.
+SQLite, PostgreSQL and SQL Server implement the storage port. Claims of verification must refer to the test run recorded in `verification.md`; a compiled provider is not enough.
 
 SQLite uses a local file and an immediate write transaction. Use a local durable volume. Network filesystems and multi-machine shared SQLite files are not supported. SQLite driver operations execute synchronously internally despite its async API, so use PostgreSQL for a networked worker fleet.
 
@@ -36,7 +36,7 @@ dotnet test tests/WorkThrough.Tests --configuration Release
 docker stop durablejobs-postgres-test
 ```
 
-When the environment variable is absent, the shared suite enumerates SQLite cases only. CI supplies PostgreSQL explicitly. SQL Server and Oracle are the next planned providers, in that order; neither is implemented. See the [portability, migration and verification plan](../specs/storage-evolution.spec.md). MySQL and MongoDB remain unprioritized possibilities.
+When server environment variables are absent, the shared suite enumerates SQLite cases only. CI supplies PostgreSQL and SQL Server explicitly. SQL Server is implemented with native qualification recorded separately; Oracle remains planned. See the [portability, migration and verification plan](../specs/storage-evolution.spec.md). MySQL and MongoDB remain unprioritized possibilities.
 
 The MCP verification gate also exercises metadata/context queries through SQLite `Mode=ReadOnly` and PostgreSQL connections with `default_transaction_read_only=on`, without storage initialization. Both passed on .NET 8 and 10. Production read-only roles still need deployment-specific grants; this is query compatibility evidence, not a role provisioning test. See [MCP hosting](mcp.md) and [verification](verification.md).
 
@@ -46,3 +46,21 @@ SQLite initialization now enables WAL by default for local multi-process use, an
 
 
 Schema 4 adds whole-unit retention holds, policy revisions, maintenance leases/batches/incidents and verified-export receipts on SQLite/PostgreSQL. Stop older writers before upgrading; see [ADR-013](adr/0013-fenced-retention-maintenance.md). `IRetentionQueries` is metadata-only and works through read-only connections. Maintenance uses the existing serialized write transaction, checks its lease before and after every batch, and keeps copy verification outside that transaction. Schema-1/schema-3 upgrades and partial-batch rollback are covered by the shared suite.
+
+## SQL Server setup
+
+`WorkThrough.Storage.SqlServer` supplies `.UseSqlServer(connectionString)`. The implementation targets SQL Server 2022 CU27 Developer on Linux x64 with Microsoft.Data.SqlClient 7.1.0. The native CI qualification and current evidence are tracked in [verification](verification.md). Local ARM-emulated tests are not a supported deployment matrix. Azure SQL and other editions/OS/server versions remain unverified.
+
+Use a dedicated database with `dbo` as the user's default schema. A deployment administrator enables snapshot isolation once:
+
+```sql
+ALTER DATABASE [WorkThrough] SET ALLOW_SNAPSHOT_ISOLATION ON;
+```
+
+Initialization creates schema 4 transactionally and checks that snapshot isolation is active. Runtime hosts can use a DML credential with `.InitializeStorageOnStart(false)` after deployment initialization. Read-only dashboard/MCP hosts need SELECT grants and disable initialization. Production identities/passwords belong in host configuration or a secret store; the library does not create production logins.
+
+Every engine write takes a transaction-owned application lock for at most five seconds before failing. Multi-query inspection uses snapshot isolation. Locks, lease checks, administrative receipts/audit and successor activation retain the shared transaction boundary. See [ADR-014](adr/0014-sql-server-storage.md).
+
+Identities use binary Unicode collation. SQL Server explicitly rejects trailing ASCII spaces in identities and filters, because SQL equality would otherwise collapse distinct keys. Physical indexed-value bounds are 120 UTF-16 units for processor/flow/schedule keys, 512 for queues, 400 for worker/step/subscription/idempotency keys and 100 for archive destinations. Oversized values fail without truncation or partial acceptance. Correlation text can be longer and is clipped by metadata views; correlation searches use bounded history indexes plus filtering. These restrictions must be checked before a separately planned import from another store.
+
+For tests, set `DURABLEJOBS_SQLSERVER` to a **disposable server** login that can create/drop databases and test logins. The suite creates unique `dj_test_*`, `wt_exercise_*` and `wt_package_*` databases, and removes only its own resources. Never use production credentials/data. CI supplies a pinned x64 Developer container and disposable credentials; SELECT-only MCP login tests verify database-enforced read access. `scripts/verify.sh` includes this provider only when the variable is present.

@@ -30,8 +30,19 @@ jobs:
       - run: npm run build
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: WorkThrough_Test_2026!
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'WorkThrough_Test_2026!' -C -Q 'SELECT 1' -b"
+          --health-interval 5s --health-timeout 5s --health-retries 30
       postgres:
         # Docker Official Images mirror avoids Docker Hub's shared-runner anonymous pull quota.
         image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
@@ -45,6 +56,7 @@ jobs:
           --health-cmd "pg_isready -U postgres -d durablejobs"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
+      DURABLEJOBS_SQLSERVER: Server=127.0.0.1,1433;User ID=sa;Password=WorkThrough_Test_2026!;TrustServerCertificate=true;Encrypt=true
       DURABLEJOBS_POSTGRES: Host=127.0.0.1;Port=5432;Database=durablejobs;Username=postgres;Password=durablejobs-test
     steps:
       - uses: actions/checkout@v7

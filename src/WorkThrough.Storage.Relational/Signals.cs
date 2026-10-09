@@ -69,9 +69,9 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
     private async Task<int> DispatchSignalsCoreAsync(DbConnection connection, DbTransaction transaction, long now, int batchSize, CancellationToken ct)
     {
         var runs = new List<Guid>();
-        await using (var command = Command(connection, transaction, """
+        await using (var command = Command(connection, transaction, $"""
             SELECT DISTINCT w.run_id FROM dj_signal_waits w JOIN dj_jobs j ON j.id=w.job_id JOIN dj_flows f ON f.id=w.run_id
-            WHERE j.status='AwaitingSignal' AND f.status='Running' AND (w.deadline<=@now OR EXISTS (SELECT 1 FROM dj_signals s WHERE s.run_id=w.run_id AND s.name=w.name)) LIMIT @limit
+            WHERE j.status='AwaitingSignal' AND f.status='Running' AND (w.deadline<=@now OR EXISTS (SELECT 1 FROM dj_signals s WHERE s.run_id=w.run_id AND s.name=w.name)) ORDER BY w.run_id {PageSql("@limit")}
             """, ("now", now), ("limit", batchSize)))
         {
             await using (var reader = await command.ExecuteReaderAsync(ct))

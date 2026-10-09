@@ -146,7 +146,7 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
         return "AwaitingAcquisition";
     }
 
-    private static async Task<ReadinessState?> ReadReadinessStateAsync(DbConnection connection, DbTransaction transaction, Guid id, CancellationToken ct)
+    private async Task<ReadinessState?> ReadReadinessStateAsync(DbConnection connection, DbTransaction transaction, Guid id, CancellationToken ct)
     {
         await using var command = OperationCommand(connection, transaction, """
             SELECT j.job_key,j.status,j.attempt,j.available_at,j.expires_at,j.lease_expires_at,f.status AS flow_status,
@@ -167,7 +167,7 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
             Date(reader, "deadline"), Date(reader, "last_progress_at"), reader.IsDBNull(10) ? null : reader.GetInt64(10));
     }
 
-    private static async Task<CapacityObservation> ReadCapacityAsync(DbConnection connection, DbTransaction transaction, string key, long now, CancellationToken ct)
+    private async Task<CapacityObservation> ReadCapacityAsync(DbConnection connection, DbTransaction transaction, string key, long now, CancellationToken ct)
     {
         await using var command = OperationCommand(connection, transaction, """
             SELECT (SELECT maximum FROM dj_limits WHERE job_key='*'),
@@ -198,10 +198,10 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
         var from = CeilingMilliseconds(query.From ?? DateTimeOffset.FromUnixTimeMilliseconds(until).AddHours(-1));
         ValidateWindow(from, until);
         RuntimeMetrics result;
-        await using (var command = OperationCommand(connection, transaction, """
+        await using (var command = OperationCommand(connection, transaction, $"""
             SELECT COUNT(*),COALESCE(SUM(CASE WHEN status='Succeeded' THEN 1 ELSE 0 END),0),
               COALESCE(SUM(CASE WHEN status='Failed' THEN 1 ELSE 0 END),0),
-              AVG(CAST(finished_at-started_at AS DOUBLE PRECISION)),MAX(finished_at-started_at)
+              AVG(CAST(finished_at-started_at AS {FloatingPointType})),MAX(finished_at-started_at)
             FROM dj_attempts WHERE finished_at>=@from AND finished_at<@until
             """, ("from", from), ("until", until)))
         {

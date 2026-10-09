@@ -290,6 +290,7 @@ public sealed partial class McpTests
             }
 
             builder.WebHost.UseTestServer();
+            await harness.ProvisionReadOnlySqlServerAsync();
             builder.Services.AddSingleton<IExecutionQueries>(queries ?? ReadOnlyQueries(harness));
             if (includeInspection)
             {
@@ -349,6 +350,11 @@ public sealed partial class McpTests
 
         private static IExecutionQueries ReadOnlyQueries(StoreHarness harness)
         {
+            if (harness.Store is SqlServerJobStore)
+            {
+                return new SqlServerJobStore(harness.ReadOnlyConnectionString!);
+            }
+
             if (harness.Store is SqliteJobStore)
             {
                 return new SqliteJobStore(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(harness.ConnectionString)

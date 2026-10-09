@@ -18,10 +18,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
             }
 
             var revision = checked(expectedRevision + 1);
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_retention_policy(id,revision,policy) VALUES (1,@revision,@policy)
-                ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,policy=excluded.policy
-                """, ct, ("revision", revision), ("policy", JsonSerializer.Serialize(policy, JobJson.Options)));
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_policy", "id,revision,policy", "1,@revision,@policy", "id", "revision,policy"), ct, ("revision", revision), ("policy", JsonSerializer.Serialize(policy, JobJson.Options)));
 
             return revision;
         }, cancellationToken);
@@ -46,10 +43,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
                 throw new StateConflictException("Retention hold changed. Refresh before acting.");
             }
 
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_retention_holds(unit_id,held,revision) VALUES (@id,@held,@revision)
-                ON CONFLICT(unit_id) DO UPDATE SET held=excluded.held,revision=excluded.revision
-                """, ct, ("id", resolved), ("held", held ? 1 : 0), ("revision", checked(revision + 1)));
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_holds", "unit_id,held,revision", "@id,@held,@revision", "unit_id", "held,revision"), ct, ("id", resolved), ("held", held ? 1 : 0), ("revision", checked(revision + 1)));
 
             return new RetentionHold(Guid.Parse(resolved), held, revision + 1);
         }, cancellationToken);
@@ -103,7 +97,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
         var holds = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_holds WHERE held=1", ct));
         var incidents = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_incidents", ct));
         var examples = new List<RetentionIncident>();
-        await using (var command = OperationCommand(connection, transaction, "SELECT unit_id,code,at FROM dj_retention_incidents ORDER BY at DESC,unit_id LIMIT 100"))
+        await using (var command = OperationCommand(connection, transaction, $"SELECT unit_id,code,at FROM dj_retention_incidents ORDER BY at DESC,unit_id {PageSql("100")} "))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
@@ -120,7 +114,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
             position.RetainedAfter, position.LastSequence, slowest is null or DBNull ? null : Convert.ToInt64(slowest), failure, failedAt);
     }
 
-    private static async Task<StoredRetentionPolicy?> ReadRetentionPolicyAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
+    private async Task<StoredRetentionPolicy?> ReadRetentionPolicyAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
     {
         await using var command = OperationCommand(connection, transaction, "SELECT policy,revision FROM dj_retention_policy WHERE id=1");
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -132,7 +126,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
         return new(JsonSerializer.Deserialize<RetentionPolicy>(reader.GetString(0), JobJson.Options)!, reader.GetInt32(1));
     }
 
-    private static async Task RejectHeldArchiveAsync(DbConnection connection, DbTransaction transaction, Guid id, CancellationToken ct)
+    private async Task RejectHeldArchiveAsync(DbConnection connection, DbTransaction transaction, Guid id, CancellationToken ct)
     {
         if (Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_holds WHERE unit_id=@id AND held=1", ct, ("id", id.ToString()))) > 0)
         {

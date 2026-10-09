@@ -83,6 +83,8 @@ finally
     File.Delete(database);
 }
 
+await SqlServerPackageSmoke.RunAsync();
+
 [JobContract("smoke.package")]
 public sealed record PackageJob(string Value);
 public sealed record class PackageHandler : IJobHandler<PackageJob>

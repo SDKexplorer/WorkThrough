@@ -10,3 +10,11 @@ dotnet publish "$repo_dir/samples/Refactor.After" -c Release --no-restore -o "$p
 mv "$proof_dir/before/Refactor.Before.dll" "$proof_dir/before/Refactor.Before.dll.removed"
 test ! -f "$proof_dir/after/Refactor.Before.dll"
 dotnet --roll-forward LatestMajor "$proof_dir/after/Refactor.After.dll" "Data Source=$proof_dir/jobs.db" "$proof_dir/receipt.txt"
+
+mv "$proof_dir/before/Refactor.Before.dll.removed" "$proof_dir/before/Refactor.Before.dll"
+for provider in postgres sqlserver; do
+  if [[ "$provider" == postgres && -z "${DURABLEJOBS_POSTGRES:-}" ]]; then continue; fi
+  if [[ "$provider" == sqlserver && -z "${DURABLEJOBS_SQLSERVER:-}" ]]; then continue; fi
+  "$runtime" "$repo_dir/tests/WorkThrough.Exercises/bin/Release/net8.0/WorkThrough.Exercises.dll" relocation "$provider" "$proof_dir/before/Refactor.Before.dll" "$proof_dir/after/Refactor.After.dll"
+done
+mv "$proof_dir/before/Refactor.Before.dll" "$proof_dir/before/Refactor.Before.dll.removed"

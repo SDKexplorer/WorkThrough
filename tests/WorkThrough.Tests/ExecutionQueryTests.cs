@@ -206,14 +206,7 @@ public sealed class ExecutionQueryTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var services = new ServiceCollection();
         var builder = services.AddWorkThrough();
-        if (provider == "postgres")
-        {
-            builder.UsePostgreSql(harness.ConnectionString);
-        }
-        else
-        {
-            builder.UseSqlite(harness.ConnectionString);
-        }
+        harness.Register(builder);
 
         await using var serviceProvider = services.BuildServiceProvider();
         var read = serviceProvider.GetRequiredService<IExecutionQueries>();
@@ -222,8 +215,7 @@ public sealed class ExecutionQueryTests
 
     private static async Task ExecuteAsync(StoreHarness harness, string sql, params (string Name, object Value)[] parameters)
     {
-        await using DbConnection connection = harness.Store is PostgresJobStore
-            ? new NpgsqlConnection(harness.ConnectionString) : new SqliteConnection(harness.ConnectionString);
+        await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = sql;

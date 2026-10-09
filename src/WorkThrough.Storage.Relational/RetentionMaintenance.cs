@@ -101,10 +101,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
                     catch (StateConflictException)
                     {
                         // Archive size checks happen before the first write. Provider failures are never swallowed.
-                        await ExecuteAsync(connection, transaction, """
-                            INSERT INTO dj_retention_incidents(unit_id,code,at) VALUES (@id,'ArchiveEvidenceLimit',@at)
-                            ON CONFLICT(unit_id) DO UPDATE SET code=excluded.code,at=excluded.at
-                            """, ct, ("id", candidate.Id.ToString()), ("at", await NowAsync(connection, transaction, ct)));
+                        await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_incidents", "unit_id,code,at", "@id,'ArchiveEvidenceLimit',@at", "unit_id", "code,at"), ct, ("id", candidate.Id.ToString()), ("at", await NowAsync(connection, transaction, ct)));
                         blocked.Add(candidate.Id);
                     }
                 }
@@ -139,7 +136,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
             return true;
         }, cancellationToken);
 
-    private static async Task<MaintenanceBatch> ReadMaintenanceBatchAsync(DbConnection connection, DbTransaction? transaction, Guid id, CancellationToken ct)
+    private async Task<MaintenanceBatch> ReadMaintenanceBatchAsync(DbConnection connection, DbTransaction? transaction, Guid id, CancellationToken ct)
     {
         var json = await ScalarAsync(connection, transaction, "SELECT descriptor FROM dj_maintenance_batches WHERE id=@id", ct, ("id", id.ToString())) as string;
 
@@ -158,17 +155,17 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
         }
     }
 
-    private static async Task<int> TrimMaintenanceEventsAsync(DbConnection connection, DbTransaction transaction, DateTimeOffset before, CancellationToken ct)
+    private async Task<int> TrimMaintenanceEventsAsync(DbConnection connection, DbTransaction transaction, DateTimeOffset before, CancellationToken ct)
     {
         var position = await ReadEventPositionAsync(connection, transaction, ct);
         var slowest = await ScalarAsync(connection, transaction, "SELECT MIN(sequence) FROM dj_subscriptions", ct);
         var maximum = slowest is null or DBNull ? position.LastSequence : Convert.ToInt64(slowest);
         var through = position.RetainedAfter;
-        await using (var command = Command(connection, transaction, """
+        await using (var command = Command(connection, transaction, $"""
             SELECT e.sequence,e.at,CASE WHEN EXISTS (SELECT 1 FROM dj_jobs j WHERE j.id=e.job_id)
               OR EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=COALESCE(e.run_id,e.job_id) AND h.held=1)
               THEN 1 ELSE 0 END AS protected
-            FROM dj_events e WHERE e.sequence>@floor AND e.sequence<=@maximum ORDER BY e.sequence LIMIT 1000
+            FROM dj_events e WHERE e.sequence>@floor AND e.sequence<=@maximum ORDER BY e.sequence {PageSql("1000")}
             """, ("floor", position.RetainedAfter), ("maximum", maximum)))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);

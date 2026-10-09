@@ -26,10 +26,7 @@ public abstract partial class RelationalJobStore
             }
 
             var revision = checked(expectedRevision + 1);
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_definition_lifecycle(flow_key,version,definition,status,revision) VALUES (@key,@version,@definition,'Draft',@revision)
-                ON CONFLICT(flow_key,version) DO UPDATE SET definition=excluded.definition,revision=excluded.revision
-                """, ct, ("key", definition.Key), ("version", definition.Version),
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_definition_lifecycle", "flow_key,version,definition,status,revision", "@key,@version,@definition,'Draft',@revision", "flow_key,version", "definition,revision"), ct, ("key", definition.Key), ("version", definition.Version),
                 ("definition", JsonSerializer.Serialize(definition, JobJson.Options)), ("revision", revision));
 
             return revision;
@@ -74,7 +71,7 @@ public abstract partial class RelationalJobStore
         return await ReadDefinitionAsync(connection, null, key, version, cancellationToken);
     }
 
-    private static async Task<StoredFlowDefinition?> ReadDefinitionAsync(DbConnection connection, DbTransaction? transaction, string key, int version, CancellationToken ct)
+    private async Task<StoredFlowDefinition?> ReadDefinitionAsync(DbConnection connection, DbTransaction? transaction, string key, int version, CancellationToken ct)
     {
         await using var command = Command(connection, transaction, "SELECT definition,status,revision FROM dj_definition_lifecycle WHERE flow_key=@key AND version=@version",
             ("key", key), ("version", version));
@@ -91,7 +88,7 @@ public abstract partial class RelationalJobStore
         }
 
         await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT definition,status,revision FROM dj_definition_lifecycle ORDER BY flow_key,version DESC LIMIT @limit", ("limit", limit));
+        await using var command = Command(connection, null, $"SELECT definition,status,revision FROM dj_definition_lifecycle ORDER BY flow_key,version DESC {PageSql("@limit")}", ("limit", limit));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var definitions = new List<StoredFlowDefinition>();
         while (await reader.ReadAsync(cancellationToken))

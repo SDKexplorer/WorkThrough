@@ -93,3 +93,5 @@ Typed definitions/manual registration, coordinated aliases with shared admission
 
 
 Schema 4 adds opt-in fenced retention maintenance, whole-unit holds, persisted policies, verified directory exports and bounded journal cleanup. See [ADR-013](adr/0013-fenced-retention-maintenance.md) and the operations guide. Older writers must stop before upgrade; active flows remain in one store. SQL Server/Oracle and tenant/partition controls remain separate work.
+
+SQL Server uses the shared state transitions with provider-owned schema/JSON projections, small SQL-fragment seams, transaction-owned application locking and snapshot inspection. Its explicit key bounds and trailing-space restriction are recorded in [ADR-014](adr/0014-sql-server-storage.md). Business transaction callbacks retain the original ADO.NET connection and SQL dialect.

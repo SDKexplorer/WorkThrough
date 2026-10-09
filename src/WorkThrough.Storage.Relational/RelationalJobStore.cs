@@ -60,7 +60,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             job.CausationJobId
         }, JobJson.Options))));
 
-    private static async Task<Guid> AcceptJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
+    private async Task<Guid> AcceptJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
     {
         if (System.Text.Encoding.UTF8.GetByteCount(job.Payload.GetRawText()) > 1_048_576)
         {
@@ -106,9 +106,9 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         return job.Id;
     }
 
-    private static Task<int> SaveJobReceiptAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) => job.IdempotencyKey is null
+    private Task<int> SaveJobReceiptAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) => job.IdempotencyKey is null
         ? Task.FromResult(0)
-        : ExecuteAsync(connection, transaction, "INSERT INTO dj_job_receipts(idempotency_key,fingerprint,job_id) VALUES (@key,@hash,@id) ON CONFLICT DO NOTHING", ct,
+        : ExecuteAsync(connection, transaction, UpsertSql("dj_job_receipts", "idempotency_key,fingerprint,job_id", "@key,@hash,@id", "idempotency_key", ""), ct,
             ("key", job.IdempotencyKey), ("hash", JobFingerprint(job)), ("id", job.Id.ToString()));
 
     public Task SeedLimitsAsync(IReadOnlyList<ConcurrencyLimit> limits, CancellationToken cancellationToken = default) => WriteAsync(async (connection, transaction, ct) =>
@@ -117,7 +117,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         {
             Validate(limit);
             await ExecuteAsync(connection, transaction,
-                "INSERT INTO dj_limits(job_key, maximum) VALUES (@key,@maximum) ON CONFLICT DO NOTHING", ct,
+                UpsertSql("dj_limits", "job_key,maximum", "@key,@maximum", "job_key", ""), ct,
                 ("key", limit.JobKey ?? "*"), ("maximum", limit.Maximum));
         }
 
@@ -131,7 +131,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         return WriteAsync(async (connection, transaction, ct) =>
         {
             await ExecuteAsync(connection, transaction,
-                "INSERT INTO dj_limits(job_key,maximum) VALUES (@key,@maximum) ON CONFLICT(job_key) DO UPDATE SET maximum=excluded.maximum", ct,
+                UpsertSql("dj_limits", "job_key,maximum", "@key,@maximum", "job_key", "maximum"), ct,
                 ("key", limit.JobKey ?? "*"), ("maximum", limit.Maximum));
 
             return true;
@@ -209,7 +209,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                   AND ({string.Join(" OR ", contracts)}) AND j.queue IN ({string.Join(",", queues)})
                   AND COALESCE((SELECT group_key FROM dj_processor_groups WHERE job_key=j.job_key),j.job_key)
                     NOT IN (SELECT group_key FROM blocked_groups)
-                ORDER BY j.available_at,j.created_at,j.id LIMIT 1
+                ORDER BY j.available_at,j.created_at,j.id {PageSql("1")}
                 """;
             var candidates = await ReadJobsAsync(connection, transaction, sql, ct, parameters.ToArray());
             if (candidates.Count == 0)
@@ -384,7 +384,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     private async Task RecoverExpiredAsync(DbConnection connection, DbTransaction transaction, long now, CancellationToken ct)
     {
         var expired = await ReadJobsAsync(connection, transaction,
-            "SELECT * FROM dj_jobs WHERE status='Running' AND lease_expires_at<=@now ORDER BY lease_expires_at LIMIT 100", ct, ("now", now));
+            $"SELECT * FROM dj_jobs WHERE status='Running' AND lease_expires_at<=@now ORDER BY lease_expires_at {PageSql("100")}", ct, ("now", now));
         foreach (var job in expired)
         {
             var status = job.Attempt < job.MaxAttempts ? "Queued" : "Failed";
@@ -405,11 +405,11 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         }
     }
 
-    private static async Task<bool> WorkflowAllowsRetryAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) =>
+    private async Task<bool> WorkflowAllowsRetryAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) =>
         job.WorkflowRunId is not { } runId || await ScalarAsync(connection, transaction,
             "SELECT status FROM dj_flows WHERE id=@id", ct, ("id", runId.ToString())) is "Running" or "Paused" or "Incident";
 
-    private static async Task FinishAttemptAsync(DbConnection connection, DbTransaction transaction, JobRecord job, long now, string status, string? error, CancellationToken ct)
+    private async Task FinishAttemptAsync(DbConnection connection, DbTransaction transaction, JobRecord job, long now, string status, string? error, CancellationToken ct)
     {
         await ExecuteAsync(connection, transaction,
             "UPDATE dj_attempts SET finished_at=@now,status=@status,error=@error WHERE job_id=@id AND number=@number AND status='Running'", ct,
@@ -417,7 +417,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         await JournalAsync(connection, transaction, job, now, status, ct);
     }
 
-    private static async Task<int> JournalAsync(DbConnection connection, DbTransaction transaction, JobRecord job, long now, string kind, CancellationToken ct)
+    private async Task<int> JournalAsync(DbConnection connection, DbTransaction transaction, JobRecord job, long now, string kind, CancellationToken ct)
     {
         await ExecuteAsync(connection, transaction, "UPDATE dj_event_sequence SET value=value+1 WHERE id=1", ct);
         await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET terminal_at=CASE WHEN status IN ('Succeeded','Failed','Skipped','Cancelled','Rejected','Expired') THEN @now ELSE NULL END WHERE id=@id", ct, ("now", now), ("id", job.Id.ToString()));
@@ -444,7 +444,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         }
     }
 
-    private async Task<T> WriteAsync<T>(Func<DbConnection, DbTransaction, CancellationToken, Task<T>> action, CancellationToken ct)
+    protected async Task<T> WriteAsync<T>(Func<DbConnection, DbTransaction, CancellationToken, Task<T>> action, CancellationToken ct)
     {
         await using var connection = await OpenAsync(ct).ConfigureAwait(false);
         await using var transaction = await BeginWriteAsync(connection, ct).ConfigureAwait(false);
@@ -457,7 +457,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     private async Task<long> NowAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct) =>
         Convert.ToInt64(await ScalarAsync(connection, transaction, ClockSql, ct).ConfigureAwait(false));
 
-    protected static DbCommand Command(DbConnection connection, DbTransaction? transaction, string sql, params (string Name, object? Value)[] values)
+    protected virtual DbCommand Command(DbConnection connection, DbTransaction? transaction, string sql, params (string Name, object? Value)[] values)
     {
         var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -473,14 +473,14 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         return command;
     }
 
-    protected static async Task<int> ExecuteAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken ct, params (string, object?)[] values)
+    protected async Task<int> ExecuteAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken ct, params (string, object?)[] values)
     {
         await using var command = Command(connection, transaction, sql, values);
 
         return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    private static async Task<object?> ScalarAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken ct, params (string, object?)[] values)
+    protected async Task<object?> ScalarAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken ct, params (string, object?)[] values)
     {
         await using var command = Command(connection, transaction, sql, values);
 

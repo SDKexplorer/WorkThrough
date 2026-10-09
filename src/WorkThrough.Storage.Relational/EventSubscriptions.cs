@@ -11,7 +11,7 @@ public abstract partial class RelationalJobStore : IExecutionEvents
         return await ReadEventPositionAsync(connection, null, cancellationToken);
     }
 
-    private static async Task<EventPosition> ReadEventPositionAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
+    private async Task<EventPosition> ReadEventPositionAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
     {
         await using var command = Command(connection, transaction, "SELECT value,floor FROM dj_event_sequence WHERE id=1");
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -60,7 +60,7 @@ public abstract partial class RelationalJobStore : IExecutionEvents
         }
 
         var entries = new List<ExecutionEvent>();
-        await using (var command = Command(connection, transaction, "SELECT * FROM dj_events WHERE sequence>@after ORDER BY sequence LIMIT @limit", ("after", after), ("limit", limit)))
+        await using (var command = Command(connection, transaction, $"SELECT * FROM dj_events WHERE sequence>@after ORDER BY sequence {PageSql("@limit")}", ("after", after), ("limit", limit)))
         {
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {

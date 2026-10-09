@@ -74,7 +74,7 @@ public sealed class ScheduleTests
 
     private static async Task SetDueAsync(string connectionString, string provider, DateTimeOffset due)
     {
-        await using DbConnection connection = provider == "sqlite" ? new SqliteConnection(connectionString) : new NpgsqlConnection(connectionString);
+        await using DbConnection connection = provider == "sqlserver" ? new Microsoft.Data.SqlClient.SqlConnection(connectionString) : provider == "sqlite" ? new SqliteConnection(connectionString) : new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
         await using var query = connection.CreateCommand();
         query.CommandText = "UPDATE dj_schedules SET next_due=@due";

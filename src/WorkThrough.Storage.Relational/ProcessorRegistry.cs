@@ -14,7 +14,7 @@ public abstract partial class RelationalJobStore
         return snapshot;
     }
 
-    private static async Task<ProcessorRegistrySnapshot> ReadRegistryAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
+    private async Task<ProcessorRegistrySnapshot> ReadRegistryAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
     {
         var revision = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT revision FROM dj_registry WHERE id=1", ct));
         var aliases = new List<ProcessorAliasMapping>();

@@ -157,14 +157,14 @@ public abstract partial class RelationalJobStore
         return AdminAsync(command, "limits.manage", limit.JobKey ?? "*", limit, async (connection, transaction, ct) =>
         {
             await ExecuteAsync(connection, transaction,
-                "INSERT INTO dj_limits(job_key,maximum) VALUES (@key,@maximum) ON CONFLICT(job_key) DO UPDATE SET maximum=excluded.maximum", ct,
+                UpsertSql("dj_limits", "job_key,maximum", "@key,@maximum", "job_key", "maximum"), ct,
                 ("key", limit.JobKey ?? "*"), ("maximum", limit.Maximum));
 
             return true;
         }, cancellationToken);
     }
 
-    private static async Task<JobRecord> ExpectedJobAsync(DbConnection connection, DbTransaction transaction, Guid id, int attempt, CancellationToken ct)
+    private async Task<JobRecord> ExpectedJobAsync(DbConnection connection, DbTransaction transaction, Guid id, int attempt, CancellationToken ct)
     {
         var job = (await ReadJobsAsync(connection, transaction, "SELECT * FROM dj_jobs WHERE id=@id", ct, ("id", id.ToString()))).SingleOrDefault();
         if (job is null || job.Attempt != attempt)
@@ -183,7 +183,7 @@ public abstract partial class RelationalJobStore
         }
 
         await using var connection = await OpenAsync(cancellationToken);
-        await using var query = Command(connection, null, "SELECT a.*,c.changes FROM dj_audit a LEFT JOIN dj_audit_changes c ON a.command_id=c.command_id ORDER BY a.at DESC,a.command_id LIMIT @limit", ("limit", limit));
+        await using var query = Command(connection, null, $"SELECT a.*,c.changes FROM dj_audit a LEFT JOIN dj_audit_changes c ON a.command_id=c.command_id ORDER BY a.at DESC,a.command_id {PageSql("@limit")}", ("limit", limit));
         await using var reader = await query.ExecuteReaderAsync(cancellationToken);
         var entries = new List<AuditEntry>();
         while (await reader.ReadAsync(cancellationToken))

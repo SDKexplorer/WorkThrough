@@ -14,6 +14,11 @@ public sealed class StorageConformanceTests
     public static IEnumerable<object[]> Providers()
     {
         yield return ["sqlite"];
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_SQLSERVER")))
+        {
+            yield return ["sqlserver"];
+        }
+
         if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_POSTGRES")))
         {
             yield return ["postgres"];

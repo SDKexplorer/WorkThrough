@@ -20,10 +20,10 @@ public sealed class OperationsTests
         var id = await new JobClient(store).EnqueueAsync(new Alpha("fail audit"), new(MaxAttempts: 1));
         var job = (await store.ClaimAsync(Claim()))!;
         await store.FailAsync(id, job.LeaseToken!.Value, "failure", TimeSpan.Zero);
-        await using DbConnection connection = provider == "sqlite" ? new SqliteConnection(harness.ConnectionString) : new NpgsqlConnection(harness.ConnectionString);
+        await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var query = connection.CreateCommand();
-        query.CommandText = provider == "sqlite"
+        query.CommandText = provider == "sqlserver" ? "CREATE TRIGGER reject_audit ON dj_audit AFTER INSERT AS THROW 51000,'audit unavailable',1;" : provider == "sqlite"
             ? "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END"
             : "CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$; CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit FOR EACH ROW EXECUTE FUNCTION reject_audit();";
         await query.ExecuteNonQueryAsync();
@@ -31,7 +31,7 @@ public sealed class OperationsTests
         await Assert.ThrowsAnyAsync<DbException>(() => store.RetryJobAsync(id, 1, command));
         Assert.Equal(JobStatus.Failed, (await store.GetAsync(id))!.Status);
         Assert.Empty(await store.AuditAsync());
-        query.CommandText = provider == "sqlite" ? "DROP TRIGGER reject_audit" : "DROP TRIGGER reject_audit ON dj_audit";
+        query.CommandText = provider != "postgres" ? "DROP TRIGGER reject_audit" : "DROP TRIGGER reject_audit ON dj_audit";
         await query.ExecuteNonQueryAsync();
         Assert.True(await store.RetryJobAsync(id, 1, command));
         Assert.Single(await store.AuditAsync());

@@ -7,15 +7,19 @@ if (args.FirstOrDefault() == "worker")
     return;
 }
 
-if (args.Length < 2 || args[1] is not ("sqlite" or "postgres"))
+if (args.Length < 2 || args[1] is not ("sqlite" or "postgres" or "sqlserver"))
 {
-    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance> <sqlite|postgres> [output.json] [--full]");
+    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance> <sqlite|postgres|sqlserver> [output.json] [--full]");
     Environment.ExitCode = 2;
 
     return;
 }
 
-if (args[0] == "reliability")
+if (args[0] == "relocation" && args.Length == 4)
+{
+    await RelocationSuite.RunAsync(args[1], args[2], args[3]);
+}
+else if (args[0] == "reliability")
 {
     await ReliabilitySuite.RunAsync(args[1]);
 }

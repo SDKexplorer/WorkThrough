@@ -27,14 +27,7 @@ public sealed class ExecutionQueryApiTests
         builder.Logging.ClearProviders();
         builder.WebHost.UseTestServer();
         var work = builder.Services.AddWorkThrough();
-        if (provider == "postgres")
-        {
-            work.UsePostgreSql(harness.ConnectionString);
-        }
-        else
-        {
-            work.UseSqlite(harness.ConnectionString);
-        }
+        harness.Register(work);
 
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, DashboardTests.TestAuthentication>("Test", _ =>
         {

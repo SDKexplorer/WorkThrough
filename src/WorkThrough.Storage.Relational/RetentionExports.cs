@@ -16,12 +16,12 @@ public abstract partial class RelationalJobStore
         var candidates = new List<ArchiveSummary>();
         if (policy?.Policy.Enabled == true && policy.Revision == batch.PolicyRevision && batch.PurgeBefore is { } before)
         {
-            await using var command = OperationCommand(connection, transaction, """
+            await using var command = OperationCommand(connection, transaction, $"""
                 SELECT a.id,a.kind,a.correlation_id,a.archived_at,a.jobs,a.sha256,1 AS has_body FROM dj_archives a
                 WHERE a.body IS NOT NULL AND a.archived_at<=@before
                   AND NOT EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=a.id AND h.held=1)
                   AND NOT EXISTS (SELECT 1 FROM dj_retention_incidents i WHERE i.unit_id=a.id)
-                ORDER BY a.archived_at,a.id LIMIT @limit
+                ORDER BY a.archived_at,a.id {PageSql("@limit")}
                 """, ("before", before.ToUnixTimeMilliseconds()), ("limit", batch.ArchivePolicy.BatchSize));
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
@@ -61,12 +61,7 @@ public abstract partial class RelationalJobStore
                 throw new StateConflictException("The verified copy does not match the eligible archive body.");
             }
 
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_archive_exports(archive_id,destination,sha256,object_version,bytes,verified_at,batch_id)
-                VALUES (@id,@destination,@hash,@version,@bytes,@at,@batch)
-                ON CONFLICT(archive_id,destination) DO UPDATE SET sha256=excluded.sha256,object_version=excluded.object_version,
-                  bytes=excluded.bytes,verified_at=excluded.verified_at,batch_id=excluded.batch_id
-                """, ct, ("id", export.ArchiveId.ToString()), ("destination", export.Destination), ("hash", export.Sha256),
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_archive_exports", "archive_id,destination,sha256,object_version,bytes,verified_at,batch_id", "@id,@destination,@hash,@version,@bytes,@at,@batch", "archive_id,destination", "sha256,object_version,bytes,verified_at,batch_id"), ct, ("id", export.ArchiveId.ToString()), ("destination", export.Destination), ("hash", export.Sha256),
                 ("version", export.ObjectVersion), ("bytes", export.Bytes), ("at", await NowAsync(connection, transaction, ct)), ("batch", batch.Id.ToString()));
 
             return true;
@@ -77,16 +72,17 @@ public abstract partial class RelationalJobStore
         WriteAsync(async (connection, transaction, ct) =>
         {
             await RequireMaintenanceLeaseAsync(connection, transaction, lease, ct);
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_retention_incidents(unit_id,code,at)
-                SELECT id,'ArchiveExportVerificationFailed',@at FROM dj_archives WHERE id=@id AND body IS NOT NULL
-                ON CONFLICT(unit_id) DO UPDATE SET code=excluded.code,at=excluded.at
-                """, ct, ("id", archiveId.ToString()), ("at", await NowAsync(connection, transaction, ct)));
+            if (await ScalarAsync(connection, transaction, "SELECT id FROM dj_archives WHERE id=@id AND body IS NOT NULL", ct, ("id", archiveId.ToString())) is not null)
+            {
+                await ExecuteAsync(connection, transaction,
+                    UpsertSql("dj_retention_incidents", "unit_id,code,at", "@id,'ArchiveExportVerificationFailed',@at", "unit_id", "code,at"),
+                    ct, ("id", archiveId.ToString()), ("at", await NowAsync(connection, transaction, ct)));
+            }
 
             return true;
         }, cancellationToken);
 
-    private static async Task<IReadOnlyList<Guid>> PurgeVerifiedArchivesAsync(DbConnection connection, DbTransaction transaction, MaintenanceBatch batch, CancellationToken ct)
+    private async Task<IReadOnlyList<Guid>> PurgeVerifiedArchivesAsync(DbConnection connection, DbTransaction transaction, MaintenanceBatch batch, CancellationToken ct)
     {
         var ids = new List<Guid>();
         if (batch.PurgeBefore is not { } before)
@@ -94,11 +90,11 @@ public abstract partial class RelationalJobStore
             return ids;
         }
 
-        await using (var command = Command(connection, transaction, """
+        await using (var command = Command(connection, transaction, $"""
             SELECT a.id FROM dj_archives a JOIN dj_archive_exports e ON e.archive_id=a.id
             WHERE a.body IS NOT NULL AND a.archived_at<=@before AND e.destination=@destination AND e.sha256=a.sha256 AND e.batch_id=@batch
               AND NOT EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=a.id AND h.held=1)
-            ORDER BY a.archived_at,a.id LIMIT @limit
+            ORDER BY a.archived_at,a.id {PageSql("@limit")}
             """, ("before", before.ToUnixTimeMilliseconds()), ("destination", batch.Destination), ("batch", batch.Id.ToString()), ("limit", batch.ArchivePolicy.BatchSize)))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);

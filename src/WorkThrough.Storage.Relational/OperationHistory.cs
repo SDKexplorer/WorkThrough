@@ -7,10 +7,10 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore : IOperationHistoryQueries
 {
     protected virtual string AuditActorValueSql(string field) => throw new NotSupportedException("This provider does not project audit actors.");
-    private const string ArchiveMetadataColumns = """
-        id,kind,SUBSTR(correlation_id,1,512) AS correlation_id,archived_at,jobs,
+    private string ArchiveMetadataColumns => $"""
+        id,kind,{SubstringFunction}(correlation_id,1,512) AS correlation_id,archived_at,jobs,
         CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body,
-        CASE WHEN LENGTH(correlation_id)>512 THEN 1 ELSE 0 END AS clipped
+        CASE WHEN {LengthSql("correlation_id")}>512 THEN 1 ELSE 0 END AS clipped
         """;
 
     public async Task<AuditPage> SearchAuditAsync(AuditQuery query, CancellationToken cancellationToken = default)
@@ -32,11 +32,11 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         var subject = AuditActorValueSql("subject");
         var entries = new List<AuditMetadata>();
         await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT a.command_id,a.at,SUBSTR({issuer},1,512) AS issuer,SUBSTR({subject},1,512) AS subject,
-              SUBSTR(a.action,1,512) AS action,SUBSTR(a.target,1,512) AS target,SUBSTR(a.outcome,1,512) AS outcome,
-              CASE WHEN LENGTH(a.actor)>16384 OR LENGTH({issuer})>512 OR LENGTH({subject})>512
-                OR LENGTH(a.action)>512 OR LENGTH(a.target)>512 OR LENGTH(a.outcome)>512 THEN 1 ELSE 0 END AS clipped
-            FROM dj_audit a WHERE {string.Join(" AND ", conditions)} ORDER BY a.at DESC,a.command_id LIMIT @limit
+            SELECT a.command_id,a.at,{SubstringFunction}({issuer},1,512) AS issuer,{SubstringFunction}({subject},1,512) AS subject,
+              {SubstringFunction}(a.action,1,512) AS action,{SubstringFunction}(a.target,1,512) AS target,{SubstringFunction}(a.outcome,1,512) AS outcome,
+              CASE WHEN {LengthSql("a.actor")}>16384 OR {LengthSql(issuer)}>512 OR {LengthSql(subject)}>512
+                OR {LengthSql("a.action")}>512 OR {LengthSql("a.target")}>512 OR {LengthSql("a.outcome")}>512 THEN 1 ELSE 0 END AS clipped
+            FROM dj_audit a WHERE {string.Join(" AND ", conditions)} ORDER BY a.at DESC,a.command_id {PageSql("@limit")}
             """, values.ToArray()))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);
@@ -77,7 +77,7 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         AddHistoryFilter("kind", "kind", query.Kind, conditions, values);
         AddHistoryPosition("archived_at", "id", query.Cursor is not null, conditions);
         await using var command = OperationCommand(connection, transaction,
-            $"SELECT {ArchiveMetadataColumns} FROM dj_archives WHERE {string.Join(" AND ", conditions)} ORDER BY archived_at DESC,id LIMIT @limit", values.ToArray());
+            $"SELECT {ArchiveMetadataColumns} FROM dj_archives WHERE {string.Join(" AND ", conditions)} ORDER BY archived_at DESC,id {PageSql("@limit")}", values.ToArray());
         var items = await ReadArchiveMetadataAsync(command, ct);
         var more = TrimPage(items, query.Limit);
         var next = more ? HistoryContinuation(page, items[^1].ArchivedAt, items[^1].Id) : null;
@@ -111,9 +111,9 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
         var candidates = new List<RetentionCandidate>();
         await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT id,kind,SUBSTR(correlation_id,1,512) AS correlation_id,completed,jobs,
-              CASE WHEN LENGTH(correlation_id)>512 THEN 1 ELSE 0 END AS clipped
-            FROM ({EligibleArchiveUnitsSql}) candidates ORDER BY completed,id LIMIT @limit
+            SELECT id,kind,{SubstringFunction}(correlation_id,1,512) AS correlation_id,completed,jobs,
+              CASE WHEN {LengthSql("correlation_id")}>512 THEN 1 ELSE 0 END AS clipped
+            FROM ({EligibleArchiveUnitsSql}) candidates ORDER BY completed,id {PageSql("@limit")}
             """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()),
             ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()), ("limit", policy.BatchSize + 1)))
         {
@@ -131,7 +131,7 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         return new(storeId, observed, policy, candidates, more);
     }
 
-    private static async Task<List<ArchiveMetadata>> ReadArchiveMetadataAsync(DbCommand command, CancellationToken ct)
+    private async Task<List<ArchiveMetadata>> ReadArchiveMetadataAsync(DbCommand command, CancellationToken ct)
     {
         await using var reader = await command.ExecuteReaderAsync(ct);
         var items = new List<ArchiveMetadata>();

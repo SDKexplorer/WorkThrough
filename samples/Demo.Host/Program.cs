@@ -5,7 +5,16 @@ using WorkThrough.Storage;
 var builder = WebApplication.CreateBuilder(args);
 var settings = builder.Configuration.GetSection(JobsSettings.SectionName).Get<JobsSettings>() ?? new();
 var jobs = builder.Services.AddWorkThrough();
-if (settings.PostgreSql is { Length: > 0 } postgres)
+if (!string.IsNullOrWhiteSpace(settings.SqlServer) && !string.IsNullOrWhiteSpace(settings.PostgreSql))
+{
+    throw new InvalidOperationException("Configure only one server database provider.");
+}
+
+if (settings.SqlServer is { Length: > 0 } sqlServer)
+{
+    jobs.UseSqlServer(sqlServer);
+}
+else if (settings.PostgreSql is { Length: > 0 } postgres)
 {
     jobs.UsePostgreSql(postgres);
 }

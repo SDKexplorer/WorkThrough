@@ -55,7 +55,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
         }, cancellationToken);
     }
 
-    private static async Task<Guid> AcceptOutboxAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
+    private async Task<Guid> AcceptOutboxAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
     {
         var fingerprint = JobFingerprint(job);
         if (job.IdempotencyKey is not null)
@@ -98,7 +98,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
             var claimed = await WriteAsync<(JobRecord Job, Guid Token)?>(async (connection, transaction, ct) =>
             {
                 var now = await NowAsync(connection, transaction, ct);
-                var json = await ScalarAsync(connection, transaction, "SELECT request FROM dj_outbox WHERE status='Pending' OR (status='Delivering' AND lease_expires_at<=@now) ORDER BY id LIMIT 1", ct, ("now", now));
+                var json = await ScalarAsync(connection, transaction, $"SELECT request FROM dj_outbox WHERE status='Pending' OR (status='Delivering' AND lease_expires_at<=@now) ORDER BY id {PageSql("1")}", ct, ("now", now));
                 if (json is not string payload)
                 {
                     return null;

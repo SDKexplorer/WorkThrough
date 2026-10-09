@@ -7,7 +7,7 @@ public abstract partial class RelationalJobStore : IExecutionOperations
     public async Task<IReadOnlyList<QueueControl>> QueuesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT queue,paused,revision FROM dj_queue_controls ORDER BY queue LIMIT 500");
+        await using var command = Command(connection, null, $"SELECT queue,paused,revision FROM dj_queue_controls ORDER BY queue {PageSql("500")} ");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var rows = new List<QueueControl>();
         while (await reader.ReadAsync(cancellationToken))
@@ -21,7 +21,7 @@ public abstract partial class RelationalJobStore : IExecutionOperations
     public async Task<IReadOnlyList<WorkerControlState>> WorkerControlsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT worker_id,draining,revision FROM dj_worker_controls ORDER BY worker_id LIMIT 500");
+        await using var command = Command(connection, null, $"SELECT worker_id,draining,revision FROM dj_worker_controls ORDER BY worker_id {PageSql("500")} ");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var rows = new List<WorkerControlState>();
         while (await reader.ReadAsync(cancellationToken))
@@ -59,7 +59,7 @@ public abstract partial class RelationalJobStore : IExecutionOperations
             }
 
             var next = checked(expectedRevision + 1);
-            await ExecuteAsync(connection, transaction, $"INSERT INTO {table}({keyColumn},{valueColumn},revision) VALUES (@key,@value,@revision) ON CONFLICT({keyColumn}) DO UPDATE SET {valueColumn}=excluded.{valueColumn},revision=excluded.revision", token,
+            await ExecuteAsync(connection, transaction, UpsertSql(table, $"{keyColumn},{valueColumn},revision", "@key,@value,@revision", keyColumn, $"{valueColumn},revision"), token,
                 ("key", key), ("value", enabled ? 1 : 0), ("revision", next));
 
             return next;
@@ -106,7 +106,7 @@ public abstract partial class RelationalJobStore : IExecutionOperations
 
     private async Task ExpireQueuedAsync(DbConnection connection, DbTransaction transaction, long now, CancellationToken ct)
     {
-        var expired = await ReadJobsAsync(connection, transaction, "SELECT * FROM dj_jobs WHERE status='Queued' AND expires_at<=@now ORDER BY expires_at LIMIT 100", ct, ("now", now));
+        var expired = await ReadJobsAsync(connection, transaction, $"SELECT * FROM dj_jobs WHERE status='Queued' AND expires_at<=@now ORDER BY expires_at {PageSql("100")}", ct, ("now", now));
         foreach (var job in expired)
         {
             await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status='Expired',error='The queued execution expired before admission' WHERE id=@id", ct, ("id", job.Id.ToString()));

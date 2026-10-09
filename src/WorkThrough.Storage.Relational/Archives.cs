@@ -38,12 +38,12 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         return await ReadCandidatesAsync(connection, null, policy, cancellationToken);
     }
 
-    private static async Task<IReadOnlyList<ArchiveCandidate>> ReadCandidatesAsync(DbConnection connection, DbTransaction? transaction, ArchivePolicy policy, CancellationToken ct, bool maintenance = false)
+    private async Task<IReadOnlyList<ArchiveCandidate>> ReadCandidatesAsync(DbConnection connection, DbTransaction? transaction, ArchivePolicy policy, CancellationToken ct, bool maintenance = false)
     {
         await using var command = Command(connection, transaction, $"""
             SELECT id,kind,correlation_id,completed,jobs FROM ({EligibleArchiveUnitsSql}) candidates
             WHERE (@maintenance=0 OR NOT EXISTS (SELECT 1 FROM dj_retention_incidents i WHERE i.unit_id=candidates.id))
-            ORDER BY completed,id LIMIT @limit
+            ORDER BY completed,id {PageSql("@limit")}
             """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()), ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()), ("limit", policy.BatchSize), ("maintenance", maintenance ? 1 : 0));
         await using var reader = await command.ExecuteReaderAsync(ct);
         var result = new List<ArchiveCandidate>();
@@ -120,7 +120,7 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         }
 
         await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT id,kind,correlation_id,archived_at,jobs,sha256,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives WHERE (CAST(@correlation AS TEXT) IS NULL OR correlation_id=@correlation) ORDER BY archived_at DESC,id LIMIT @limit", ("correlation", correlationId), ("limit", limit));
+        await using var command = Command(connection, null, $"SELECT id,kind,correlation_id,archived_at,jobs,sha256,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives WHERE (CAST(@correlation AS {TextType}) IS NULL OR correlation_id=@correlation) ORDER BY archived_at DESC,id {PageSql("@limit")}", ("correlation", correlationId), ("limit", limit));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var result = new List<ArchiveSummary>();
         while (await reader.ReadAsync(cancellationToken))

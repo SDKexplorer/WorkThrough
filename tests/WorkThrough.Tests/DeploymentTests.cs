@@ -91,7 +91,7 @@ public sealed class DeploymentTests
     public async Task A_truncated_requirement_inventory_cannot_report_complete_coverage(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await using DbConnection connection = provider == "postgres" ? new NpgsqlConnection(harness.ConnectionString) : new SqliteConnection(harness.ConnectionString);
+        await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -99,6 +99,12 @@ public sealed class DeploymentTests
             INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,status,attempt,max_attempts,created_at,available_at)
             SELECT CAST(n AS TEXT),'tests.group',n,'{}','default','Queued',0,3,0,0 FROM numbers
             """;
+        if (provider == "sqlserver")
+        {
+            command.CommandText = command.CommandText.Replace("WITH RECURSIVE", "WITH", StringComparison.Ordinal)
+                .Replace("AS TEXT", "AS nvarchar(36)", StringComparison.Ordinal) + " OPTION(MAXRECURSION 0)";
+        }
+
         await command.ExecuteNonQueryAsync();
         var requirements = await harness.Store.DeploymentRequirementsAsync();
         Assert.Equal(1000, requirements.Items.Count);
