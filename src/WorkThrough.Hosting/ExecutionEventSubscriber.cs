@@ -35,7 +35,7 @@ internal sealed class ExecutionEventSubscriber<THandler>(string name, long start
                 logger.LogError(exception, "Subscription {Subscriber} did not advance; delivery will be retried", name);
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            await Task.Delay(WorkThroughBuilder.DispatchInterval, stoppingToken);
         }
     }
 }

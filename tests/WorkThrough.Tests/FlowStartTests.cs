@@ -32,7 +32,7 @@ public sealed class FlowStartTests
         var restarted = harness.NewStore();
         await restarted.InitializeAsync();
         await restarted.RetireAsync(definition.Key, 1, 1,
-            new(Guid.NewGuid(), new("test", "maintainer"), "Prevent new starts"));
+            new(Guid.NewGuid(), new("test", "maintainer"), "Prevent new starts")).SucceedsAsync();
         Assert.Equal(id, await new WorkflowClient(restarted).StartAsync(definition, new
         {
             order = 123

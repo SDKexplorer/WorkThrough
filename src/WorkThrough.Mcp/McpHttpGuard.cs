@@ -7,10 +7,16 @@ namespace WorkThrough;
 
 internal sealed class McpHttpGuard(WorkThroughMcpOptions options) : IDisposable
 {
+    private const int MaximumRequestBytes = 16 * 1024;
+    private const int MaximumRequestIdLength = 128;
+    private static readonly TimeSpan RateWindow = TimeSpan.FromMinutes(1);
+
     private readonly SemaphoreSlim concurrency = new(options.ConcurrentRequests);
+
+    // The endpoint policy requires both claims before this guard runs.
     private readonly PartitionedRateLimiter<ClaimsPrincipal> requests = PartitionedRateLimiter.Create<ClaimsPrincipal, string>(user =>
-        RateLimitPartition.GetFixedWindowLimiter(user.FindFirst("iss")!.Value + "\n" + user.FindFirst("sub")!.Value,
-            _ => new() { PermitLimit = options.RequestsPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+        RateLimitPartition.GetFixedWindowLimiter(user.FindFirst(McpClaims.Issuer)!.Value + "\n" + user.FindFirst(McpClaims.Subject)!.Value,
+            _ => new() { PermitLimit = options.RequestsPerMinute, Window = RateWindow, QueueLimit = 0 }));
 
     internal async Task InvokeAsync(HttpContext context, RequestDelegate next)
     {
@@ -35,7 +41,7 @@ internal sealed class McpHttpGuard(WorkThroughMcpOptions options) : IDisposable
         if (!rate.IsAcquired || !await concurrency.WaitAsync(0, context.RequestAborted))
         {
             context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            context.Response.Headers.RetryAfter = "60";
+            context.Response.Headers.RetryAfter = ((int)RateWindow.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
             return;
         }
@@ -44,8 +50,10 @@ internal sealed class McpHttpGuard(WorkThroughMcpOptions options) : IDisposable
         try
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-            deadline.CancelAfter(TimeSpan.FromSeconds(5));
-            var buffer = new byte[16 * 1024 + 1];
+            deadline.CancelAfter(OperationQueryLimits.Deadline);
+
+            // One extra byte distinguishes an oversized body from one that exactly fills the limit.
+            var buffer = new byte[MaximumRequestBytes + 1];
             var length = await originalBody.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, deadline.Token);
             if (length == buffer.Length)
             {
@@ -93,7 +101,7 @@ internal sealed class McpHttpGuard(WorkThroughMcpOptions options) : IDisposable
             var root = document.RootElement;
 
             return root.ValueKind == JsonValueKind.Object && (!root.TryGetProperty("id", out var id)
-                || id.ValueKind != JsonValueKind.String || id.GetString()!.Length <= 128);
+                || id.ValueKind != JsonValueKind.String || id.GetString()!.Length <= MaximumRequestIdLength);
         }
         catch (JsonException)
         {

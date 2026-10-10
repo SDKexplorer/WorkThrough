@@ -4,6 +4,8 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore
 {
+    private const int MaximumProcessorAliases = 1000;
+
     public async Task<ProcessorRegistrySnapshot> ProcessorRegistryAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
@@ -16,7 +18,7 @@ public abstract partial class RelationalJobStore
 
     private async Task<ProcessorRegistrySnapshot> ReadRegistryAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
     {
-        var revision = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT revision FROM dj_registry WHERE id=1", ct));
+        var revision = await ReadRegistryRevisionAsync(connection, transaction, ct);
         var aliases = new List<ProcessorAliasMapping>();
         await using var command = Command(connection, transaction, "SELECT alias_key,alias_version,target_key,target_version FROM dj_processor_aliases ORDER BY alias_key,alias_version");
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -28,31 +30,16 @@ public abstract partial class RelationalJobStore
         return new(revision, aliases);
     }
 
-    public Task<long> SetProcessorAliasesAsync(IReadOnlyList<ProcessorAliasMapping> aliases, long expectedRevision,
+    private async Task<long> ReadRegistryRevisionAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct) =>
+        Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT revision FROM dj_registry WHERE id=1", ct));
+
+    public Task<Result<long>> SetProcessorAliasesAsync(IReadOnlyList<ProcessorAliasMapping> aliases, long expectedRevision,
         AdministrativeCommand command, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(aliases);
-        if (aliases.Count > 1000 || aliases.Any(a => a is null || a.Alias is null || a.Target is null || a.Alias == a.Target || a.Alias.Key == SignalWait.Processor.Key || a.Target.Key == SignalWait.Processor.Key)
-            || aliases.Select(a => a.Alias).Distinct().Count() != aliases.Count
-            || aliases.Any(a => aliases.Any(b => b.Alias == a.Target)))
-        {
-            throw new ArgumentException("Provide at most 1000 unique, direct aliases without cycles, chains, or self aliases.", nameof(aliases));
-        }
+        var ordered = aliases.Where(a => a?.Alias is not null).OrderBy(a => a.Alias.Key, StringComparer.Ordinal).ThenBy(a => a.Alias.Version).ToArray();
 
-        var groups = aliases.SelectMany(a => new[] { (Key: a.Alias.Key, Group: a.Target.Key), (Key: a.Target.Key, Group: a.Target.Key) })
-            .GroupBy(a => a.Key).ToArray();
-        if (groups.Any(g => g.Select(a => a.Group).Distinct().Count() != 1))
-        {
-            throw new ArgumentException("All versions of a key must share one admission group.", nameof(aliases));
-        }
-
-        var ordered = aliases.OrderBy(a => a.Alias.Key, StringComparer.Ordinal).ThenBy(a => a.Alias.Version).ToArray();
-
-        return AdminAsync(command, "processors.aliases", "registry", new
-        {
-            aliases = ordered,
-            expectedRevision
-        }, async (connection, transaction, ct) =>
+        return AdminAsync(command, AuditActions.SetProcessorAliases, "registry", new { aliases = ordered, expectedRevision }, async (connection, transaction, ct) =>
         {
             var previous = await ReadRegistryAsync(connection, transaction, ct);
             if (previous.Revision != expectedRevision)
@@ -84,16 +71,37 @@ public abstract partial class RelationalJobStore
                     ("alias", alias.Alias.Key), ("version", alias.Alias.Version), ("target", alias.Target.Key), ("targetVersion", alias.Target.Version));
             }
 
-            foreach (var group in groups)
+            foreach (var group in AdmissionGroups(ordered))
             {
                 await ExecuteAsync(connection, transaction, "INSERT INTO dj_processor_groups(job_key,group_key) VALUES (@key,@group)", ct,
-                    ("key", group.Key), ("group", group.First().Group));
+                    ("key", group.Key), ("group", group.First()));
             }
 
             var revision = checked(expectedRevision + 1);
             await ExecuteAsync(connection, transaction, "UPDATE dj_registry SET revision=@revision WHERE id=1", ct, ("revision", revision));
 
             return revision;
-        }, cancellationToken);
+        }, cancellationToken, validate: () => ValidateAliases(aliases));
+    }
+
+    /// <summary>Every key named by an alias, with the canonical keys that would share its admission group.</summary>
+    private static IGrouping<string, string>[] AdmissionGroups(IEnumerable<ProcessorAliasMapping> aliases) => aliases
+        .SelectMany(a => new[] { (Key: a.Alias.Key, Group: a.Target.Key), (Key: a.Target.Key, Group: a.Target.Key) })
+        .GroupBy(a => a.Key, a => a.Group).ToArray();
+
+    private static void ValidateAliases(IReadOnlyList<ProcessorAliasMapping> aliases)
+    {
+        if (aliases.Count > MaximumProcessorAliases
+            || aliases.Any(a => a?.Alias is null || a.Target is null || a.Alias == a.Target || a.Alias.Key == SignalWait.Processor.Key || a.Target.Key == SignalWait.Processor.Key)
+            || aliases.Select(a => a.Alias).Distinct().Count() != aliases.Count
+            || aliases.Any(a => aliases.Any(b => b.Alias == a.Target)))
+        {
+            throw new ArgumentException($"Provide at most {MaximumProcessorAliases} unique, direct aliases without cycles, chains, or self aliases.", nameof(aliases));
+        }
+
+        if (AdmissionGroups(aliases).Any(group => group.Distinct().Count() != 1))
+        {
+            throw new ArgumentException("All versions of a key must share one admission group.", nameof(aliases));
+        }
     }
 }

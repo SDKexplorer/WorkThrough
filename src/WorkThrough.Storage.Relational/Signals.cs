@@ -1,26 +1,23 @@
 using System.Data.Common;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 
 namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IWorkflowSignals
 {
+    private const int MaximumSignalBatch = 100;
+    private const string SignalDeadlineError = "Signal deadline expired";
+
     public Task<bool> SignalAsync(Guid runId, string name, JsonElement input, string idempotencyKey, CancellationToken cancellationToken = default)
     {
         _ = new JobContractId(name, 1);
         WorkflowClient.ValidateIdempotencyKey(idempotencyKey);
-        if (input.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null || Encoding.UTF8.GetByteCount(input.GetRawText()) > 1_048_576)
+        if (input.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null || JobLimits.ExceedsInlineSize(input))
         {
             throw new ArgumentException("Signal input must be non-null and at most 1 MiB.");
         }
 
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
-        {
-            name,
-            input
-        }, JobJson.Options))));
+        var hash = Fingerprint(new { name, input });
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
@@ -60,7 +57,7 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
 
     public Task<int> DispatchSignalsAsync(int batchSize = 100, CancellationToken cancellationToken = default)
     {
-        if (batchSize is < 1 or > 100)
+        if (batchSize is < 1 or > MaximumSignalBatch)
         {
             throw new ArgumentOutOfRangeException(nameof(batchSize));
         }
@@ -111,12 +108,14 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             }
         }
 
-        foreach (var change in changes)
+        foreach (var (jobId, signalInput) in changes)
         {
-            var job = (await ReadJobsAsync(connection, transaction, "SELECT * FROM dj_jobs WHERE id=@id", ct, ("id", change.Job.ToString()))).Single();
+            var job = (await ReadJobAsync(connection, transaction, jobId, ct))!;
+            var received = signalInput is not null;
             await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status=@status,output=@input,error=@error WHERE id=@id", ct,
-                ("id", change.Job.ToString()), ("status", change.Input is null ? "Expired" : "Succeeded"), ("input", change.Input), ("error", change.Input is null ? "Signal deadline expired" : null));
-            await JournalAsync(connection, transaction, job, now, change.Input is null ? "SignalExpired" : "SignalReceived", ct);
+                ("id", jobId.ToString()), ("status", (received ? JobStatus.Succeeded : JobStatus.Expired).ToString()), ("input", signalInput),
+                ("error", received ? null : SignalDeadlineError));
+            await JournalAsync(connection, transaction, job, now, received ? ExecutionEventKinds.SignalReceived : ExecutionEventKinds.SignalExpired, ct);
         }
 
         return changes.Count > 0;

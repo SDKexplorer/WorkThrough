@@ -108,7 +108,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
 
         await ExecuteAsync(connection, transaction, "IF OBJECT_ID(N'dj_schema',N'U') IS NULL CREATE TABLE dj_schema(version int NOT NULL PRIMARY KEY)", ct);
         var version = await ScalarAsync(connection, transaction, "SELECT MAX(version) FROM dj_schema", ct);
-        if (version is not null and not DBNull && Convert.ToInt32(version) != 4)
+        if (version is not null and not DBNull && Convert.ToInt32(version) != SchemaVersion)
         {
             throw new InvalidOperationException("Unsupported SQL Server WorkThrough schema version. Stop writers and use a compatible migration.");
         }
@@ -116,8 +116,8 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
         await ExecuteAsync(connection, transaction, SqlServerSchema, ct);
         await ExecuteAsync(connection, transaction, """
             IF NOT EXISTS(SELECT 1 FROM dj_store) INSERT INTO dj_store(id) VALUES (@id);
-            IF NOT EXISTS(SELECT 1 FROM dj_schema WHERE version=4) INSERT INTO dj_schema(version) VALUES (4);
-            """, ct, ("id", Guid.NewGuid().ToString("N")));
+            IF NOT EXISTS(SELECT 1 FROM dj_schema WHERE version=@version) INSERT INTO dj_schema(version) VALUES (@version);
+            """, ct, ("id", Guid.NewGuid().ToString("N")), ("version", SchemaVersion));
 
         return true;
     }, cancellationToken);

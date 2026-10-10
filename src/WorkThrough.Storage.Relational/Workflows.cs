@@ -1,6 +1,4 @@
 using System.Data.Common;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 
 namespace WorkThrough.Storage;
@@ -20,13 +18,7 @@ public abstract partial class RelationalJobStore
     private Task<Guid> StartWorkflowCoreAsync(FlowDefinition definition, JsonElement input, string? correlationId, string? idempotencyKey, CancellationToken cancellationToken)
     {
         FlowValidator.Validate(definition);
-        var fingerprint = idempotencyKey is null ? null : Convert.ToHexString(SHA256.HashData(
-            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
-            {
-                definition,
-                input,
-                correlationId
-            }, JobJson.Options))));
+        var fingerprint = idempotencyKey is null ? null : Fingerprint(new { definition, input, correlationId });
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
@@ -59,19 +51,20 @@ public abstract partial class RelationalJobStore
                 ("key", definition.Key), ("version", definition.Version));
             if (existing is string saved && JsonSerializer.Serialize(JsonSerializer.Deserialize<FlowDefinition>(saved, JobJson.Options), JobJson.Options) != serialized)
             {
-                throw new InvalidOperationException($"Flow {definition.Key}/v{definition.Version} is immutable. Publish a new version.");
+                throw new StateConflictException($"Flow {VersionTarget(definition.Key, definition.Version)} is immutable. Publish a new version.");
             }
 
-            await ExecuteAsync(connection, transaction,
-                UpsertSql("dj_definitions", "flow_key,version,definition", "@key,@version,@definition", "flow_key,version", ""), ct,
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_definitions", "flow_key,version,definition", "@key,@version,@definition", "flow_key,version"), ct,
                 ("key", definition.Key), ("version", definition.Version), ("definition", serialized));
-            await ExecuteAsync(connection, transaction, UpsertSql("dj_definition_lifecycle", "flow_key,version,definition,status,revision", "@key,@version,@definition,'Published',1", "flow_key,version", ""), ct, ("key", definition.Key), ("version", definition.Version), ("definition", serialized));
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_definition_lifecycle", "flow_key,version,definition,status,revision",
+                "@key,@version,@definition,@status,1", "flow_key,version"), ct,
+                ("key", definition.Key), ("version", definition.Version), ("definition", serialized), ("status", nameof(DefinitionStatus.Published)));
             var runId = Guid.NewGuid();
             await ExecuteAsync(connection, transaction, """
                 INSERT INTO dj_flows(id,flow_key,version,input,correlation_id,status)
-                VALUES (@id,@key,@version,@input,@correlation,'Running')
+                VALUES (@id,@key,@version,@input,@correlation,@status)
                 """, ct, ("id", runId.ToString()), ("key", definition.Key), ("version", definition.Version),
-                ("input", input.GetRawText()), ("correlation", correlationId));
+                ("input", input.GetRawText()), ("correlation", correlationId), ("status", nameof(FlowStatus.Running)));
             var now = DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct));
             foreach (var step in definition.Steps)
             {
@@ -132,9 +125,8 @@ public abstract partial class RelationalJobStore
                 await JournalAsync(connection, transaction, change, now, change.Status.ToString(), ct);
             }
 
-            await ExecuteAsync(connection, transaction, "UPDATE dj_flows SET status=@status,error=@error WHERE id=@id", ct,
-                ("status", plan.Status), ("error", plan.Error), ("id", runId.ToString()));
-            if (plan.Status != "Running" || !await ResolveRunSignalsAsync(connection, transaction, runId, now, ct))
+            await SetFlowStatusAsync(connection, transaction, runId, plan.Status, ct, plan.Error);
+            if (plan.Status != FlowStatus.Running || !await ResolveRunSignalsAsync(connection, transaction, runId, now, ct))
             {
                 return;
             }

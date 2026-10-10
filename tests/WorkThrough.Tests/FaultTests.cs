@@ -83,7 +83,7 @@ public sealed class FaultTests
         {
         });
         await client.SignalAsync(id, signal, new Alpha("confirmed"), "receipt");
-        await database.Store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddMinutes(1)), new(Guid.NewGuid(), new("tests", "archive"), "Archive completed signal flow"));
+        await database.Store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddMinutes(1)), new(Guid.NewGuid(), new("tests", "archive"), "Archive completed signal flow")).SucceedsAsync();
         var archive = (await database.Store.ExportArchiveAsync(id))!;
         var evidence = System.Text.Json.JsonSerializer.Deserialize<ExecutionArchive>(archive.Json, JobJson.Options)!;
         Assert.Equal("confirmed", Assert.Single(evidence.Signals).Payload.GetProperty("value").GetString());

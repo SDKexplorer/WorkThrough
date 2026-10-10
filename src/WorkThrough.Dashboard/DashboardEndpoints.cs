@@ -21,19 +21,21 @@ public sealed class JobDashboardOptions
 
 public static partial class DashboardEndpoints
 {
+    private const int JobPageSize = 100;
+    private const string ConsoleResourcePrefix = "WorkThrough.Console.";
     private static readonly JsonSerializerOptions JsonOptions = new(JobJson.Options) { Converters = { new JsonStringEnumConverter() } };
 
     public static IServiceCollection AddWorkThroughDashboard(this IServiceCollection services)
     {
         services.AddAuthorization(authorization =>
         {
-            foreach (var permission in DashboardPermissions.All)
+            foreach (var permission in OperationPermissions.All)
             {
-                authorization.AddPolicy(DashboardPermissions.PolicyPrefix + permission, policy =>
-                    policy.RequireAuthenticatedUser().RequireClaim(DashboardPermissions.ClaimType, permission));
+                authorization.AddPolicy(OperationPermissions.Policy(permission), policy =>
+                    policy.RequireAuthenticatedUser().RequireClaim(OperationPermissions.ClaimType, permission));
             }
         });
-        services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
+        services.AddAntiforgery(options => options.HeaderName = CsrfHeader);
 
         return services;
     }
@@ -74,12 +76,26 @@ public static partial class DashboardEndpoints
 
             return await next(invocation);
         });
+        MapConsole(group, options);
+        MapExecutionReads(group, options);
+        MapSchedules(group, options);
+        MapAdministration(group, options);
+        MapOperations(group, options);
+        MapExecutionQueries(group, options);
+        MapRetention(group, options);
+
+        return group;
+    }
+
+    /// <summary>Bundled UI, its assets, anti-forgery tokens and the caller's effective permissions.</summary>
+    private static void MapConsole(RouteGroupBuilder group, JobDashboardOptions options)
+    {
         group.MapGet("/", (HttpContext context) =>
         {
             var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
             context.Response.Headers.ContentSecurityPolicy = $"default-src 'self'; script-src 'self'; style-src 'self' 'nonce-{nonce}'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
             var matchedPath = context.Request.PathBase + context.Request.Path.Value!.TrimEnd('/');
-            using var index = typeof(DashboardEndpoints).Assembly.GetManifestResourceStream("WorkThrough.Console.index.html");
+            using var index = typeof(DashboardEndpoints).Assembly.GetManifestResourceStream(ConsoleResourcePrefix + "index.html");
             if (index is not null)
             {
                 using var reader = new StreamReader(index);
@@ -90,7 +106,7 @@ public static partial class DashboardEndpoints
                 return Results.Content(html, "text/html");
             }
 
-            return Results.Problem("The dashboard bundle is missing. Build dashboard-ui before building the dashboard host.", statusCode: StatusCodes.Status503ServiceUnavailable);
+            return Unavailable("The dashboard bundle is missing. Build dashboard-ui before building the dashboard host.");
         });
         group.MapGet("/{asset}", (string asset) =>
         {
@@ -99,7 +115,7 @@ public static partial class DashboardEndpoints
                 return Results.NotFound();
             }
 
-            using var resource = typeof(DashboardEndpoints).Assembly.GetManifestResourceStream("WorkThrough.Console." + asset);
+            using var resource = typeof(DashboardEndpoints).Assembly.GetManifestResourceStream(ConsoleResourcePrefix + asset);
             if (resource is null)
             {
                 return Results.NotFound();
@@ -117,7 +133,7 @@ public static partial class DashboardEndpoints
         group.MapGet("/api/access", async (HttpContext context) =>
         {
             var allowed = new List<string>();
-            foreach (var permission in DashboardPermissions.All)
+            foreach (var permission in OperationPermissions.All)
             {
                 if (await AllowedAsync(context, options, permission))
                 {
@@ -128,9 +144,14 @@ public static partial class DashboardEndpoints
             return Results.Json(new
             {
                 permissions = allowed,
-                user = context.User.Identity?.Name ?? "Development user"
+                user = context.User.Identity?.Name ?? DevelopmentUser
             });
         });
+    }
+
+    /// <summary>Metadata reads. Payloads, outputs and errors additionally require payload access.</summary>
+    private static void MapExecutionReads(RouteGroupBuilder group, JobDashboardOptions options)
+    {
         group.MapGet("/api/jobs", async (string? correlationId, string? status, int? offset, IJobQueries queries, CancellationToken ct) =>
         {
             JobStatus? parsedStatus = null;
@@ -138,10 +159,7 @@ public static partial class DashboardEndpoints
             {
                 if (!Enum.TryParse<JobStatus>(status, true, out var parsed) || !Enum.IsDefined(parsed))
                 {
-                    return Results.BadRequest(new
-                    {
-                        error = "Unknown job status."
-                    });
+                    return Results.BadRequest(new { error = "Unknown job status." });
                 }
 
                 parsedStatus = parsed;
@@ -149,18 +167,15 @@ public static partial class DashboardEndpoints
 
             if (offset is < 0)
             {
-                return Results.BadRequest(new
-                {
-                    error = "Offset cannot be negative."
-                });
+                return Results.BadRequest(new { error = "Offset cannot be negative." });
             }
 
-            var jobs = await queries.ListAsync(new(correlationId, parsedStatus, 100, offset ?? 0), ct);
+            var jobs = await queries.ListAsync(new(correlationId, parsedStatus, JobPageSize, offset ?? 0), ct);
 
             return Results.Json(jobs.Select(x => Metadata(x)), JsonOptions);
-        }).WithPermission(options, "executions.read");
+        }).WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapGet("/api/stats", async (IJobQueries queries, CancellationToken ct) => Results.Json(await queries.StatisticsAsync(ct), JsonOptions))
-            .WithPermission(options, "executions.read");
+            .WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapGet("/api/jobs/{id:guid}", async (Guid id, HttpContext context, IJobQueries queries, IJobDiagnostics diagnostics, CancellationToken ct) =>
         {
             if (await queries.GetAsync(id, ct) is not { } job)
@@ -168,23 +183,11 @@ public static partial class DashboardEndpoints
                 return Results.NotFound();
             }
 
-            var sensitive = await AllowedAsync(context, options, "payloads.read");
+            var sensitive = await AllowedAsync(context, options, OperationPermissions.ReadPayloads);
             var health = await diagnostics.HealthAsync(id, ct);
-            if (context.RequestServices.GetService<IRuntimeQueries>() is { } runtime)
-            {
-                var readiness = await runtime.ReadReadinessAsync(id, cancellationToken: ct);
-                health = new(readiness.Reason, readiness.SuspectedStalled, readiness.ObservedAt, health?.Progress);
-            }
-
             if (!sensitive && health?.Progress is { } progress)
             {
-                health = health with
-                {
-                    Progress = progress with
-                    {
-                        Description = null
-                    }
-                };
+                health = health with { Progress = progress with { Description = null } };
             }
 
             return Results.Json(new
@@ -198,7 +201,7 @@ public static partial class DashboardEndpoints
                 attempts = (await queries.AttemptsAsync(id, ct)).Select(a => sensitive ? a : a with { Error = null }),
                 failures = sensitive ? await diagnostics.FailuresAsync(id, ct) : null
             }, JsonOptions);
-        }).WithPermission(options, "executions.read");
+        }).WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapGet("/api/flows/{id:guid}", async (Guid id, IJobQueries queries, IWorkflowDefinitions definitions, IJobDiagnostics diagnostics, CancellationToken ct) =>
         {
             if (await queries.GetWorkflowAsync(id, ct) is not { } flow)
@@ -210,28 +213,30 @@ public static partial class DashboardEndpoints
 
             return Results.Json(new
             {
-                flow = flow with
-                {
-                    Error = null
-                },
+                flow = flow with { Error = null },
                 graph = definition is null ? null : Graph(definition),
                 jobs = (await queries.ListFlowJobsAsync(id, ct)).Select(Metadata),
                 events = await diagnostics.EventsAsync(id, cancellationToken: ct)
             }, JsonOptions);
-        }).WithPermission(options, "executions.read");
+        }).WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapGet("/api/definitions", async (IWorkflowDefinitions definitions, CancellationToken ct) =>
             Results.Json((await definitions.DefinitionsAsync(cancellationToken: ct)).Select(d => new { d.Definition.Key, d.Definition.Version, d.Status, d.Revision, graph = Graph(d.Definition) }), JsonOptions))
-            .WithPermission(options, "executions.read");
+            .WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapGet("/api/workers", async (IJobDiagnostics diagnostics, CancellationToken ct) => Results.Json(await diagnostics.WorkersAsync(ct), JsonOptions))
-            .WithPermission(options, "executions.read");
+            .WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapGet("/api/deployment", async (IDeploymentQueries queries, IJobDiagnostics diagnostics, CancellationToken ct) =>
         {
             var requirements = await queries.DeploymentRequirementsAsync(ct);
-            var workers = (await diagnostics.WorkersAsync(ct)).Where(w => w.SeenAt > requirements.ObservedAt.AddSeconds(-60))
+            var workers = (await diagnostics.WorkersAsync(ct)).Where(w => w.SeenAt > requirements.ObservedAt - WorkerHeartbeat.Freshness)
                 .Select(w => new WorkerCapability(w.WorkerId, w.Processors, w.Queues)).ToArray();
 
             return Results.Json(DeploymentPreflight.Compare(requirements, workers), JsonOptions);
-        }).WithPermission(options, "executions.read");
+        }).WithPermission(options, OperationPermissions.ReadExecutions);
+    }
+
+    /// <summary>Schedule reads and lifecycle commands.</summary>
+    private static void MapSchedules(RouteGroupBuilder group, JobDashboardOptions options)
+    {
         group.MapGet("/api/schedules", async (IJobSchedules schedules, CancellationToken ct) =>
             Results.Json((await schedules.SchedulesAsync(ct)).Select(s => new
             {
@@ -247,57 +252,56 @@ public static partial class DashboardEndpoints
                 s.Enabled,
                 s.NextOccurrence
             }), JsonOptions))
-            .WithPermission(options, "executions.read");
+            .WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapGet("/api/schedules/{key}/occurrences", async (string key, IJobSchedules schedules, CancellationToken ct) => Results.Json(await schedules.OccurrencesAsync(key, ct), JsonOptions))
-            .WithPermission(options, "executions.read");
+            .WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapPost("/api/schedules/draft", async (ScheduleDraftCommand draft, HttpContext context, IJobSchedules schedules, CancellationToken ct) =>
-            Results.Json(await schedules.SaveScheduleDraftAsync(draft.Definition, draft.Command.ExpectedRevision, Command(context, options, draft.Command), ct)))
-            .Mutation(options, "schedules.manage");
+            ToHttp(await schedules.SaveScheduleDraftAsync(draft.Definition, draft.Command.ExpectedRevision, Command(context, options, draft.Command), ct)))
+            .Mutation(options, OperationPermissions.ManageSchedules);
         group.MapPost("/api/schedules/{key}/{version:int}/publish", async (string key, int version, DashboardCommand command, HttpContext context, IJobSchedules schedules, CancellationToken ct) =>
-            Results.Json(await schedules.PublishScheduleAsync(key, version, command.ExpectedRevision, Command(context, options, command), ct)))
-            .Mutation(options, "schedules.manage");
+            ToHttp(await schedules.PublishScheduleAsync(key, version, command.ExpectedRevision, Command(context, options, command), ct)))
+            .Mutation(options, OperationPermissions.ManageSchedules);
         foreach (var enable in new[] { true, false })
         {
             group.MapPost(enable ? "/api/schedules/{key}/{version:int}/enable" : "/api/schedules/{key}/{version:int}/pause", async (string key, int version, DashboardCommand command, HttpContext context, IJobSchedules schedules, CancellationToken ct) =>
-                Results.Json(await schedules.SetScheduleEnabledAsync(key, version, command.ExpectedRevision, enable, Command(context, options, command), ct)))
-                .Mutation(options, "schedules.manage");
+                ToHttp(await schedules.SetScheduleEnabledAsync(key, version, command.ExpectedRevision, enable, Command(context, options, command), ct)))
+                .Mutation(options, OperationPermissions.ManageSchedules);
         }
+    }
 
+    /// <summary>Audited job, flow, definition and limit commands, plus the audit trail.</summary>
+    private static void MapAdministration(RouteGroupBuilder group, JobDashboardOptions options)
+    {
         group.MapGet("/api/audit", async (IJobAdministration administration, CancellationToken ct) => Results.Json(await administration.AuditAsync(cancellationToken: ct), JsonOptions))
-            .WithPermission(options, "audit.read");
+            .WithPermission(options, OperationPermissions.ReadAudit);
         group.MapPost("/api/jobs/{id:guid}/retry", async (Guid id, DashboardCommand command, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
-            Results.Json(await administration.RetryJobAsync(id, command.ExpectedAttempt, Command(context, options, command), ct)))
-            .Mutation(options, "jobs.retry");
+            ToHttp(await administration.RetryJobAsync(id, command.ExpectedAttempt, Command(context, options, command), ct)))
+            .Mutation(options, OperationPermissions.RetryJobs);
         group.MapPost("/api/jobs/{id:guid}/cancel", async (Guid id, DashboardCommand command, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
-            Results.Json(await administration.CancelJobAsync(id, command.ExpectedAttempt, Command(context, options, command), ct)))
-            .Mutation(options, "jobs.cancel");
+            ToHttp(await administration.CancelJobAsync(id, command.ExpectedAttempt, Command(context, options, command), ct)))
+            .Mutation(options, OperationPermissions.CancelJobs);
         group.MapPost("/api/jobs/{id:guid}/recover", async (Guid id, DashboardCommand command, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
-            Results.Json(await administration.RecoverStepAsync(id, command.ExpectedAttempt, Command(context, options, command), ct)))
-            .Mutation(options, "flows.recover");
+            ToHttp(await administration.RecoverStepAsync(id, command.ExpectedAttempt, Command(context, options, command), ct)))
+            .Mutation(options, OperationPermissions.RecoverFlows);
         foreach (var pause in new[] { true, false })
         {
             group.MapPost(pause ? "/api/flows/{id:guid}/pause" : "/api/flows/{id:guid}/resume", async (Guid id, DashboardCommand command, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
-                Results.Json(await administration.SetFlowPausedAsync(id, pause, Command(context, options, command), ct)))
-                .Mutation(options, "flows.recover");
+                ToHttp(await administration.SetFlowPausedAsync(id, pause, Command(context, options, command), ct)))
+                .Mutation(options, OperationPermissions.RecoverFlows);
         }
 
         group.MapPost("/api/definitions/draft", async (DraftCommand draft, HttpContext context, IWorkflowDefinitions definitions, CancellationToken ct) =>
-            Results.Json(await definitions.SaveDraftAsync(draft.Definition, draft.Command.ExpectedRevision, Command(context, options, draft.Command), ct)))
-            .Mutation(options, "definitions.edit");
+            ToHttp(await definitions.SaveDraftAsync(draft.Definition, draft.Command.ExpectedRevision, Command(context, options, draft.Command), ct)))
+            .Mutation(options, OperationPermissions.EditDefinitions);
         group.MapPost("/api/definitions/{key}/{version:int}/publish", async (string key, int version, DashboardCommand command, HttpContext context, IWorkflowDefinitions definitions, CancellationToken ct) =>
-            Results.Json(await definitions.PublishAsync(key, version, command.ExpectedRevision, Command(context, options, command), ct)))
-            .Mutation(options, "definitions.publish");
+            ToHttp(await definitions.PublishAsync(key, version, command.ExpectedRevision, Command(context, options, command), ct)))
+            .Mutation(options, OperationPermissions.PublishDefinitions);
         group.MapPost("/api/definitions/{key}/{version:int}/retire", async (string key, int version, DashboardCommand command, HttpContext context, IWorkflowDefinitions definitions, CancellationToken ct) =>
-            Results.Json(await definitions.RetireAsync(key, version, command.ExpectedRevision, Command(context, options, command), ct)))
-            .Mutation(options, "definitions.retire");
+            ToHttp(await definitions.RetireAsync(key, version, command.ExpectedRevision, Command(context, options, command), ct)))
+            .Mutation(options, OperationPermissions.RetireDefinitions);
         group.MapPost("/api/limits", async (LimitCommand request, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
-            Results.Json(await administration.ChangeLimitAsync(request.Limit, Command(context, options, request.Command), ct)))
-            .Mutation(options, "limits.manage");
-        MapOperations(group, options);
-        MapExecutionQueries(group, options);
-        MapRetention(group, options);
-
-        return group;
+            ToHttp(await administration.ChangeLimitAsync(request.Limit, Command(context, options, request.Command), ct)))
+            .Mutation(options, OperationPermissions.ManageLimits);
     }
 
     private static object Metadata(JobRecord job) => new
@@ -318,6 +322,7 @@ public static partial class DashboardEndpoints
         job.ExpiresAt,
         job.CausationJobId
     };
+
     private static object Graph(FlowDefinition definition) => new
     {
         definition.Key,
@@ -325,17 +330,4 @@ public static partial class DashboardEndpoints
         definition.FailurePolicy,
         steps = definition.Steps.Select(s => new { s.Id, s.DisplayName, s.Contract, s.After, s.Queue, signal = s.Signal, conditional = s.Condition is not null })
     };
-    private static async Task<bool> ValidTokenAsync(HttpContext context, IAntiforgery antiforgery)
-    {
-        try
-        {
-            await antiforgery.ValidateRequestAsync(context);
-
-            return true;
-        }
-        catch (AntiforgeryValidationException)
-        {
-            return false;
-        }
-    }
 }

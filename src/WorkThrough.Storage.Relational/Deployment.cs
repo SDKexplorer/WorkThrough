@@ -5,13 +5,15 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore
 {
+    private const int MaximumDeploymentRequirements = 1000;
+
     /// <summary>Providers use a read snapshot without acquiring the admission write lock.</summary>
     protected virtual Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
         connection.BeginTransactionAsync(cancellationToken).AsTask();
 
     public async Task<DeploymentRequirements> DeploymentRequirementsAsync(CancellationToken cancellationToken = default)
     {
-        const int limit = 1000;
+        const int limit = MaximumDeploymentRequirements;
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = await BeginReadAsync(connection, cancellationToken);
         var now = await NowAsync(connection, transaction, cancellationToken);
@@ -22,10 +24,10 @@ public abstract partial class RelationalJobStore
               SUM(CASE WHEN j.status='Queued' AND j.available_at<=@now AND (j.workflow_run_id IS NULL OR f.status='Running') THEN 1 ELSE 0 END) AS ready,
               MIN(CASE WHEN j.status='Queued' AND j.available_at<=@now AND (j.workflow_run_id IS NULL OR f.status='Running') THEN j.available_at ELSE NULL END) AS oldest
             FROM dj_jobs j LEFT JOIN dj_flows f ON j.workflow_run_id=f.id
-            WHERE j.job_key<>'workthrough.signal' AND (j.status IN ('Queued','Running','Waiting')
+            WHERE j.job_key<>@signal AND (j.status IN ('Queued','Running','Waiting')
               OR (j.status IN ('Failed','Cancelled','Rejected','Expired') AND f.status IN ('Running','Paused','Incident')))
             GROUP BY j.job_key,j.contract_version,j.queue ORDER BY j.job_key,j.contract_version,j.queue {PageSql("@limit")}
-            """, ("now", now), ("limit", limit + 1)))
+            """, ("now", now), ("signal", SignalWait.Processor.Key), ("limit", limit + 1)))
         {
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {

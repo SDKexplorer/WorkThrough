@@ -3,8 +3,8 @@ using System.Text.Json;
 namespace WorkThrough;
 
 public sealed record EnqueueOptions(
-    string Queue = "default", string? CorrelationId = null, DateTimeOffset? NotBefore = null,
-    int MaxAttempts = 3, string? IdempotencyKey = null, DateTimeOffset? ExpiresAt = null);
+    string Queue = JobDefaults.Queue, string? CorrelationId = null, DateTimeOffset? NotBefore = null,
+    int MaxAttempts = JobDefaults.MaxAttempts, string? IdempotencyKey = null, DateTimeOffset? ExpiresAt = null);
 
 /// <summary>Accepts work durably without requiring any handler registrations.</summary>
 public sealed class JobClient(IJobStore store)
@@ -21,10 +21,8 @@ public sealed class JobClient(IJobStore store)
         => EnqueueAsync(JobContractId.For<TJob>(), job, options, cancellationToken);
 
     /// <summary>Enqueues typed or raw-string input without referencing the processor assembly.</summary>
-    public Task<Guid> EnqueueAsync<TInput>(JobContractId processor, TInput job, EnqueueOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        return store.EnqueueAsync(CreateRecord(processor, job, options), cancellationToken);
-    }
+    public Task<Guid> EnqueueAsync<TInput>(JobContractId processor, TInput job, EnqueueOptions? options = null, CancellationToken cancellationToken = default) =>
+        store.EnqueueAsync(CreateRecord(processor, job, options), cancellationToken);
 
     /// <summary>Builds the validated envelope used by direct and transactional acceptance.</summary>
     public static JobRecord CreateRecord<TInput>(JobContractId processor, TInput job, EnqueueOptions? options = null)
@@ -57,7 +55,7 @@ public sealed class JobClient(IJobStore store)
         // on acceptance; explicit NotBefore values retain their requested precision.
         var available = options.NotBefore ?? DateTimeOffset.FromUnixTimeMilliseconds(now.ToUnixTimeMilliseconds());
         var payload = JsonSerializer.SerializeToElement(job, JobJson.Options);
-        if (System.Text.Encoding.UTF8.GetByteCount(payload.GetRawText()) > 1_048_576)
+        if (JobLimits.ExceedsInlineSize(payload))
         {
             throw new ArgumentException("Inline input exceeds 1 MiB. Store large documents externally and enqueue a reference.", nameof(job));
         }

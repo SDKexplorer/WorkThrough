@@ -14,6 +14,19 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public void Persisted_state_names_are_a_storage_contract()
+    {
+        Assert.Equal(["Running", "Paused", "Incident", "Succeeded", "Failed"], Enum.GetNames<FlowStatus>());
+        Assert.Equal(["Running", "Succeeded", "Failed", "Rejected", "Deferred", "Interrupted", "Abandoned", "Cancelled"], Enum.GetNames<AttemptStatus>());
+        Assert.Equal(["Job", "Flow"], Enum.GetNames<ArchiveKind>());
+
+        // Archives and stored batch results use the shared wire settings, which have no enum converter of their own.
+        Assert.Equal("\"Incident\"", System.Text.Json.JsonSerializer.Serialize(FlowStatus.Incident, JobJson.Options));
+        Assert.Equal("\"Abandoned\"", System.Text.Json.JsonSerializer.Serialize(AttemptStatus.Abandoned, JobJson.Options));
+        Assert.Equal("\"Flow\"", System.Text.Json.JsonSerializer.Serialize(ArchiveKind.Flow, JobJson.Options));
+    }
+
+    [Fact]
     public void Explicit_stable_identity_is_required()
     {
         Assert.Throws<InvalidOperationException>(() => JobContractId.For<Unmarked>());

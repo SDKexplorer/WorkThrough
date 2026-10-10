@@ -38,7 +38,8 @@ public abstract partial class RelationalJobStore
     public Task RecordVerifiedExportAsync(MaintenanceLease lease, VerifiedArchiveExport export, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(export);
-        if (export.Bytes is < 1 or > 32_000_000 || string.IsNullOrWhiteSpace(export.ObjectVersion) || export.ObjectVersion.Length > 512)
+        if (export.Bytes is < 1 or > ExecutionArchive.MaximumBytes || string.IsNullOrWhiteSpace(export.ObjectVersion)
+            || export.ObjectVersion.Length > OperationQueryLimits.MaximumLabelLength)
         {
             throw new ArgumentException("Export verification requires a bounded object version and byte count.", nameof(export));
         }
@@ -61,7 +62,9 @@ public abstract partial class RelationalJobStore
                 throw new StateConflictException("The verified copy does not match the eligible archive body.");
             }
 
-            await ExecuteAsync(connection, transaction, UpsertSql("dj_archive_exports", "archive_id,destination,sha256,object_version,bytes,verified_at,batch_id", "@id,@destination,@hash,@version,@bytes,@at,@batch", "archive_id,destination", "sha256,object_version,bytes,verified_at,batch_id"), ct, ("id", export.ArchiveId.ToString()), ("destination", export.Destination), ("hash", export.Sha256),
+            var upsert = UpsertSql("dj_archive_exports", "archive_id,destination,sha256,object_version,bytes,verified_at,batch_id",
+                "@id,@destination,@hash,@version,@bytes,@at,@batch", "archive_id,destination", "sha256,object_version,bytes,verified_at,batch_id");
+            await ExecuteAsync(connection, transaction, upsert, ct, ("id", export.ArchiveId.ToString()), ("destination", export.Destination), ("hash", export.Sha256),
                 ("version", export.ObjectVersion), ("bytes", export.Bytes), ("at", await NowAsync(connection, transaction, ct)), ("batch", batch.Id.ToString()));
 
             return true;
@@ -74,9 +77,7 @@ public abstract partial class RelationalJobStore
             await RequireMaintenanceLeaseAsync(connection, transaction, lease, ct);
             if (await ScalarAsync(connection, transaction, "SELECT id FROM dj_archives WHERE id=@id AND body IS NOT NULL", ct, ("id", archiveId.ToString())) is not null)
             {
-                await ExecuteAsync(connection, transaction,
-                    UpsertSql("dj_retention_incidents", "unit_id,code,at", "@id,'ArchiveExportVerificationFailed',@at", "unit_id", "code,at"),
-                    ct, ("id", archiveId.ToString()), ("at", await NowAsync(connection, transaction, ct)));
+                await RecordRetentionIncidentAsync(connection, transaction, archiveId, RetentionIncidentCodes.ArchiveExportVerificationFailed, ct);
             }
 
             return true;

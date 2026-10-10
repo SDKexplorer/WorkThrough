@@ -7,6 +7,9 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IExecutionArchives
 {
+    private const int ArchiveFormatVersion = 1;
+    private const int MaximumArchivePage = 500;
+
     private const string EligibleArchiveUnitsSql = """
         SELECT j.id,'Job' AS kind,j.correlation_id,j.terminal_at AS completed,1 AS jobs FROM dj_jobs j
         WHERE j.workflow_run_id IS NULL AND NOT EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=j.id AND h.held=1) AND
@@ -24,9 +27,9 @@ public abstract partial class RelationalJobStore : IExecutionArchives
     private static void ValidateArchivePolicy(ArchivePolicy policy)
     {
         ArgumentNullException.ThrowIfNull(policy);
-        if (policy.BatchSize is < 1 or > 10)
+        if (policy.BatchSize is < 1 or > ArchivePolicy.MaximumBatchSize)
         {
-            throw new ArgumentOutOfRangeException(nameof(policy), "Archive batches contain 1–10 units; a whole flow is one unit.");
+            throw new ArgumentOutOfRangeException(nameof(policy), $"Archive batches contain 1–{ArchivePolicy.MaximumBatchSize} units; a whole flow is one unit.");
         }
     }
 
@@ -44,90 +47,98 @@ public abstract partial class RelationalJobStore : IExecutionArchives
             SELECT id,kind,correlation_id,completed,jobs FROM ({EligibleArchiveUnitsSql}) candidates
             WHERE (@maintenance=0 OR NOT EXISTS (SELECT 1 FROM dj_retention_incidents i WHERE i.unit_id=candidates.id))
             ORDER BY completed,id {PageSql("@limit")}
-            """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()), ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()), ("limit", policy.BatchSize), ("maintenance", maintenance ? 1 : 0));
+            """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()), ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()),
+            ("limit", policy.BatchSize), ("maintenance", maintenance ? 1 : 0));
         await using var reader = await command.ExecuteReaderAsync(ct);
         var result = new List<ArchiveCandidate>();
         while (await reader.ReadAsync(ct))
         {
-            result.Add(new(Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3)), Convert.ToInt32(reader.GetValue(4))));
+            result.Add(new(Guid.Parse(reader.GetString(0)), Enum.Parse<ArchiveKind>(reader.GetString(1)), Text(reader, "correlation_id"),
+                DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3)), Convert.ToInt32(reader.GetValue(4))));
         }
 
         return result;
     }
 
-    public Task<IReadOnlyList<Guid>> ArchiveCompletedAsync(ArchivePolicy policy, AdministrativeCommand command, CancellationToken cancellationToken = default)
-    {
-        ValidateArchivePolicy(policy);
-
-        return AdminAsync<IReadOnlyList<Guid>>(command, "archives.create", "completed executions", policy, async (connection, transaction, ct) =>
+    public Task<Result<IReadOnlyList<Guid>>> ArchiveCompletedAsync(ArchivePolicy policy, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync<IReadOnlyList<Guid>>(command, AuditActions.CreateArchives, "completed executions", policy, async (connection, transaction, ct) =>
         {
             var archived = new List<Guid>();
-            var candidates = await ReadCandidatesAsync(connection, transaction, policy, ct);
-            foreach (var candidate in candidates)
+            foreach (var candidate in await ReadCandidatesAsync(connection, transaction, policy, ct))
             {
                 await ArchiveCandidateAsync(connection, transaction, candidate, ct);
                 archived.Add(candidate.Id);
             }
 
             return archived;
-        }, cancellationToken);
-    }
+        }, cancellationToken, validate: () => ValidateArchivePolicy(policy));
 
     private async Task ArchiveCandidateAsync(DbConnection connection, DbTransaction transaction, ArchiveCandidate candidate, CancellationToken ct)
     {
-        var predicate = candidate.Kind == "Flow" ? "workflow_run_id=@id" : "id=@id";
-        await EnsureArchiveFitsAsync(connection, transaction, candidate, predicate, ct);
-        var jobs = await ReadJobsAsync(connection, transaction, $"SELECT * FROM dj_jobs WHERE {predicate} ORDER BY id", ct, ("id", candidate.Id.ToString()));
+        await EnsureArchiveFitsAsync(connection, transaction, candidate, ct);
+        var jobs = await ReadJobsAsync(connection, transaction, $"SELECT * FROM dj_jobs WHERE {ArchivePredicate(candidate.Kind)} ORDER BY id", ct, ("id", candidate.Id.ToString()));
         var evidence = new List<ArchivedJob>();
         foreach (var job in jobs)
         {
             evidence.Add(await ReadArchivedJobAsync(connection, transaction, job, ct));
         }
 
-        var events = await ReadArchivedEventsAsync(connection, transaction, candidate, predicate, ct);
-        var (flow, definition, input, signals) = await ReadArchivedFlowAsync(connection, transaction, candidate, ct);
+        var events = await ReadArchivedEventsAsync(connection, transaction, candidate, ct);
+        var flow = candidate.Kind == ArchiveKind.Flow ? await ReadArchivedFlowAsync(connection, transaction, candidate.Id, ct) : null;
         var now = await NowAsync(connection, transaction, ct);
-        var package = new ExecutionArchive(1, candidate.Id, candidate.Kind, candidate.CorrelationId, DateTimeOffset.FromUnixTimeMilliseconds(now), evidence, flow, definition, input, events, signals);
+        var package = new ExecutionArchive(ArchiveFormatVersion, candidate.Id, candidate.Kind, candidate.CorrelationId, DateTimeOffset.FromUnixTimeMilliseconds(now),
+            evidence, flow?.Run, flow?.Definition, flow?.Input, events, flow?.Signals ?? []);
         var json = JsonSerializer.Serialize(package, JobJson.Options);
         var bytes = Encoding.UTF8.GetBytes(json);
-        if (bytes.Length > 32_000_000)
+        if (bytes.Length > ExecutionArchive.MaximumBytes)
         {
             throw new StateConflictException("Archive exceeds 32 MB; export this execution separately.");
         }
 
-        var hash = Convert.ToHexString(SHA256.HashData(bytes));
         await ExecuteAsync(connection, transaction, "INSERT INTO dj_archives(id,kind,correlation_id,archived_at,jobs,sha256,body) VALUES (@id,@kind,@correlation,@now,@jobs,@hash,@body)", ct,
-            ("id", candidate.Id.ToString()), ("kind", candidate.Kind), ("correlation", candidate.CorrelationId), ("now", now), ("jobs", jobs.Count), ("hash", hash), ("body", json));
+            ("id", candidate.Id.ToString()), ("kind", candidate.Kind.ToString()), ("correlation", candidate.CorrelationId), ("now", now), ("jobs", jobs.Count),
+            ("hash", Convert.ToHexString(SHA256.HashData(bytes))), ("body", json));
         foreach (var job in jobs)
         {
-            await SaveJobReceiptAsync(connection, transaction, job, ct);
-            foreach (var table in new[] { "dj_attempts", "dj_failures", "dj_progress" })
-            {
-                await ExecuteAsync(connection, transaction, $"DELETE FROM {table} WHERE job_id=@id", ct, ("id", job.Id.ToString()));
-            }
-
-            await ExecuteAsync(connection, transaction, "DELETE FROM dj_jobs WHERE id=@id", ct, ("id", job.Id.ToString()));
+            await DeleteArchivedJobAsync(connection, transaction, job, ct);
         }
 
         if (flow is not null)
         {
-            await ExecuteAsync(connection, transaction, "DELETE FROM dj_signal_waits WHERE run_id=@id", ct, ("id", flow.Id.ToString()));
-            await ExecuteAsync(connection, transaction, "DELETE FROM dj_signals WHERE run_id=@id", ct, ("id", flow.Id.ToString()));
-            await ExecuteAsync(connection, transaction, "DELETE FROM dj_flows WHERE id=@id", ct, ("id", flow.Id.ToString()));
+            foreach (var table in new[] { "dj_signal_waits", "dj_signals" })
+            {
+                await ExecuteAsync(connection, transaction, $"DELETE FROM {table} WHERE run_id=@id", ct, ("id", candidate.Id.ToString()));
+            }
+
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_flows WHERE id=@id", ct, ("id", candidate.Id.ToString()));
         }
 
         await ExecuteAsync(connection, transaction, "DELETE FROM dj_retention_incidents WHERE unit_id=@id", ct, ("id", candidate.Id.ToString()));
     }
 
+    private async Task DeleteArchivedJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
+    {
+        await SaveJobReceiptAsync(connection, transaction, job, ct);
+        foreach (var table in new[] { "dj_attempts", "dj_failures", "dj_progress" })
+        {
+            await ExecuteAsync(connection, transaction, $"DELETE FROM {table} WHERE job_id=@id", ct, ("id", job.Id.ToString()));
+        }
+
+        await ExecuteAsync(connection, transaction, "DELETE FROM dj_jobs WHERE id=@id", ct, ("id", job.Id.ToString()));
+    }
+
     public async Task<IReadOnlyList<ArchiveSummary>> ArchivesAsync(string? correlationId = null, int limit = 100, CancellationToken cancellationToken = default)
     {
-        if (limit is < 1 or > 500)
+        if (limit is < 1 or > MaximumArchivePage)
         {
             throw new ArgumentOutOfRangeException(nameof(limit));
         }
 
         await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, $"SELECT id,kind,correlation_id,archived_at,jobs,sha256,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives WHERE (CAST(@correlation AS {TextType}) IS NULL OR correlation_id=@correlation) ORDER BY archived_at DESC,id {PageSql("@limit")}", ("correlation", correlationId), ("limit", limit));
+        await using var command = Command(connection, null, $"""
+            SELECT id,kind,correlation_id,archived_at,jobs,sha256,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives
+            WHERE (CAST(@correlation AS {TextType}) IS NULL OR correlation_id=@correlation) ORDER BY archived_at DESC,id {PageSql("@limit")}
+            """, ("correlation", correlationId), ("limit", limit));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var result = new List<ArchiveSummary>();
         while (await reader.ReadAsync(cancellationToken))
@@ -151,13 +162,12 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         return new(ReadArchiveSummary(reader), reader.GetString(reader.GetOrdinal("body")));
     }
 
-    private static ArchiveSummary ReadArchiveSummary(DbDataReader reader) => new(Guid.Parse(reader.GetString(reader.GetOrdinal("id"))), reader.GetString(reader.GetOrdinal("kind")), Text(reader, "correlation_id"), Date(reader, "archived_at")!.Value, reader.GetInt32(reader.GetOrdinal("jobs")), reader.GetString(reader.GetOrdinal("sha256")), reader.GetInt32(reader.GetOrdinal("has_body")) == 1);
+    private static ArchiveSummary ReadArchiveSummary(DbDataReader reader) => new(Guid.Parse(reader.GetString(reader.GetOrdinal("id"))),
+        Enum.Parse<ArchiveKind>(reader.GetString(reader.GetOrdinal("kind"))), Text(reader, "correlation_id"), Date(reader, "archived_at")!.Value,
+        reader.GetInt32(reader.GetOrdinal("jobs")), reader.GetString(reader.GetOrdinal("sha256")), reader.GetInt32(reader.GetOrdinal("has_body")) == 1);
 
-    public Task<bool> PurgeArchiveAsync(Guid id, string expectedSha256, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, "archives.purge", id.ToString(), new
-        {
-            expectedSha256
-        }, async (connection, transaction, ct) =>
+    public Task<Result<bool>> PurgeArchiveAsync(Guid id, string expectedSha256, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.PurgeArchive, id.ToString(), new { expectedSha256 }, async (connection, transaction, ct) =>
         {
             await RejectHeldArchiveAsync(connection, transaction, id, ct);
             var hash = await ScalarAsync(connection, transaction, "SELECT sha256 FROM dj_archives WHERE id=@id", ct, ("id", id.ToString()));

@@ -4,77 +4,79 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IExecutionOperations
 {
+    private const int MaximumControlRows = 500;
+    private const int MaximumControlKeyLength = 256;
+    private const string QueueExpiredError = "The queued execution expired before admission";
+
     public async Task<IReadOnlyList<QueueControl>> QueuesAsync(CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, $"SELECT queue,paused,revision FROM dj_queue_controls ORDER BY queue {PageSql("500")} ");
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        var rows = new List<QueueControl>();
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            rows.Add(new(reader.GetString(0), reader.GetInt32(1) != 0, reader.GetInt32(2)));
-        }
+        var rows = await ReadControlsAsync("SELECT queue,paused,revision FROM dj_queue_controls ORDER BY queue", cancellationToken);
 
-        return rows;
+        return rows.Select(row => new QueueControl(row.Key, row.Enabled, row.Revision)).ToArray();
     }
 
     public async Task<IReadOnlyList<WorkerControlState>> WorkerControlsAsync(CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, $"SELECT worker_id,draining,revision FROM dj_worker_controls ORDER BY worker_id {PageSql("500")} ");
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        var rows = new List<WorkerControlState>();
-        while (await reader.ReadAsync(cancellationToken))
+        var rows = await ReadControlsAsync("SELECT worker_id,draining,revision FROM dj_worker_controls ORDER BY worker_id", cancellationToken);
+
+        return rows.Select(row => new WorkerControlState(row.Key, row.Enabled, row.Revision)).ToArray();
+    }
+
+    private async Task<List<(string Key, bool Enabled, int Revision)>> ReadControlsAsync(string sql, CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct);
+        await using var command = Command(connection, null, $"{sql} {PageSql(MaximumControlRows)}");
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var rows = new List<(string, bool, int)>();
+        while (await reader.ReadAsync(ct))
         {
-            rows.Add(new(reader.GetString(0), reader.GetInt32(1) != 0, reader.GetInt32(2)));
+            rows.Add((reader.GetString(0), reader.GetInt32(1) != 0, reader.GetInt32(2)));
         }
 
         return rows;
     }
 
-    public Task<int> SetQueuePausedAsync(string queue, bool paused, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        SetControlAsync("dj_queue_controls", "queue", "paused", queue, paused, expectedRevision, command, paused ? "queues.pause" : "queues.resume", cancellationToken);
+    public Task<Result<int>> SetQueuePausedAsync(string queue, bool paused, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        SetControlAsync(new("dj_queue_controls", "queue", "paused"), queue, paused, expectedRevision, command,
+            paused ? AuditActions.PauseQueue : AuditActions.ResumeQueue, cancellationToken);
 
-    public Task<int> SetWorkerDrainingAsync(string workerId, bool draining, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        SetControlAsync("dj_worker_controls", "worker_id", "draining", workerId, draining, expectedRevision, command, draining ? "workers.drain" : "workers.resume", cancellationToken);
+    public Task<Result<int>> SetWorkerDrainingAsync(string workerId, bool draining, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        SetControlAsync(new("dj_worker_controls", "worker_id", "draining"), workerId, draining, expectedRevision, command,
+            draining ? AuditActions.DrainWorker : AuditActions.ResumeWorker, cancellationToken);
 
-    private Task<int> SetControlAsync(string table, string keyColumn, string valueColumn, string key, bool enabled, int expectedRevision,
-        AdministrativeCommand command, string action, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(key) || key.Length > 256 || expectedRevision < 0)
-        {
-            throw new ArgumentException("A control needs a 1–256 character key and non-negative revision.");
-        }
+    private sealed record ControlTable(string Name, string KeyColumn, string ValueColumn);
 
-        return AdminAsync(command, action, key, new
+    private Task<Result<int>> SetControlAsync(ControlTable table, string key, bool enabled, int expectedRevision,
+        AdministrativeCommand command, string action, CancellationToken ct) =>
+        AdminAsync(command, action, key, new { enabled, expectedRevision }, async (connection, transaction, token) =>
         {
-            enabled,
-            expectedRevision
-        }, async (connection, transaction, token) =>
-        {
-            var previous = await ScalarAsync(connection, transaction, $"SELECT revision FROM {table} WHERE {keyColumn}=@key", token, ("key", key));
+            var previous = await ScalarAsync(connection, transaction, $"SELECT revision FROM {table.Name} WHERE {table.KeyColumn}=@key", token, ("key", key));
             if (Convert.ToInt32(previous) != expectedRevision)
             {
                 throw new StateConflictException("Control revision changed.");
             }
 
             var next = checked(expectedRevision + 1);
-            await ExecuteAsync(connection, transaction, UpsertSql(table, $"{keyColumn},{valueColumn},revision", "@key,@value,@revision", keyColumn, $"{valueColumn},revision"), token,
-                ("key", key), ("value", enabled ? 1 : 0), ("revision", next));
+            var upsert = UpsertSql(table.Name, $"{table.KeyColumn},{table.ValueColumn},revision", "@key,@value,@revision", table.KeyColumn, $"{table.ValueColumn},revision");
+            await ExecuteAsync(connection, transaction, upsert, token, ("key", key), ("value", enabled ? 1 : 0), ("revision", next));
 
             return next;
-        }, ct);
+        }, ct, validate: () => ValidateControl(key, expectedRevision));
+
+    private static void ValidateControl(string key, int expectedRevision)
+    {
+        if (string.IsNullOrWhiteSpace(key) || key.Length > MaximumControlKeyLength || expectedRevision < 0)
+        {
+            throw new ArgumentException($"A control needs a 1–{MaximumControlKeyLength} character key and non-negative revision.");
+        }
     }
 
-    public Task<Guid> ReplayAsync(Guid jobId, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, "jobs.replay", jobId.ToString(), new
+    public Task<Result<Guid>> ReplayAsync(Guid jobId, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.ReplayJob, jobId.ToString(), new { jobId }, async (connection, transaction, ct) =>
         {
-            jobId
-        }, async (connection, transaction, ct) =>
-        {
-            var original = (await ReadJobsAsync(connection, transaction, "SELECT * FROM dj_jobs WHERE id=@id", ct, ("id", jobId.ToString()))).SingleOrDefault()
-                ?? throw new StateConflictException("Execution does not exist in the active store. Export archived input explicitly before starting new work.");
-            if (original.Status is JobStatus.Queued or JobStatus.Running or JobStatus.Waiting or JobStatus.AwaitingSignal || original.Contract.Key == "workthrough.signal")
+            var original = await ReadJobAsync(connection, transaction, jobId, ct)
+                ?? throw new MissingStateException("Execution does not exist in the active store. Export archived input explicitly before starting new work.");
+            if (!original.Status.IsTerminal() || original.Contract.Key == SignalWait.Processor.Key)
             {
                 throw new StateConflictException("Only terminal processor executions can be replayed.");
             }
@@ -99,18 +101,20 @@ public abstract partial class RelationalJobStore : IExecutionOperations
                 LeaseExpiresAt = null
             };
             await InsertJobAsync(connection, transaction, replay, ct);
-            await JournalAsync(connection, transaction, replay, now.ToUnixTimeMilliseconds(), "Replayed", ct);
+            await JournalAsync(connection, transaction, replay, now.ToUnixTimeMilliseconds(), ExecutionEventKinds.Replayed, ct);
 
             return replay.Id;
         }, cancellationToken);
 
     private async Task ExpireQueuedAsync(DbConnection connection, DbTransaction transaction, long now, CancellationToken ct)
     {
-        var expired = await ReadJobsAsync(connection, transaction, $"SELECT * FROM dj_jobs WHERE status='Queued' AND expires_at<=@now ORDER BY expires_at {PageSql("100")}", ct, ("now", now));
+        var expired = await ReadJobsAsync(connection, transaction,
+            $"SELECT * FROM dj_jobs WHERE status='Queued' AND expires_at<=@now ORDER BY expires_at {PageSql(SweepBatchSize)}", ct, ("now", now));
         foreach (var job in expired)
         {
-            await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status='Expired',error='The queued execution expired before admission' WHERE id=@id", ct, ("id", job.Id.ToString()));
-            await JournalAsync(connection, transaction, job, now, "Expired", ct);
+            await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status=@status,error=@error WHERE id=@id", ct,
+                ("status", nameof(JobStatus.Expired)), ("error", QueueExpiredError), ("id", job.Id.ToString()));
+            await JournalAsync(connection, transaction, job, now, nameof(JobStatus.Expired), ct);
             if (job.WorkflowRunId is { } flow)
             {
                 await AdvanceWorkflowAsync(connection, transaction, flow, ct);

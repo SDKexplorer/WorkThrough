@@ -4,9 +4,12 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IRuntimeQueries
 {
+    // Providers examine at most this many recent heartbeats, plus one to detect incomplete coverage.
+    private const int MaximumReadinessWorkers = 500;
+
     protected virtual string ReadinessWorkersSql => throw new NotSupportedException("Worker readiness projection is unavailable.");
 
-    public async Task<ExecutionReadiness> ReadReadinessAsync(Guid id, int workerExamples = 10, CancellationToken cancellationToken = default)
+    public async Task<ExecutionReadiness> ReadReadinessAsync(Guid id, int workerExamples = ExecutionReadiness.DefaultWorkerExamples, CancellationToken cancellationToken = default)
     {
         ValidateOperationLimit(workerExamples);
         using var timeout = OperationQueryTimeout(cancellationToken);
@@ -19,13 +22,13 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
         {
             await transaction.CommitAsync(ct);
 
-            return new(storeId, observed, id, false, "NotLive", false, null, false, null, null, null, null, null, [], 0, false, false);
+            return new(storeId, observed, id, false, ReadinessReasons.NotLive, false, null, false, null, null, null, null, null, [], 0, false, false);
         }
 
         var capacity = await ReadCapacityAsync(connection, transaction, state.Key, observed.ToUnixTimeMilliseconds(), ct);
         var workers = new List<ReadinessWorker>();
         await using (var command = OperationCommand(connection, transaction, ReadinessWorkersSql,
-            ("id", id.ToString()), ("fresh", observed.AddSeconds(-60).ToUnixTimeMilliseconds())))
+            ("id", id.ToString()), ("fresh", (observed - WorkerHeartbeat.Freshness).ToUnixTimeMilliseconds())))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
@@ -37,12 +40,12 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
             }
         }
 
-        var incomplete = workers.Count > 500 || workers.Any(worker => !worker.DetailsAvailable);
+        var incomplete = workers.Count > MaximumReadinessWorkers || workers.Any(worker => !worker.DetailsAvailable);
         var matching = workers.Where(worker => worker.Matches).ToArray();
         var reason = ExplainReadiness(state, capacity, matching, incomplete, observed);
         await transaction.CommitAsync(ct);
 
-        return new(storeId, observed, id, true, reason, reason is "ProgressOverdue" or "ExecutionDeadlineExceeded",
+        return new(storeId, observed, id, true, reason, ReadinessReasons.IsSuspectedStall(reason),
             state.FlowStatus, state.QueuePaused, state.AvailableAt, state.LeaseExpiresAt, state.Deadline, state.LastProgressAt,
             capacity, matching.Take(workerExamples).ToArray(), matching.Length, matching.Length > workerExamples, incomplete);
     }
@@ -50,100 +53,87 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
     private static string ExplainReadiness(ReadinessState state, CapacityObservation capacity,
         IReadOnlyList<ReadinessWorker> matching, bool incomplete, DateTimeOffset now)
     {
-        if (state.Status == "Running")
+        if (state.Status == JobStatus.Running)
         {
-            if (state.LeaseExpiresAt <= now)
-            {
-                return "LeaseExpired";
-            }
-
-            if (state.Deadline <= now)
-            {
-                return "ExecutionDeadlineExceeded";
-            }
-
-            if (state.LastProgressAt is { } progress && state.ProgressTimeout is { } threshold
-                && now.ToUnixTimeMilliseconds() - progress.ToUnixTimeMilliseconds() >= threshold)
-            {
-                return "ProgressOverdue";
-            }
-
-            return "Running";
+            return ExplainRunning(state, now);
         }
 
-        if (state.Status is not ("Queued" or "Waiting" or "AwaitingSignal"))
+        if (state.Status.IsTerminal())
         {
-            return state.Status;
+            return state.Status.ToString();
         }
 
-        if (state.FlowStatus == "Incident")
+        if (state.FlowStatus is FlowStatus.Incident or FlowStatus.Paused)
         {
-            return "FlowIncident";
+            return state.FlowStatus == FlowStatus.Incident ? ReadinessReasons.FlowIncident : ReadinessReasons.FlowPaused;
         }
 
-        if (state.FlowStatus == "Paused")
+        if (state.Status is JobStatus.AwaitingSignal or JobStatus.Waiting)
         {
-            return "FlowPaused";
-        }
-
-        if (state.Status == "AwaitingSignal")
-        {
-            return "AwaitingSignal";
-        }
-
-        if (state.Status == "Waiting")
-        {
-            return "Dependencies";
+            return state.Status == JobStatus.AwaitingSignal ? ReadinessReasons.AwaitingSignal : ReadinessReasons.Dependencies;
         }
 
         if (state.ExpiresAt <= now)
         {
-            return "PendingExpiry";
+            return ReadinessReasons.PendingExpiry;
         }
 
         if (state.QueuePaused)
         {
-            return "QueuePaused";
+            return ReadinessReasons.QueuePaused;
         }
 
         if (state.AvailableAt > now)
         {
-            return state.Attempt > 0 ? "RetryScheduled" : "Scheduled";
+            return state.Attempt > 0 ? ReadinessReasons.RetryScheduled : ReadinessReasons.Scheduled;
         }
 
         if (capacity.GlobalMaximum <= capacity.GlobalAdmitted || capacity.ProcessorMaximum <= capacity.ProcessorAdmitted)
         {
-            return "SharedCapacity";
+            return ReadinessReasons.SharedCapacity;
         }
 
-        if (incomplete)
+        return incomplete ? ReadinessReasons.WorkerCoverageIncomplete : ExplainWorkers(matching);
+    }
+
+    private static string ExplainRunning(ReadinessState state, DateTimeOffset now)
+    {
+        if (state.LeaseExpiresAt <= now)
         {
-            return "WorkerCoverageIncomplete";
+            return ReadinessReasons.LeaseExpired;
         }
 
+        if (state.Deadline <= now)
+        {
+            return ReadinessReasons.ExecutionDeadlineExceeded;
+        }
+
+        var overdue = state.LastProgressAt is { } progress && state.ProgressTimeout is { } threshold
+            && now.ToUnixTimeMilliseconds() - progress.ToUnixTimeMilliseconds() >= threshold;
+
+        return overdue ? ReadinessReasons.ProgressOverdue : ReadinessReasons.Running;
+    }
+
+    private static string ExplainWorkers(IReadOnlyList<ReadinessWorker> matching)
+    {
         if (matching.Count == 0)
         {
-            return "NoRecentCapableWorker";
+            return ReadinessReasons.NoRecentCapableWorker;
         }
 
         var acquiring = matching.Where(worker => !worker.Draining).ToArray();
         if (acquiring.Length == 0)
         {
-            return "WorkersDraining";
+            return ReadinessReasons.WorkersDraining;
         }
 
         if (acquiring.All(worker => worker.AcquisitionFailures > 0))
         {
-            return "AcquisitionFailing";
-        }
-
-        if (acquiring.All(worker => worker.Running >= worker.Capacity))
-        {
-            return "WorkerCapacity";
+            return ReadinessReasons.AcquisitionFailing;
         }
 
         // Per-processor local limits and future acquisition success are not proved by a heartbeat.
-        return "AwaitingAcquisition";
+        return acquiring.All(worker => worker.Running >= worker.Capacity) ? ReadinessReasons.WorkerCapacity : ReadinessReasons.AwaitingAcquisition;
     }
 
     private async Task<ReadinessState?> ReadReadinessStateAsync(DbConnection connection, DbTransaction transaction, Guid id, CancellationToken ct)
@@ -162,23 +152,25 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
             return null;
         }
 
-        return new(reader.GetString(0), reader.GetString(1), reader.GetInt32(2), Date(reader, "available_at")!.Value,
-            Date(reader, "expires_at"), Date(reader, "lease_expires_at"), Text(reader, "flow_status"), reader.GetInt32(7) != 0,
+        var flowStatus = Text(reader, "flow_status") is { } flow ? Enum.Parse<FlowStatus>(flow) : (FlowStatus?)null;
+
+        return new(reader.GetString(0), Enum.Parse<JobStatus>(reader.GetString(1)), reader.GetInt32(2), Date(reader, "available_at")!.Value,
+            Date(reader, "expires_at"), Date(reader, "lease_expires_at"), flowStatus, reader.GetInt32(7) != 0,
             Date(reader, "deadline"), Date(reader, "last_progress_at"), reader.IsDBNull(10) ? null : reader.GetInt64(10));
     }
 
     private async Task<CapacityObservation> ReadCapacityAsync(DbConnection connection, DbTransaction transaction, string key, long now, CancellationToken ct)
     {
         await using var command = OperationCommand(connection, transaction, """
-            SELECT (SELECT maximum FROM dj_limits WHERE job_key='*'),
+            SELECT (SELECT maximum FROM dj_limits WHERE job_key=@all),
               (SELECT COUNT(*) FROM dj_jobs WHERE status='Running' AND lease_expires_at>@now),
-              (SELECT MIN(maximum) FROM dj_limits l WHERE l.job_key<>'*' AND
+              (SELECT MIN(maximum) FROM dj_limits l WHERE l.job_key<>@all AND
                 COALESCE((SELECT group_key FROM dj_processor_groups WHERE job_key=l.job_key),l.job_key)=
                 COALESCE((SELECT group_key FROM dj_processor_groups WHERE job_key=@key),@key)),
               (SELECT COUNT(*) FROM dj_jobs j WHERE j.status='Running' AND j.lease_expires_at>@now AND
                 COALESCE((SELECT group_key FROM dj_processor_groups WHERE job_key=j.job_key),j.job_key)=
                 COALESCE((SELECT group_key FROM dj_processor_groups WHERE job_key=@key),@key))
-            """, ("key", key), ("now", now));
+            """, ("key", key), ("now", now), ("all", AllJobsLimitKey));
         await using var reader = await command.ExecuteReaderAsync(ct);
         await reader.ReadAsync(ct);
 
@@ -195,7 +187,7 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
         await using var transaction = await BeginReadAsync(connection, ct);
         var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
         var until = CeilingMilliseconds(query.Until ?? observed);
-        var from = CeilingMilliseconds(query.From ?? DateTimeOffset.FromUnixTimeMilliseconds(until).AddHours(-1));
+        var from = CeilingMilliseconds(query.From ?? DateTimeOffset.FromUnixTimeMilliseconds(until) - DefaultMetricsWindow);
         ValidateWindow(from, until);
         RuntimeMetrics result;
         await using (var command = OperationCommand(connection, transaction, $"""
@@ -217,7 +209,9 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
         return result;
     }
 
-    private sealed record ReadinessState(string Key, string Status, int Attempt, DateTimeOffset AvailableAt,
-        DateTimeOffset? ExpiresAt, DateTimeOffset? LeaseExpiresAt, string? FlowStatus, bool QueuePaused,
+    private static readonly TimeSpan DefaultMetricsWindow = TimeSpan.FromHours(1);
+
+    private sealed record ReadinessState(string Key, JobStatus Status, int Attempt, DateTimeOffset AvailableAt,
+        DateTimeOffset? ExpiresAt, DateTimeOffset? LeaseExpiresAt, FlowStatus? FlowStatus, bool QueuePaused,
         DateTimeOffset? Deadline, DateTimeOffset? LastProgressAt, long? ProgressTimeout);
 }

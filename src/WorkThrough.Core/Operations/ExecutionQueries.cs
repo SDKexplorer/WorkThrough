@@ -1,5 +1,21 @@
 namespace WorkThrough;
 
+/// <summary>Bounds applied by every operations query, shared by storage and transports.</summary>
+public static class OperationQueryLimits
+{
+    public const int DefaultPageSize = 25;
+    public const int MaximumPageSize = 100;
+    public const int MaximumWindowDays = 7;
+    public const int DeadlineSeconds = 5;
+    public const int MaximumLabelLength = 512;
+    public const int MaximumCursorLength = 2048;
+    public const int DefaultDiagnosticCharacters = 2048;
+    public const int MaximumDiagnosticCharacters = 4096;
+    public static TimeSpan DefaultWindow { get; } = TimeSpan.FromDays(1);
+    public static TimeSpan MaximumWindow { get; } = TimeSpan.FromDays(MaximumWindowDays);
+    public static TimeSpan Deadline { get; } = TimeSpan.FromSeconds(DeadlineSeconds);
+}
+
 /// <summary>The timestamp used to select executions; failure time is independent of current job state.</summary>
 public enum ExecutionTimeBasis
 {
@@ -19,7 +35,7 @@ public sealed record ExecutionQuery(
     DateTimeOffset? From = null,
     DateTimeOffset? Until = null,
     ExecutionTimeBasis TimeBasis = ExecutionTimeBasis.Created,
-    int Limit = 25,
+    int Limit = OperationQueryLimits.DefaultPageSize,
     string? Cursor = null);
 
 /// <summary>Metadata only: no payload, output, exception, implementation name, lease token or idempotency key.</summary>
@@ -48,7 +64,7 @@ public sealed record ExecutionLookup(string StoreId, DateTimeOffset ObservedAt, 
 public sealed record ExecutionStoreContext(string StoreId, DateTimeOffset ObservedAt);
 
 /// <summary>Attempt outcome/timing without exception text or CLR implementation details.</summary>
-public sealed record ExecutionAttemptMetadata(int Number, string Status, DateTimeOffset StartedAt, DateTimeOffset? FinishedAt);
+public sealed record ExecutionAttemptMetadata(int Number, AttemptStatus Status, DateTimeOffset StartedAt, DateTimeOffset? FinishedAt);
 
 /// <summary>Bounded attempt history, ordered by attempt number. The next position is exclusive.</summary>
 public sealed record ExecutionAttemptPage(
@@ -63,10 +79,14 @@ public interface IExecutionQueries
 {
     /// <summary>Reads the configured store identity without fetching an execution or sensitive data.</summary>
     Task<ExecutionStoreContext> GetExecutionContextAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Searches metadata using keyset pagination, bounded time windows and explicit live-history coverage.</summary>
     Task<ExecutionPage> SearchExecutionsAsync(ExecutionQuery query, CancellationToken cancellationToken = default);
+
     /// <summary>Reads metadata by ID without a time-window restriction or loading input/output.</summary>
     Task<ExecutionLookup> FindExecutionAsync(Guid id, CancellationToken cancellationToken = default);
+
     /// <summary>Reads at most 100 attempt summaries, excluding sensitive diagnostics.</summary>
-    Task<ExecutionAttemptPage> ReadAttemptsAsync(Guid id, int afterAttempt = 0, int limit = 25, CancellationToken cancellationToken = default);
+    Task<ExecutionAttemptPage> ReadAttemptsAsync(Guid id, int afterAttempt = 0, int limit = OperationQueryLimits.DefaultPageSize,
+        CancellationToken cancellationToken = default);
 }

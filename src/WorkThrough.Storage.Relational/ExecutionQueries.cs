@@ -1,19 +1,21 @@
 using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IExecutionQueries
 {
-    private const int OperationQuerySeconds = 5;
-    private const long MaximumWindowMilliseconds = 7 * 24 * 60 * 60 * 1000;
+    private const int CursorVersion = 1;
+    private static readonly long MaximumWindowMilliseconds = (long)OperationQueryLimits.MaximumWindow.TotalMilliseconds;
+
     private string ExecutionColumns => $"""
-        j.id,j.job_key,j.contract_version,{SubstringFunction}(j.queue,1,512) AS queue,
-        {SubstringFunction}(j.correlation_id,1,512) AS correlation_id,j.status,j.attempt,j.max_attempts,
+        j.id,j.job_key,j.contract_version,{ClippedLabelSql("j.queue")} AS queue,
+        {ClippedLabelSql("j.correlation_id")} AS correlation_id,j.status,j.attempt,j.max_attempts,
         j.created_at,j.available_at,j.terminal_at,j.expires_at,j.workflow_run_id,
-        {SubstringFunction}(j.step_id,1,512) AS step_id,j.causation_job_id,
-        CASE WHEN {LengthSql("j.queue")}>512 OR {LengthSql("j.correlation_id")}>512 OR {LengthSql("j.step_id")}>512 THEN 1 ELSE 0 END AS clipped
+        {ClippedLabelSql("j.step_id")} AS step_id,j.causation_job_id,
+        CASE WHEN {LabelTooLongSql("j.queue")} OR {LabelTooLongSql("j.correlation_id")} OR {LabelTooLongSql("j.step_id")} THEN 1 ELSE 0 END AS clipped
         """;
 
     public async Task<ExecutionStoreContext> GetExecutionContextAsync(CancellationToken cancellationToken = default)
@@ -39,7 +41,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         await using var transaction = await BeginReadAsync(connection, ct);
         var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
         var until = cursor?.Until ?? CeilingMilliseconds(query.Until ?? observed.AddMilliseconds(1));
-        var from = cursor?.From ?? CeilingMilliseconds(query.From ?? DateTimeOffset.FromUnixTimeMilliseconds(until).AddDays(-1));
+        var from = cursor?.From ?? CeilingMilliseconds(query.From ?? DateTimeOffset.FromUnixTimeMilliseconds(until) - OperationQueryLimits.DefaultWindow);
         ValidateWindow(from, until);
         if (cursor is not null && (cursor.StoreId != storeId || cursor.Fingerprint != fingerprint))
         {
@@ -64,7 +66,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         if (cursor is not null)
         {
             conditions.Add("(j.created_at<@created OR (j.created_at=@created AND j.id>@id))");
-            values.Add(("created", cursor.CreatedAt));
+            values.Add(("created", cursor.Position));
             values.Add(("id", cursor.Id.ToString()));
         }
 
@@ -72,12 +74,10 @@ public abstract partial class RelationalJobStore : IExecutionQueries
             $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE {string.Join(" AND ", conditions)} ORDER BY j.created_at DESC,j.id {PageSql("@limit")}", values.ToArray());
         var items = await ReadExecutionMetadataAsync(command, ct);
         string? next = null;
-        if (items.Count > query.Limit)
+        if (TrimPage(items, query.Limit))
         {
-            items.RemoveAt(items.Count - 1);
             var last = items[^1];
-            next = Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new ExecutionCursor(1, storeId, fingerprint, from, until,
-                last.CreatedAt.ToUnixTimeMilliseconds(), last.Id)));
+            next = EncodeCursor(new(CursorVersion, storeId, fingerprint, from, until, last.CreatedAt.ToUnixTimeMilliseconds(), last.Id));
         }
 
         await transaction.CommitAsync(ct);
@@ -128,16 +128,11 @@ public abstract partial class RelationalJobStore : IExecutionQueries
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                items.Add(new(reader.GetInt32(0), reader.GetString(1), Date(reader, "started_at")!.Value, Date(reader, "finished_at")));
+                items.Add(new(reader.GetInt32(0), Enum.Parse<AttemptStatus>(reader.GetString(1)), Date(reader, "started_at")!.Value, Date(reader, "finished_at")));
             }
         }
 
-        int? next = null;
-        if (items.Count > limit)
-        {
-            items.RemoveAt(items.Count - 1);
-            next = items[^1].Number;
-        }
+        int? next = TrimPage(items, limit) ? items[^1].Number : null;
 
         await transaction.CommitAsync(ct);
 
@@ -209,10 +204,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
             _ = new JobContractId(query.ProcessorKey, query.ContractVersion ?? 1);
         }
 
-        if (query.CorrelationId is { Length: > 512 } || query.Queue is { Length: > 512 } || query.Cursor is { Length: > 2048 })
-        {
-            throw new ArgumentException("Filters allow 512 characters; cursors allow 2048 characters.", nameof(query));
-        }
+        ValidateFilterLengths(query.Cursor, query.CorrelationId, query.Queue);
 
         if (query.From is { } from && query.Until is { } until)
         {
@@ -222,9 +214,18 @@ public abstract partial class RelationalJobStore : IExecutionQueries
 
     private static void ValidateOperationLimit(int limit)
     {
-        if (limit is < 1 or > 100)
+        if (limit is < 1 or > OperationQueryLimits.MaximumPageSize)
         {
-            throw new ArgumentOutOfRangeException(nameof(limit), "Operation pages contain 1–100 items.");
+            throw new ArgumentOutOfRangeException(nameof(limit), $"Operation pages contain 1–{OperationQueryLimits.MaximumPageSize} items.");
+        }
+    }
+
+    private static void ValidateFilterLengths(string? cursor, params string?[] filters)
+    {
+        if (cursor is { Length: > OperationQueryLimits.MaximumCursorLength } || filters.Any(value => value is { Length: > OperationQueryLimits.MaximumLabelLength }))
+        {
+            throw new ArgumentException(
+                $"Filters allow {OperationQueryLimits.MaximumLabelLength} characters; cursors allow {OperationQueryLimits.MaximumCursorLength} characters.");
         }
     }
 
@@ -234,7 +235,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         _ = DateTimeOffset.FromUnixTimeMilliseconds(until);
         if (until <= from || until - from > MaximumWindowMilliseconds)
         {
-            throw new ArgumentException("The half-open query window must be positive and at most seven days.");
+            throw new ArgumentException($"The half-open query window must be positive and at most {OperationQueryLimits.MaximumWindowDays} days.");
         }
     }
 
@@ -250,13 +251,13 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         try
         {
             var cursor = JsonSerializer.Deserialize<ExecutionCursor>(Convert.FromBase64String(value));
-            if (cursor is null || cursor.Version != 1 || cursor.StoreId is null || cursor.Fingerprint is null)
+            if (cursor is null || cursor.Version != CursorVersion || cursor.StoreId is null || cursor.Fingerprint is null)
             {
                 throw new ArgumentException("Invalid continuation cursor.");
             }
 
             ValidateWindow(cursor.From, cursor.Until);
-            _ = DateTimeOffset.FromUnixTimeMilliseconds(cursor.CreatedAt);
+            _ = DateTimeOffset.FromUnixTimeMilliseconds(cursor.Position);
 
             return cursor;
         }
@@ -266,10 +267,12 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         }
     }
 
+    private static string EncodeCursor(ExecutionCursor cursor) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(cursor));
+
     private static CancellationTokenSource OperationQueryTimeout(CancellationToken cancellationToken)
     {
         var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(OperationQuerySeconds));
+        timeout.CancelAfter(OperationQueryLimits.Deadline);
 
         return timeout;
     }
@@ -277,10 +280,13 @@ public abstract partial class RelationalJobStore : IExecutionQueries
     private DbCommand OperationCommand(DbConnection connection, DbTransaction transaction, string sql, params (string, object?)[] values)
     {
         var command = Command(connection, transaction, sql, values);
-        command.CommandTimeout = OperationQuerySeconds;
+        command.CommandTimeout = OperationQueryLimits.DeadlineSeconds;
 
         return command;
     }
 
-    private sealed record ExecutionCursor(int Version, string StoreId, string Fingerprint, long From, long Until, long CreatedAt, Guid Id);
+    /// <summary>Keyset position shared by execution, audit and archive pages. Position is the row timestamp in milliseconds.</summary>
+    /// <remarks>Position keeps its original wire name so cursors stay valid across mixed host versions.</remarks>
+    private sealed record ExecutionCursor(int Version, string StoreId, string Fingerprint, long From, long Until,
+        [property: JsonPropertyName("CreatedAt")] long Position, Guid Id);
 }

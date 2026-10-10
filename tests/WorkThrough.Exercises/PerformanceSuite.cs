@@ -122,7 +122,7 @@ internal static class PerformanceSuite
         foreach (var job in completed)
         {
             var history = await database.Store.AttemptsAsync(job.Id);
-            Ensure(history.Count == 1 && history[0].Status == "Succeeded", "Unexpected retry or unsuccessful attempt under load.");
+            Ensure(history.Count == 1 && history[0].Status == AttemptStatus.Succeeded, "Unexpected retry or unsuccessful attempt under load.");
             Ensure(job.Output?.GetInt32() == job.Payload.GetProperty("index").GetInt32(), "Processor output mismatched its accepted input.");
             attempts.Add((job, history[0]));
         }

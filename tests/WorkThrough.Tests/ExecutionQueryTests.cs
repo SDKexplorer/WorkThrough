@@ -30,7 +30,7 @@ public sealed class ExecutionQueryTests
         var attempts = await store.ReadAttemptsAsync(id);
         Assert.Equal(id, lookup.Execution!.Id);
         Assert.Equal(id, Assert.Single(page.Items).Id);
-        Assert.Equal("Failed", Assert.Single(attempts.Items).Status);
+        Assert.Equal(AttemptStatus.Failed, Assert.Single(attempts.Items).Status);
         Assert.DoesNotContain("SECRET", JsonSerializer.Serialize(new { lookup, page, attempts }));
         Assert.DoesNotContain(job.LeaseToken.Value.ToString(), JsonSerializer.Serialize(lookup));
         Assert.Equal("live", page.Coverage);
@@ -96,10 +96,10 @@ public sealed class ExecutionQueryTests
         Assert.Equal(JobStatus.Succeeded, failed.Items[0].Status);
         Assert.Empty((await store.SearchExecutionsAsync(new(Status: JobStatus.Failed, TimeBasis: ExecutionTimeBasis.FailedAttempt))).Items);
         var firstAttempts = await store.ReadAttemptsAsync(id, limit: 2);
-        Assert.Equal(["Failed", "Failed"], firstAttempts.Items.Select(x => x.Status));
+        Assert.Equal([AttemptStatus.Failed, AttemptStatus.Failed], firstAttempts.Items.Select(x => x.Status));
         Assert.Equal(2, firstAttempts.NextAfterAttempt);
         var lastAttempt = await store.ReadAttemptsAsync(id, firstAttempts.NextAfterAttempt!.Value, 2);
-        Assert.Equal("Succeeded", Assert.Single(lastAttempt.Items).Status);
+        Assert.Equal(AttemptStatus.Succeeded, Assert.Single(lastAttempt.Items).Status);
         Assert.Null(lastAttempt.NextAfterAttempt);
     }
 
@@ -190,7 +190,7 @@ public sealed class ExecutionQueryTests
         Assert.Equal(512, item.CorrelationId!.Length);
         var job = (await store.ClaimAsync(Claim()))!;
         await store.CompleteAsync(id, job.LeaseToken!.Value, JobResult.Done());
-        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), new(Guid.NewGuid(), new("tests", "queries"), "Verify history coverage"));
+        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), new(Guid.NewGuid(), new("tests", "queries"), "Verify history coverage")).SucceedsAsync();
         var lookup = await store.FindExecutionAsync(id);
         Assert.Null(lookup.Execution);
         Assert.Equal("live", lookup.Coverage);

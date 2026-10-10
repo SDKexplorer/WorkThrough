@@ -41,7 +41,7 @@ internal static class ReliabilitySuite
         await replacement.ReadyAsync();
         await PerformanceSuite.WaitForSuccessAsync(restarted, "kill-proof", 1, replacement);
         var attempts = await restarted.Store.AttemptsAsync(id);
-        PerformanceSuite.Ensure(attempts.Count == 2 && attempts[0].Status == "Abandoned" && attempts[1].Status == "Succeeded", "Crash recovery did not preserve attempt history.");
+        PerformanceSuite.Ensure(attempts.Count == 2 && attempts[0].Status == AttemptStatus.Abandoned && attempts[1].Status == AttemptStatus.Succeeded, "Crash recovery did not preserve attempt history.");
         PerformanceSuite.Ensure(await effects.CountAsync() == 1, "The idempotent business effect was duplicated.");
         Console.WriteLine($"PASS {provider}: killed worker after effect, recovered expired lease, retained history and one effect{(provider == "sqlite" ? ", restored backup into a new store" : "")}.");
     }

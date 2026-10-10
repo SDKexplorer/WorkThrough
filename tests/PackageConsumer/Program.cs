@@ -62,7 +62,7 @@ try
         throw new InvalidOperationException("Duplicate flow start.");
     }
 
-    while ((await queries.GetWorkflowAsync(run, deadline.Token))?.Status != "Succeeded")
+    while ((await queries.GetWorkflowAsync(run, deadline.Token))?.Status != FlowStatus.Succeeded)
     {
         await Task.Delay(30, deadline.Token);
     }

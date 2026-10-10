@@ -5,19 +5,12 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore
 {
-    public Task<int> SaveDraftAsync(FlowDefinition definition, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default)
-    {
-        FlowValidator.ValidateDraftShape(definition);
-        if (expectedRevision < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(expectedRevision));
-        }
+    private const int MaximumDefinitionPage = 500;
 
-        return AdminAsync(command, "definitions.edit", $"{definition.Key}/v{definition.Version}", new
-        {
-            definition,
-            expectedRevision
-        }, async (connection, transaction, ct) =>
+    private static string VersionTarget(string key, int version) => $"{key}/v{version}";
+
+    public Task<Result<int>> SaveDraftAsync(FlowDefinition definition, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.EditDefinition, VersionTarget(definition.Key, definition.Version), new { definition, expectedRevision }, async (connection, transaction, ct) =>
         {
             var saved = await ReadDefinitionAsync(connection, transaction, definition.Key, definition.Version, ct);
             if (saved is null ? expectedRevision != 0 : saved.Status != DefinitionStatus.Draft || saved.Revision != expectedRevision)
@@ -26,27 +19,32 @@ public abstract partial class RelationalJobStore
             }
 
             var revision = checked(expectedRevision + 1);
-            await ExecuteAsync(connection, transaction, UpsertSql("dj_definition_lifecycle", "flow_key,version,definition,status,revision", "@key,@version,@definition,'Draft',@revision", "flow_key,version", "definition,revision"), ct, ("key", definition.Key), ("version", definition.Version),
-                ("definition", JsonSerializer.Serialize(definition, JobJson.Options)), ("revision", revision));
+            var upsert = UpsertSql("dj_definition_lifecycle", "flow_key,version,definition,status,revision",
+                "@key,@version,@definition,@status,@revision", "flow_key,version", "definition,revision");
+            await ExecuteAsync(connection, transaction, upsert, ct, ("key", definition.Key), ("version", definition.Version),
+                ("definition", JsonSerializer.Serialize(definition, JobJson.Options)), ("status", nameof(DefinitionStatus.Draft)), ("revision", revision));
 
             return revision;
-        }, cancellationToken);
+        }, cancellationToken, validate: () => ValidateDraft(definition, expectedRevision));
+
+    private static void ValidateDraft(FlowDefinition definition, int expectedRevision)
+    {
+        FlowValidator.ValidateDraftShape(definition);
+        ArgumentOutOfRangeException.ThrowIfNegative(expectedRevision);
     }
 
-    public Task<int> PublishAsync(string key, int version, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        TransitionDefinitionAsync(key, version, expectedRevision, DefinitionStatus.Published, command, cancellationToken);
+    public Task<Result<int>> PublishAsync(string key, int version, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        TransitionDefinitionAsync(key, version, expectedRevision, DefinitionStatus.Draft, DefinitionStatus.Published, AuditActions.PublishDefinition, command, cancellationToken);
 
-    public Task<int> RetireAsync(string key, int version, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        TransitionDefinitionAsync(key, version, expectedRevision, DefinitionStatus.Retired, command, cancellationToken);
+    public Task<Result<int>> RetireAsync(string key, int version, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        TransitionDefinitionAsync(key, version, expectedRevision, DefinitionStatus.Published, DefinitionStatus.Retired, AuditActions.RetireDefinition, command, cancellationToken);
 
-    private Task<int> TransitionDefinitionAsync(string key, int version, int expectedRevision, DefinitionStatus status, AdministrativeCommand command, CancellationToken ct) =>
-        AdminAsync(command, status == DefinitionStatus.Published ? "definitions.publish" : "definitions.retire", $"{key}/v{version}", new
-        {
-            expectedRevision
-        }, async (connection, transaction, token) =>
+    private Task<Result<int>> TransitionDefinitionAsync(string key, int version, int expectedRevision, DefinitionStatus from, DefinitionStatus status,
+        string action, AdministrativeCommand command, CancellationToken ct) =>
+        AdminAsync(command, action, VersionTarget(key, version), new { expectedRevision }, async (connection, transaction, token) =>
         {
             var saved = await ReadDefinitionAsync(connection, transaction, key, version, token);
-            if (saved is null || saved.Revision != expectedRevision || saved.Status != (status == DefinitionStatus.Published ? DefinitionStatus.Draft : DefinitionStatus.Published))
+            if (saved is null || saved.Revision != expectedRevision || saved.Status != from)
             {
                 throw new StateConflictException("Definition lifecycle or revision changed.");
             }
@@ -82,7 +80,7 @@ public abstract partial class RelationalJobStore
 
     public async Task<IReadOnlyList<StoredFlowDefinition>> DefinitionsAsync(int limit = 100, CancellationToken cancellationToken = default)
     {
-        if (limit is < 1 or > 500)
+        if (limit is < 1 or > MaximumDefinitionPage)
         {
             throw new ArgumentOutOfRangeException(nameof(limit));
         }

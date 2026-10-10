@@ -35,7 +35,7 @@ try
     await flows.SignalAsync(run, OrderDefinitions.Approved, new Approval(order.OrderId, order.CustomerEmail), OrderDefinitions.AcceptanceKey(order.OrderId), deadline.Token);
     var queries = host.Services.GetRequiredService<IJobQueries>();
     var notification = (await business.OutboxDeliveryAsync(receipt, deadline.Token))!.JobId!.Value;
-    while ((await queries.GetWorkflowAsync(run, deadline.Token))?.Status != "Succeeded" ||
+    while ((await queries.GetWorkflowAsync(run, deadline.Token))?.Status != FlowStatus.Succeeded ||
         (await queries.GetAsync(notification, deadline.Token))?.Status != JobStatus.Succeeded)
     {
         await Task.Delay(50, deadline.Token);

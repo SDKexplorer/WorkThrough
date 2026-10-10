@@ -63,7 +63,7 @@ try
         throw new InvalidOperationException("Scheduled invocation started before its due time.");
     }
 
-    while ((await queries.GetWorkflowAsync(flowId, deadline.Token))?.Status != "Succeeded")
+    while ((await queries.GetWorkflowAsync(flowId, deadline.Token))?.Status != FlowStatus.Succeeded)
     {
         await Task.Delay(50, deadline.Token);
     }
@@ -90,8 +90,8 @@ var client = new JobClient(store);
 var originalInput = receipt.RootElement.GetProperty("rawInput").GetString()!;
 var waitingOld = await client.EnqueueAsync(oldAddress, originalInput);
 var waitingNew = await client.EnqueueAsync(newAddress, originalInput);
-await store.SetProcessorAliasesAsync([new(oldAddress, newAddress.Identity)], 0,
-    new(Guid.NewGuid(), new("refactor-proof", "deployment"), "Activate the reviewed processor address alias"));
+_ = (await store.SetProcessorAliasesAsync([new(oldAddress, newAddress.Identity)], 0,
+    new(Guid.NewGuid(), new("refactor-proof", "deployment"), "Activate the reviewed processor address alias"))).Value;
 var replacement = Host.CreateApplicationBuilder();
 RefactorStorage.Configure(replacement.Services.AddWorkThrough(), args[0])
     .AddProcessor<string, NewCompany.Documents.RenamedAddressProcessor>(newAddress, oldAddress)

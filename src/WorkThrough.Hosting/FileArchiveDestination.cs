@@ -6,12 +6,14 @@ namespace WorkThrough;
 /// <summary>Immutable files in an operator-controlled directory. Use durable external storage, separate from the job database.</summary>
 public sealed class FileArchiveDestination : IArchiveDestination
 {
+    private const int MaximumIdLength = 100;
+    private const int BufferSize = 65536;
     private readonly string directory;
     public string Id { get; }
 
     public FileArchiveDestination(string id, string directory)
     {
-        if (string.IsNullOrWhiteSpace(id) || id.Length > 100 || !Path.IsPathFullyQualified(directory))
+        if (string.IsNullOrWhiteSpace(id) || id.Length > MaximumIdLength || !Path.IsPathFullyQualified(directory))
         {
             throw new ArgumentException("Archive destinations need a stable ID and an absolute directory path.");
         }
@@ -30,7 +32,7 @@ public sealed class FileArchiveDestination : IArchiveDestination
 
         var bytes = Encoding.UTF8.GetBytes(archive.Json);
         var hash = Convert.ToHexString(SHA256.HashData(bytes));
-        if (bytes.Length is < 1 or > 32_000_000 || hash != archive.Summary.Sha256)
+        if (bytes.Length is < 1 or > ExecutionArchive.MaximumBytes || hash != archive.Summary.Sha256)
         {
             throw new InvalidDataException("Archive content does not match its recorded hash or size bounds.");
         }
@@ -45,7 +47,7 @@ public sealed class FileArchiveDestination : IArchiveDestination
             try
             {
                 await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                    65536, FileOptions.Asynchronous | FileOptions.WriteThrough))
+                    BufferSize, FileOptions.Asynchronous | FileOptions.WriteThrough))
                 {
                     await stream.WriteAsync(bytes, cancellationToken);
                     await stream.FlushAsync(cancellationToken);
@@ -67,7 +69,7 @@ public sealed class FileArchiveDestination : IArchiveDestination
             }
         }
 
-        await using var saved = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await using var saved = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
         if (saved.Length != bytes.Length || Convert.ToHexString(await SHA256.HashDataAsync(saved, cancellationToken)) != hash)
         {
             throw new InvalidDataException("The stored archive failed read-back verification. Keep the database body.");

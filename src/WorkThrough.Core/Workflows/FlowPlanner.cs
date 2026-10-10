@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace WorkThrough;
 
-public sealed record FlowPlan(IReadOnlyList<JobRecord> Changes, string Status, string? Error);
+public sealed record FlowPlan(IReadOnlyList<JobRecord> Changes, FlowStatus Status, string? Error);
 
 /// <summary>Pure transition logic. Providers commit its changes with predecessor completion.</summary>
 public static class FlowPlanner
@@ -18,100 +18,98 @@ public static class FlowPlanner
             progressed = false;
             foreach (var step in definition.Steps)
             {
-                if (definition.FailurePolicy == FlowFailurePolicy.Suspend
-                    && current.Values.FirstOrDefault(x => x.Status is JobStatus.Failed or JobStatus.Cancelled or JobStatus.Rejected or JobStatus.Expired) is { } incident)
+                if (definition.FailurePolicy == FlowFailurePolicy.Suspend && FirstUnsuccessful(current) is { } incident)
                 {
-                    return new(changes, "Incident", incident.Error ?? $"Step {incident.StepId} requires recovery.");
+                    return new(changes, FlowStatus.Incident, RecoveryMessage(incident));
                 }
 
                 var job = current[step.Id];
-                if (job.Status != JobStatus.Waiting)
-                {
-                    continue;
-                }
-
                 var predecessors = step.After.Select(id => current[id]).ToArray();
-                if (predecessors.Any(x => !Terminal(x.Status)))
+                if (job.Status != JobStatus.Waiting || predecessors.Any(x => !x.Status.IsTerminal()))
                 {
                     continue;
                 }
 
-                try
-                {
-                    var enabled = predecessors.All(x => x.Status is JobStatus.Succeeded or JobStatus.Skipped)
-                        && (predecessors.Length == 0 || predecessors.Any(x => x.Status == JobStatus.Succeeded));
-                    if (enabled && step.Condition is { } condition)
-                    {
-                        enabled = JsonNode.DeepEquals(JsonNode.Parse(Read(current[condition.SourceStep].Output, condition.Property).GetRawText()),
-                            JsonNode.Parse(condition.Expected.GetRawText()));
-                    }
-
-                    if (enabled)
-                    {
-                        var payload = JsonNode.Parse(step.Input.GetRawText());
-                        if (step.Bindings.Length > 0 && payload is not JsonObject)
-                        {
-                            throw new InvalidOperationException("Property bindings require an object input.");
-                        }
-
-                        foreach (var binding in step.Bindings)
-                        {
-                            var source = binding.SourceStep is null ? input : current[binding.SourceStep].Output;
-                            payload![binding.TargetProperty] = JsonNode.Parse(Read(source, binding.SourceProperty).GetRawText());
-                        }
-
-                        job = job with
-                        {
-                            Status = step.Signal is null ? JobStatus.Queued : JobStatus.AwaitingSignal,
-                            Payload = JsonSerializer.SerializeToElement(payload, JobJson.Options)
-                        };
-                    }
-                    else
-                    {
-                        job = job with
-                        {
-                            Status = JobStatus.Skipped
-                        };
-                    }
-                }
-                catch (InvalidOperationException exception)
-                {
-                    job = job with
-                    {
-                        Status = JobStatus.Failed,
-                        Error = exception.Message
-                    };
-                }
-
+                job = Decide(step, job, predecessors, input, current);
                 current[step.Id] = job;
                 changes.Add(job);
                 progressed = true;
             }
         }
 
-        var failure = current.Values.FirstOrDefault(x => x.Status is JobStatus.Failed or JobStatus.Cancelled or JobStatus.Rejected or JobStatus.Expired);
-        if (failure is not null)
+        if (FirstUnsuccessful(current) is not { } failure)
         {
-            if (definition.FailurePolicy == FlowFailurePolicy.Suspend)
-            {
-                return new(changes, "Incident", failure.Error ?? $"Step {failure.StepId} requires recovery.");
-            }
-
-            foreach (var job in current.Values.Where(x => x.Status is JobStatus.Waiting or JobStatus.Queued).ToArray())
-            {
-                changes.Add(job with
-                {
-                    Status = JobStatus.Skipped
-                });
-            }
-
-            return new(changes, "Failed", failure.Error ?? $"Step {failure.StepId} did not succeed.");
+            return new(changes, current.Values.All(x => x.Status.IsTerminal()) ? FlowStatus.Succeeded : FlowStatus.Running, null);
         }
 
-        return new(changes, current.Values.All(x => Terminal(x.Status)) ? "Succeeded" : "Running", null);
+        if (definition.FailurePolicy == FlowFailurePolicy.Suspend)
+        {
+            return new(changes, FlowStatus.Incident, RecoveryMessage(failure));
+        }
+
+        foreach (var job in current.Values.Where(x => x.Status is JobStatus.Waiting or JobStatus.Queued).ToArray())
+        {
+            changes.Add(job with { Status = JobStatus.Skipped });
+        }
+
+        return new(changes, FlowStatus.Failed, failure.Error ?? $"Step {failure.StepId} did not succeed.");
     }
 
-    private static bool Terminal(JobStatus status) => status is JobStatus.Succeeded or JobStatus.Failed or JobStatus.Skipped or JobStatus.Cancelled or JobStatus.Rejected or JobStatus.Expired;
+    private static JobRecord Decide(FlowStep step, JobRecord job, JobRecord[] predecessors, JsonElement input, Dictionary<string, JobRecord> current)
+    {
+        try
+        {
+            if (!IsEnabled(step, predecessors, current))
+            {
+                return job with { Status = JobStatus.Skipped };
+            }
+
+            return job with
+            {
+                Status = step.Signal is null ? JobStatus.Queued : JobStatus.AwaitingSignal,
+                Payload = BindPayload(step, input, current)
+            };
+        }
+        catch (InvalidOperationException exception)
+        {
+            return job with { Status = JobStatus.Failed, Error = exception.Message };
+        }
+    }
+
+    private static bool IsEnabled(FlowStep step, JobRecord[] predecessors, Dictionary<string, JobRecord> current)
+    {
+        var enabled = predecessors.All(x => x.Status is JobStatus.Succeeded or JobStatus.Skipped)
+            && (predecessors.Length == 0 || predecessors.Any(x => x.Status == JobStatus.Succeeded));
+        if (!enabled || step.Condition is not { } condition)
+        {
+            return enabled;
+        }
+
+        var actual = Read(current[condition.SourceStep].Output, condition.Property);
+
+        return JsonNode.DeepEquals(JsonNode.Parse(actual.GetRawText()), JsonNode.Parse(condition.Expected.GetRawText()));
+    }
+
+    private static JsonElement BindPayload(FlowStep step, JsonElement input, Dictionary<string, JobRecord> current)
+    {
+        var payload = JsonNode.Parse(step.Input.GetRawText());
+        if (step.Bindings.Length > 0 && payload is not JsonObject)
+        {
+            throw new InvalidOperationException("Property bindings require an object input.");
+        }
+
+        foreach (var binding in step.Bindings)
+        {
+            var source = binding.SourceStep is null ? input : current[binding.SourceStep].Output;
+            payload![binding.TargetProperty] = JsonNode.Parse(Read(source, binding.SourceProperty).GetRawText());
+        }
+
+        return JsonSerializer.SerializeToElement(payload, JobJson.Options);
+    }
+
+    private static JobRecord? FirstUnsuccessful(Dictionary<string, JobRecord> jobs) => jobs.Values.FirstOrDefault(x => x.Status.IsUnsuccessful());
+
+    private static string RecoveryMessage(JobRecord step) => step.Error ?? $"Step {step.StepId} requires recovery.";
 
     private static JsonElement Read(JsonElement? source, string property)
     {

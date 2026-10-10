@@ -5,11 +5,12 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IRetentionAdministration, IRetentionQueries
 {
-    public Task<int> ConfigureRetentionAsync(RetentionPolicy policy, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default)
-    {
-        ValidateRetentionPolicy(policy);
+    private const int MaximumIncidentExamples = 100;
+    private const int MaximumDestinationLength = 100;
+    private static readonly TimeSpan MaximumRetention = TimeSpan.FromDays(36500);
 
-        return AdminAsync(command, "retention.configure", "retention policy", new { policy, expectedRevision }, async (connection, transaction, ct) =>
+    public Task<Result<int>> ConfigureRetentionAsync(RetentionPolicy policy, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.ConfigureRetention, "retention policy", new { policy, expectedRevision }, async (connection, transaction, ct) =>
         {
             var current = await ReadRetentionPolicyAsync(connection, transaction, ct);
             if ((current?.Revision ?? 0) != expectedRevision)
@@ -18,14 +19,14 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
             }
 
             var revision = checked(expectedRevision + 1);
-            await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_policy", "id,revision,policy", "1,@revision,@policy", "id", "revision,policy"), ct, ("revision", revision), ("policy", JsonSerializer.Serialize(policy, JobJson.Options)));
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_policy", "id,revision,policy", "1,@revision,@policy", "id", "revision,policy"), ct,
+                ("revision", revision), ("policy", JsonSerializer.Serialize(policy, JobJson.Options)));
 
             return revision;
-        }, cancellationToken);
-    }
+        }, cancellationToken, validate: () => ValidateRetentionPolicy(policy));
 
-    public Task<RetentionHold> SetRetentionHoldAsync(Guid unitId, bool held, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, "retention.hold", unitId.ToString(), new { held, expectedRevision }, async (connection, transaction, ct) =>
+    public Task<Result<RetentionHold>> SetRetentionHoldAsync(Guid unitId, bool held, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.SetRetentionHold, unitId.ToString(), new { held, expectedRevision }, async (connection, transaction, ct) =>
         {
             var resolved = await ScalarAsync(connection, transaction, "SELECT COALESCE(workflow_run_id,id) FROM dj_jobs WHERE id=@id", ct, ("id", unitId.ToString())) as string ?? unitId.ToString();
             var exists = Convert.ToInt64(await ScalarAsync(connection, transaction, """
@@ -34,7 +35,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
                 """, ct, ("id", resolved))) > 0;
             if (!exists)
             {
-                throw new StateConflictException("No live or archived retention unit has this ID.");
+                throw new MissingStateException("No live or archived retention unit has this ID.");
             }
 
             var revision = Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT revision FROM dj_retention_holds WHERE unit_id=@id", ct, ("id", resolved)) ?? 0);
@@ -43,13 +44,15 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
                 throw new StateConflictException("Retention hold changed. Refresh before acting.");
             }
 
-            await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_holds", "unit_id,held,revision", "@id,@held,@revision", "unit_id", "held,revision"), ct, ("id", resolved), ("held", held ? 1 : 0), ("revision", checked(revision + 1)));
+            var next = checked(revision + 1);
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_holds", "unit_id,held,revision", "@id,@held,@revision", "unit_id", "held,revision"), ct,
+                ("id", resolved), ("held", held ? 1 : 0), ("revision", next));
 
-            return new RetentionHold(Guid.Parse(resolved), held, revision + 1);
+            return new RetentionHold(Guid.Parse(resolved), held, next);
         }, cancellationToken);
 
-    public Task<bool> RetryRetentionIncidentAsync(Guid unitId, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, "retention.retry", unitId.ToString(), new { unitId }, async (connection, transaction, ct) =>
+    public Task<Result<bool>> RetryRetentionIncidentAsync(Guid unitId, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.RetryRetentionIncident, unitId.ToString(), new { unitId }, async (connection, transaction, ct) =>
             await ExecuteAsync(connection, transaction, "DELETE FROM dj_retention_incidents WHERE unit_id=@id", ct, ("id", unitId.ToString())) == 1, cancellationToken);
 
     public async Task<RetentionHold?> FindRetentionHoldAsync(Guid unitId, CancellationToken cancellationToken = default)
@@ -97,7 +100,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
         var holds = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_holds WHERE held=1", ct));
         var incidents = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_incidents", ct));
         var examples = new List<RetentionIncident>();
-        await using (var command = OperationCommand(connection, transaction, $"SELECT unit_id,code,at FROM dj_retention_incidents ORDER BY at DESC,unit_id {PageSql("100")} "))
+        await using (var command = OperationCommand(connection, transaction, $"SELECT unit_id,code,at FROM dj_retention_incidents ORDER BY at DESC,unit_id {PageSql(MaximumIncidentExamples)}"))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
@@ -107,11 +110,18 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
         }
 
         var position = await ReadEventPositionAsync(connection, transaction, ct);
-        var slowest = await ScalarAsync(connection, transaction, "SELECT MIN(sequence) FROM dj_subscriptions", ct);
+        var slowest = await ReadSlowestSubscriberAsync(connection, transaction, ct);
         await transaction.CommitAsync(ct);
 
         return new(storeId, now, configuration, pending, expires > now, expires, last, holds, incidents, examples,
-            position.RetainedAfter, position.LastSequence, slowest is null or DBNull ? null : Convert.ToInt64(slowest), failure, failedAt);
+            position.RetainedAfter, position.LastSequence, slowest, failure, failedAt);
+    }
+
+    private async Task<long?> ReadSlowestSubscriberAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
+    {
+        var slowest = await ScalarAsync(connection, transaction, "SELECT MIN(sequence) FROM dj_subscriptions", ct);
+
+        return slowest is null or DBNull ? null : Convert.ToInt64(slowest);
     }
 
     private async Task<StoredRetentionPolicy?> ReadRetentionPolicyAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
@@ -139,21 +149,22 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
         ArgumentNullException.ThrowIfNull(policy);
         foreach (var duration in new[] { policy.SucceededAfter, policy.FailedAfter, policy.PurgeAfter, policy.EventsAfter })
         {
-            if (duration is { } value && (value < TimeSpan.FromMilliseconds(1) || value > TimeSpan.FromDays(36500)))
+            if (duration is { } value && (value < JobLimits.MinimumDelay || value > MaximumRetention))
             {
                 throw new ArgumentOutOfRangeException(nameof(policy), "Retention durations must be between one millisecond and 100 years.");
             }
         }
 
-        if (policy.BatchSize is < 1 or > 10)
+        if (policy.BatchSize is < 1 or > ArchivePolicy.MaximumBatchSize)
         {
-            throw new ArgumentOutOfRangeException(nameof(policy), "A maintenance batch contains 1–10 units.");
+            throw new ArgumentOutOfRangeException(nameof(policy), $"A maintenance batch contains 1–{ArchivePolicy.MaximumBatchSize} units.");
         }
 
         if ((policy.PurgeAfter is null) != (policy.ExportDestination is null)
-            || policy.ExportDestination is { } destination && (string.IsNullOrWhiteSpace(destination) || destination.Length > 100))
+            || policy.ExportDestination is { } destination && (string.IsNullOrWhiteSpace(destination) || destination.Length > MaximumDestinationLength))
         {
-            throw new ArgumentException("Automatic purge needs an explicit export destination of 1–100 characters and a separate retention duration.", nameof(policy));
+            throw new ArgumentException(
+                $"Automatic purge needs an explicit export destination of 1–{MaximumDestinationLength} characters and a separate retention duration.", nameof(policy));
         }
     }
 }

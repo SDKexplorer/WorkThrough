@@ -54,8 +54,8 @@ public sealed class ExecutionInspectionTests
             .Step("second", Invoice, "SECRET-TEMPLATE-2").After("first").WhenOutput("first", "SECRET-PROPERTY", "SECRET-CONDITION")
             .Step("third", Invoice, "SECRET-TEMPLATE-3").After("first", "second").Build();
         var run = await new WorkflowClient(harness.Store).StartAsync(flow, "SECRET-FLOW-INPUT");
-        await harness.Store.SaveDraftAsync(new FlowBuilder(flow.Key, 2).Step("different", Invoice, "input").Build(), 0, Command());
-        await harness.Store.PublishAsync(flow.Key, 2, 1, Command());
+        await harness.Store.SaveDraftAsync(new FlowBuilder(flow.Key, 2).Step("different", Invoice, "input").Build(), 0, Command()).SucceedsAsync();
+        await harness.Store.PublishAsync(flow.Key, 2, 1, Command()).SucceedsAsync();
         await ExecuteAsync(harness, "UPDATE dj_jobs SET payload='SECRET-INVALID-JSON',output='SECRET-INVALID-JSON' WHERE workflow_run_id=@run", ("run", run.ToString()));
         await ExecuteAsync(harness, "UPDATE dj_flows SET input='SECRET-INVALID-JSON',error='SECRET-FLOW-ERROR' WHERE id=@run", ("run", run.ToString()));
         var nodes = new List<ExecutionMetadata>();
@@ -114,14 +114,14 @@ public sealed class ExecutionInspectionTests
         var run = await new WorkflowClient(store).StartAsync(new FlowBuilder("inspection.archived", 1).Step("one", Invoice, "input").Build(), "input");
         var job = (await store.ClaimAsync(new("worker", [Invoice.Identity], ["default"], TimeSpan.FromMinutes(1))))!;
         await store.CompleteAsync(job.Id, job.LeaseToken!.Value, JobResult.Done());
-        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command());
+        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command()).SucceedsAsync();
         var archived = await store.ReadFlowAsync(run);
         Assert.Null(archived.Flow);
         Assert.Equal("not_live", archived.GraphStatus);
         Assert.Empty(archived.Nodes);
         Assert.NotEmpty(archived.Events);
         Assert.False((await store.ReadDiagnosticAsync(job.Id, 1)).ExecutionExists);
-        await store.TrimEventsAsync(archived.LastEventSequence, Command());
+        await store.TrimEventsAsync(archived.LastEventSequence, Command()).SucceedsAsync();
         var trimmed = await store.ReadFlowAsync(run);
         Assert.True(trimmed.RequestedRangeTrimmed);
         Assert.Equal(archived.LastEventSequence, trimmed.RetainedAfterEvent);

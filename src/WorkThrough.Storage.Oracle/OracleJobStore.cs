@@ -68,7 +68,7 @@ public sealed partial class OracleJobStore : RelationalJobStore
     {
         await using var command = Command(connection, transaction, "SELECT version,status,step,definition_hash FROM dj_schema");
         await using var reader = await command.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct) || reader.GetInt32(0) != 4 || reader.GetString(1) != "Ready" ||
+        if (!await reader.ReadAsync(ct) || reader.GetInt32(0) != SchemaVersion || reader.GetString(1) != MigrationReady ||
             reader.GetInt32(2) != OracleSchema.Length || reader.GetString(3) != SchemaFingerprint || await reader.ReadAsync(ct))
         {
             throw new InvalidOperationException("The Oracle WorkThrough schema is incomplete or incompatible. Complete initialization before starting runtime hosts.");

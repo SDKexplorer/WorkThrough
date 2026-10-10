@@ -18,13 +18,13 @@ public sealed class ScheduleTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var store = harness.Store;
         var schedule = Definition();
-        await store.SaveScheduleDraftAsync(schedule, 0, Command());
-        await Assert.ThrowsAsync<StateConflictException>(() => store.SetScheduleEnabledAsync(schedule.Key, 1, 1, true, Command()));
+        await store.SaveScheduleDraftAsync(schedule, 0, Command()).SucceedsAsync();
+        await store.SetScheduleEnabledAsync(schedule.Key, 1, 1, true, Command()).FailsAsync(ErrorType.Conflict);
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
-        await store.PublishScheduleAsync(schedule.Key, 1, 1, Command());
+        await store.PublishScheduleAsync(schedule.Key, 1, 1, Command()).SucceedsAsync();
         await SetDueAsync(harness, DateTimeOffset.UtcNow.AddMinutes(-10));
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
-        await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command());
+        await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command()).SucceedsAsync();
         var counts = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => harness.NewStore().DispatchDueSchedulesAsync())));
         Assert.Equal(1, counts.Sum());
         var occurrence = Assert.Single(await store.OccurrencesAsync(schedule.Key));
@@ -32,7 +32,7 @@ public sealed class ScheduleTests
         Assert.Equal("raw input", job.Payload.GetString());
         Assert.Equal(schedule.Processor, job.Contract);
         Assert.Equal("MisfireDispatched", occurrence.Outcome);
-        await Assert.ThrowsAsync<StateConflictException>(() => store.SaveScheduleDraftAsync(schedule, 3, Command()));
+        await store.SaveScheduleDraftAsync(schedule, 3, Command()).FailsAsync(ErrorType.Conflict);
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -44,9 +44,9 @@ public sealed class ScheduleTests
         {
             Overlap = ScheduleOverlap.Coalesce
         };
-        await store.SaveScheduleDraftAsync(definition, 0, Command());
-        await store.PublishScheduleAsync(definition.Key, 1, 1, Command());
-        await store.SetScheduleEnabledAsync(definition.Key, 1, 2, true, Command());
+        await store.SaveScheduleDraftAsync(definition, 0, Command()).SucceedsAsync();
+        await store.PublishScheduleAsync(definition.Key, 1, 1, Command()).SucceedsAsync();
+        await store.SetScheduleEnabledAsync(definition.Key, 1, 2, true, Command()).SucceedsAsync();
         await SetDueAsync(harness, DateTimeOffset.UtcNow.AddMinutes(-5));
         Assert.Equal(1, await store.DispatchDueSchedulesAsync());
         await SetDueAsync(harness, DateTimeOffset.UtcNow.AddMinutes(-2));

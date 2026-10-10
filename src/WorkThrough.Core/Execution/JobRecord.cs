@@ -2,11 +2,6 @@ using System.Text.Json;
 
 namespace WorkThrough;
 
-public enum JobStatus
-{
-    Waiting, Queued, Running, Succeeded, Failed, Skipped, Cancelled, Rejected, Expired, AwaitingSignal
-}
-
 /// <summary>Persisted data only. Handler types are deliberately absent.</summary>
 public sealed record JobRecord(
     Guid Id,
@@ -35,7 +30,7 @@ public sealed record JobRecord(
 
 public sealed record JobAttempt(
     Guid JobId, int Number, string WorkerId, DateTimeOffset StartedAt,
-    DateTimeOffset? FinishedAt, string Status, string? Error, string? Handler);
+    DateTimeOffset? FinishedAt, AttemptStatus Status, string? Error, string? Handler);
 
 public sealed record JobFilter(string? CorrelationId = null, JobStatus? Status = null, int Limit = 100, int Offset = 0);
 

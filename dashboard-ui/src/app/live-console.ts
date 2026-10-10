@@ -1,6 +1,7 @@
 import { Component, ElementRef, signal, viewChild } from '@angular/core';
 import { DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { SavedFlowGraph } from './saved-flow-graph';
+import { CsrfHeader, Permission, SignalProcessorKey } from './permissions';
 
 interface Processor {
     key: string;
@@ -213,12 +214,24 @@ interface RetentionStatus {
     slowestSubscriberPosition: number | null;
 }
 
+const DayMilliseconds = 86_400_000;
+const DefaultArchiveAgeDays = 30;
+
+// failurePolicy 1 is FlowFailurePolicy.Suspend: dependent work is kept for recovery.
+const EmptyFlowDraft = JSON.stringify(
+    { key: 'my.flow', version: 1, steps: [], failurePolicy: 1 },
+    null,
+    2,
+);
+
 @Component({
     selector: 'app-console',
     imports: [DatePipe, DecimalPipe, JsonPipe, SavedFlowGraph],
     templateUrl: './live-console.html',
 })
 export class LiveConsoleComponent {
+    readonly permission = Permission;
+    readonly signalProcessorKey = SignalProcessorKey;
     readonly base = document.body.dataset['base'] ?? '';
     readonly light = signal(false);
     readonly section = signal('executions');
@@ -240,16 +253,16 @@ export class LiveConsoleComponent {
     readonly archiveCandidates = signal<Candidate[] | null>(null);
     readonly retention = signal<RetentionStatus | null>(null);
     readonly retentionError = signal('');
-    archiveBefore = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 16);
+    archiveBefore = new Date(Date.now() - DefaultArchiveAgeDays * DayMilliseconds)
+        .toISOString()
+        .slice(0, 16);
     readonly audit = signal<Audit[]>([]);
     readonly detail = signal<Detail | null>(null);
     readonly flow = signal<Flow | null>(null);
     readonly pending = signal<Pending | null>(null);
     readonly confirmation = viewChild<ElementRef<HTMLDialogElement>>('confirmation');
     readonly draftEditor = signal(false);
-    readonly draftJson = signal(
-        JSON.stringify({ key: 'my.flow', version: 1, steps: [], failurePolicy: 1 }, null, 2),
-    );
+    readonly draftJson = signal(EmptyFlowDraft);
     readonly draftRevision = signal(0);
     readonly commandError = signal('');
     readonly reason = signal('');
@@ -263,14 +276,14 @@ export class LiveConsoleComponent {
     constructor() {
         void this.initialize();
     }
-    can(permission: string) {
+    can(permission: Permission) {
         return this.permissions().includes(permission);
     }
     async request<T>(path: string, body?: object): Promise<T> {
         const headers: Record<string, string> = {};
         if (body) {
             const csrf = await this.request<{ token: string }>('/api/csrf');
-            headers['X-CSRF-TOKEN'] = csrf.token;
+            headers[CsrfHeader] = csrf.token;
             headers['Content-Type'] = 'application/json';
         }
         const response = await fetch(this.base + path, {
@@ -300,7 +313,8 @@ export class LiveConsoleComponent {
             );
             this.permissions.set(access.permissions);
             this.user.set(access.user);
-            if (!this.can('executions.read') && this.can('audit.read')) this.section.set('audit');
+            if (!this.can(Permission.ReadExecutions) && this.can(Permission.ReadAudit))
+                this.section.set('audit');
             await this.refresh();
         } catch (e) {
             this.error.set(this.message(e));
@@ -311,7 +325,7 @@ export class LiveConsoleComponent {
         this.busy.set(true);
         this.error.set('');
         try {
-            if (this.can('executions.read')) {
+            if (this.can(Permission.ReadExecutions)) {
                 const filter = new URLSearchParams({ offset: String(this.offset) });
                 if (this.correlation) filter.set('correlationId', this.correlation);
                 if (this.status) filter.set('status', this.status);
@@ -352,8 +366,9 @@ export class LiveConsoleComponent {
                     );
                 }
             }
-            if (this.can('audit.read')) this.audit.set(await this.request<Audit[]>('/api/audit'));
-            if (this.can('executions.read') && this.can('retention.read')) {
+            if (this.can(Permission.ReadAudit))
+                this.audit.set(await this.request<Audit[]>('/api/audit'));
+            if (this.can(Permission.ReadExecutions) && this.can(Permission.ReadRetention)) {
                 try {
                     this.retention.set(await this.request<RetentionStatus>('/api/retention'));
                     this.retentionError.set('');
@@ -562,9 +577,7 @@ export class LiveConsoleComponent {
         if (this.draftKind === 'flows') return;
         this.draftKind = 'flows';
         this.draftRevision.set(0);
-        this.draftJson.set(
-            JSON.stringify({ key: 'my.flow', version: 1, steps: [], failurePolicy: 1 }, null, 2),
-        );
+        this.draftJson.set(EmptyFlowDraft);
     }
     saveDraft() {
         try {

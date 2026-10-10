@@ -9,8 +9,7 @@ public sealed record McpExecutionContext(string Environment, string Resource, st
     int DefaultPageSize, int MaximumPageSize, int MaximumWindowDays, int MaximumResultBytes, int QueryDeadlineSeconds);
 
 [McpServerToolType]
-internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQueries queries,
-    IExecutionInspectionQueries? inspection = null, IOperationHistoryQueries? history = null, IRuntimeQueries? runtime = null, IRetentionQueries? retention = null)
+internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQueries queries, IServiceProvider services)
 {
     internal const string Context = "workthrough_get_context";
     internal const string Search = "workthrough_search_executions";
@@ -18,39 +17,19 @@ internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQu
     internal const string Attempts = "workthrough_get_attempts";
     internal static readonly string[] Names = [Context, Search, Get, Attempts, .. InspectionTools.Names, .. HistoryTools.Names, .. RuntimeTools.Names, RetentionTools.Status];
 
+    private const string ContextFormatVersion = "1";
+    private const string Coverage = "live";
+
     [McpServerTool(Name = Context, ReadOnly = true, Destructive = false, OpenWorld = false, UseStructuredContent = true)]
     [Description("Describe this configured read-only endpoint, query limits and unavailable capabilities. No cross-store or tenant discovery.")]
     public async Task<McpExecutionContext> GetContext(CancellationToken cancellationToken)
     {
         var store = await queries.GetExecutionContextAsync(cancellationToken);
+        var names = Names.Where(name => McpCapabilities.IsAvailable(services, name)).ToArray();
 
-        var names = Names.Where(name => (inspection is not null || !InspectionTools.Names.Contains(name))
-            && (history is not null || !HistoryTools.Names.Contains(name))
-            && (runtime is not null || !RuntimeTools.Names.Contains(name))
-            && (retention is not null || name != RetentionTools.Status)).ToArray();
-        var unavailable = new List<string> { "mutations" };
-        if (retention is null)
-        {
-            unavailable.Add("retention-status");
-        }
-
-        if (runtime is null)
-        {
-            unavailable.AddRange(["capacity", "metrics"]);
-        }
-
-        if (inspection is null)
-        {
-            unavailable.AddRange(["diagnostic-text", "flow-graph"]);
-        }
-
-        if (history is null)
-        {
-            unavailable.AddRange(["audit", "archives", "retention-preview"]);
-        }
-
-        return new(options.Environment, options.Resource.AbsoluteUri, store.StoreId, store.ObservedAt, "1", "live", true,
-            names, unavailable, 25, 100, 7, 65536, 5);
+        return new(options.Environment, options.Resource.AbsoluteUri, store.StoreId, store.ObservedAt, ContextFormatVersion, Coverage, true,
+            names, McpCapabilities.Unavailable(services), OperationQueryLimits.DefaultPageSize, OperationQueryLimits.MaximumPageSize,
+            OperationQueryLimits.MaximumWindowDays, McpToolGuard.MaximumResponseBytes, OperationQueryLimits.DeadlineSeconds);
     }
 
     [McpServerTool(Name = Search, ReadOnly = true, Destructive = false, OpenWorld = false, UseStructuredContent = true)]
@@ -65,6 +44,6 @@ internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQu
 
     [McpServerTool(Name = Attempts, ReadOnly = true, Destructive = false, OpenWorld = false, UseStructuredContent = true)]
     [Description("Read paged live attempt outcomes and timestamps by execution ID, without exception or implementation details. afterAttempt is exclusive; use nextAfterAttempt unchanged. Maximum 100 items. No archive coverage.")]
-    public Task<ExecutionAttemptPage> GetAttempts(Guid id, CancellationToken cancellationToken, int afterAttempt = 0, int limit = 25) =>
+    public Task<ExecutionAttemptPage> GetAttempts(Guid id, CancellationToken cancellationToken, int afterAttempt = 0, int limit = OperationQueryLimits.DefaultPageSize) =>
         queries.ReadAttemptsAsync(id, afterAttempt, limit, cancellationToken);
 }

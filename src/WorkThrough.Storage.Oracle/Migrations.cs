@@ -8,6 +8,9 @@ namespace WorkThrough.Storage;
 
 public sealed partial class OracleJobStore
 {
+    private const string MigrationInstalling = "Installing";
+    private const string MigrationReady = "Ready";
+
     private static readonly Lazy<string> MigrationFingerprint = new(ComputeSchemaFingerprint);
     private static string ComputeSchemaFingerprint() => Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(string.Join("\n", OracleSchema.Select(step => step.Sql.ReplaceLineEndings("\n"))))));
@@ -47,13 +50,13 @@ public sealed partial class OracleJobStore
             {
                 exists = true;
                 checkpoint = reader.GetInt32(2);
-                if (reader.GetInt32(0) != 4 || reader.GetString(3) != SchemaFingerprint || checkpoint < 0 || checkpoint > OracleSchema.Length)
+                if (reader.GetInt32(0) != SchemaVersion || reader.GetString(3) != SchemaFingerprint || checkpoint < 0 || checkpoint > OracleSchema.Length)
                 {
                     throw new InvalidOperationException("Unsupported Oracle migration version or definition. Use the same compatible migration to resume.");
                 }
 
-                var ready = reader.GetString(1) == "Ready";
-                if (reader.GetString(1) is not ("Installing" or "Ready") || await reader.ReadAsync(cancellationToken))
+                var ready = reader.GetString(1) == MigrationReady;
+                if (reader.GetString(1) is not (MigrationInstalling or MigrationReady) || await reader.ReadAsync(cancellationToken))
                 {
                     throw new InvalidOperationException("Unrecognized Oracle migration state.");
                 }
@@ -72,8 +75,8 @@ public sealed partial class OracleJobStore
 
         if (!exists)
         {
-            await MigrationWriteAsync(connection, "INSERT INTO dj_schema(version,status,step,definition_hash) VALUES(4,'Installing',0,@hash)", cancellationToken,
-                ("hash", SchemaFingerprint));
+            await MigrationWriteAsync(connection, "INSERT INTO dj_schema(version,status,step,definition_hash) VALUES(@version,@status,0,@hash)", cancellationToken,
+                ("version", SchemaVersion), ("status", MigrationInstalling), ("hash", SchemaFingerprint));
         }
 
         for (var index = checkpoint; index < OracleSchema.Length; index++)
@@ -85,8 +88,8 @@ public sealed partial class OracleJobStore
                 await ExecuteAsync(connection, null, step.Sql, cancellationToken);
             }
 
-            await MigrationWriteAsync(connection, "UPDATE dj_schema SET step=@step WHERE version=4 AND status='Installing'", cancellationToken,
-                ("step", index + 1));
+            await MigrationWriteAsync(connection, "UPDATE dj_schema SET step=@step WHERE version=@version AND status=@status", cancellationToken,
+                ("step", index + 1), ("version", SchemaVersion), ("status", MigrationInstalling));
         }
 
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -103,8 +106,8 @@ public sealed partial class OracleJobStore
 
         await ExecuteAsync(connection, transaction,
             "INSERT INTO dj_store(id) SELECT @id FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_store)", cancellationToken, ("id", Guid.NewGuid().ToString("N")));
-        await ExecuteAsync(connection, transaction, "UPDATE dj_schema SET status='Ready' WHERE version=4 AND step=@step", cancellationToken,
-            ("step", OracleSchema.Length));
+        await ExecuteAsync(connection, transaction, "UPDATE dj_schema SET status=@status WHERE version=@version AND step=@step", cancellationToken,
+            ("status", MigrationReady), ("version", SchemaVersion), ("step", OracleSchema.Length));
         await transaction.CommitAsync(cancellationToken);
     }
 

@@ -48,7 +48,24 @@ public sealed class WorkerTests
         await EventuallyAsync(() => Task.FromResult(probe.Active == 1));
         await host.StopAsync();
         Assert.Equal(JobStatus.Queued, (await harness.Store.GetAsync(id))!.Status);
-        Assert.Equal("Interrupted", (await harness.Store.AttemptsAsync(id)).Single().Status);
+        Assert.Equal(AttemptStatus.Interrupted, (await harness.Store.AttemptsAsync(id)).Single().Status);
+    }
+
+    [Fact]
+    public async Task Processor_registry_change_stops_acquisition_and_the_host()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var probe = new Probe();
+        using var host = BuildHost(harness.ConnectionString, probe, maximum: 1);
+        await host.StartAsync();
+        var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
+        var alias = new ProcessorAliasMapping(new("tests.legacy-alpha", 1), JobContractId.For<Alpha>());
+        await harness.Store.SetProcessorAliasesAsync([alias], 0, new(Guid.NewGuid(), new("tests", "operator"), "Activate reviewed alias")).SucceedsAsync();
+        var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("after-change"));
+        await EventuallyAsync(() => Task.FromResult(lifetime.ApplicationStopping.IsCancellationRequested));
+        await host.StopAsync();
+        Assert.Equal(JobStatus.Queued, (await harness.Store.GetAsync(id))!.Status);
+        Assert.Equal(0, probe.Maximum);
     }
 
     [Fact]
@@ -84,7 +101,7 @@ public sealed class WorkerTests
             probe.Gate.Release();
             await EventuallyAsync(async () => (await harness.Store.GetAsync(next))!.Status == JobStatus.Succeeded);
             Assert.Equal(2, probe.Maximum);
-            Assert.Equal(["Cancelled", "Succeeded"], (await harness.Store.AttemptsAsync(id)).Select(x => x.Status));
+            Assert.Equal([AttemptStatus.Cancelled, AttemptStatus.Succeeded], (await harness.Store.AttemptsAsync(id)).Select(x => x.Status));
         }
         finally
         {
@@ -116,7 +133,7 @@ public sealed class WorkerTests
         var job = (await harness.Store.GetAsync(id))!;
         Assert.Equal(JobStatus.Queued, job.Status);
         Assert.Equal(2, job.MaxAttempts);
-        Assert.Equal("Interrupted", (await harness.Store.AttemptsAsync(id)).Single().Status);
+        Assert.Equal(AttemptStatus.Interrupted, (await harness.Store.AttemptsAsync(id)).Single().Status);
     }
 
     [Theory]
@@ -141,7 +158,7 @@ public sealed class WorkerTests
 
             await EventuallyAsync(async () => (await harness.Store.GetAsync(id))!.Status == JobStatus.Failed);
             Assert.Equal("System.TimeoutException", (await harness.Store.FailuresAsync(id)).Single().Failure.ExceptionType);
-            Assert.Equal("Failed", (await harness.Store.AttemptsAsync(id)).Single().Status);
+            Assert.Equal(AttemptStatus.Failed, (await harness.Store.AttemptsAsync(id)).Single().Status);
         }
         finally
         {

@@ -53,7 +53,7 @@ public sealed class StorageConformanceTests
         var failed = first.StepId == "fails" ? first : second;
         var sibling = first.StepId == "sibling" ? first : second;
         Assert.True(await harness.Store.FailAsync(failed.Id, failed.LeaseToken!.Value, "terminal", TimeSpan.Zero));
-        Assert.Equal("Failed", (await harness.Store.GetWorkflowAsync(run))!.Status);
+        Assert.Equal(FlowStatus.Failed, (await harness.Store.GetWorkflowAsync(run))!.Status);
         switch (outcome)
         {
             case "fail":
@@ -75,8 +75,8 @@ public sealed class StorageConformanceTests
         var saved = (await harness.Store.GetAsync(sibling.Id))!;
         Assert.Equal(outcome == "complete" ? JobStatus.Succeeded : JobStatus.Skipped, saved.Status);
         Assert.Equal(1, saved.Attempt);
-        Assert.NotEqual("Running", (await harness.Store.AttemptsAsync(sibling.Id)).Single().Status);
-        Assert.Equal("Failed", (await harness.Store.GetWorkflowAsync(run))!.Status);
+        Assert.NotEqual(AttemptStatus.Running, (await harness.Store.AttemptsAsync(sibling.Id)).Single().Status);
+        Assert.Equal(FlowStatus.Failed, (await harness.Store.GetWorkflowAsync(run))!.Status);
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -102,7 +102,7 @@ public sealed class StorageConformanceTests
             new JobClient(harness.NewStore()).EnqueueAsync(new Alpha("same"), new(IdempotencyKey: "request-1")))));
         Assert.Single(ids.Distinct());
         Assert.Single(await harness.Store.ListAsync(new()));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new JobClient(harness.Store).EnqueueAsync(new Alpha("different"), new(IdempotencyKey: "request-1")));
+        await Assert.ThrowsAsync<StateConflictException>(() => new JobClient(harness.Store).EnqueueAsync(new Alpha("different"), new(IdempotencyKey: "request-1")));
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -160,7 +160,7 @@ public sealed class StorageConformanceTests
         Assert.False(await harness.Store.CompleteAsync(id, abandoned.LeaseToken.Value, JobResult.From("stale")));
         Assert.True(await harness.Store.CompleteAsync(id, recovered.LeaseToken!.Value, JobResult.From("current")));
         Assert.Equal("current", (await harness.Store.GetAsync(id))!.Output!.Value.GetString());
-        Assert.Equal(["Abandoned", "Succeeded"], (await harness.Store.AttemptsAsync(id)).Select(x => x.Status));
+        Assert.Equal([AttemptStatus.Abandoned, AttemptStatus.Succeeded], (await harness.Store.AttemptsAsync(id)).Select(x => x.Status));
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -240,7 +240,7 @@ public sealed class StorageConformanceTests
         Assert.True(await harness.Store.ReleaseAsync(id, first.LeaseToken!.Value, "Host shutdown"));
         var second = (await harness.NewStore().ClaimAsync(Claim()))!;
         Assert.True(await harness.Store.CompleteAsync(id, second.LeaseToken!.Value, JobResult.Done()));
-        Assert.Equal(["Interrupted", "Succeeded"], (await harness.Store.AttemptsAsync(id)).Select(x => x.Status));
+        Assert.Equal([AttemptStatus.Interrupted, AttemptStatus.Succeeded], (await harness.Store.AttemptsAsync(id)).Select(x => x.Status));
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -267,7 +267,7 @@ public sealed class StorageConformanceTests
         Assert.True(await harness.Store.CancelAsync(id));
         Assert.False(await harness.Store.CompleteAsync(id, first.LeaseToken!.Value, JobResult.Done()));
         Assert.Equal(JobStatus.Cancelled, (await harness.Store.GetAsync(id))!.Status);
-        Assert.Equal("Cancelled", (await harness.Store.AttemptsAsync(id)).Single().Status);
+        Assert.Equal(AttemptStatus.Cancelled, (await harness.Store.AttemptsAsync(id)).Single().Status);
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -300,7 +300,7 @@ public sealed class StorageConformanceTests
         Assert.Equal("approved", child.StepId);
         Assert.Equal("from-output", child.Payload.GetProperty("value").GetString());
         Assert.True(await restarted.CompleteAsync(child.Id, child.LeaseToken!.Value, JobResult.Done()));
-        Assert.Equal("Succeeded", (await restarted.GetWorkflowAsync(runId))!.Status);
+        Assert.Equal(FlowStatus.Succeeded, (await restarted.GetWorkflowAsync(runId))!.Status);
         var steps = await restarted.ListAsync(new("flow:123"));
         Assert.Equal(3, steps.Count);
         Assert.Equal(JobStatus.Skipped, steps.Single(x => x.StepId == "rejected").Status);
@@ -317,7 +317,7 @@ public sealed class StorageConformanceTests
         {
         });
         var changed = new FlowBuilder("tests.versioned", 1).Step<Beta>("different", new Beta("v2")).Build();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.StartAsync(changed, new { }));
+        await Assert.ThrowsAsync<StateConflictException>(() => client.StartAsync(changed, new { }));
         await client.StartAsync(changed with
         {
             Version = 2
@@ -342,7 +342,7 @@ public sealed class StorageConformanceTests
         var root = (await harness.Store.ClaimAsync(Claim()))!;
         Assert.True(await harness.Store.CompleteAsync(root.Id, root.LeaseToken!.Value, JobResult.Done()));
         Assert.Equal(JobStatus.Succeeded, (await harness.Store.GetAsync(root.Id))!.Status);
-        Assert.Equal("Incident", (await harness.Store.GetWorkflowAsync(id))!.Status);
+        Assert.Equal(FlowStatus.Incident, (await harness.Store.GetWorkflowAsync(id))!.Status);
     }
 
     [Fact]

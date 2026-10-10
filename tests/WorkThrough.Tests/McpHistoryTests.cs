@@ -10,7 +10,7 @@ public sealed partial class McpTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var command = new AdministrativeCommand(Guid.NewGuid(), new("test-issuer", "operator", "SECRET-DISPLAY"), "SECRET-REASON");
-        await harness.Store.SetQueuePausedAsync("separate-queue", true, 0, command);
+        await harness.Store.SetQueuePausedAsync("separate-queue", true, 0, command).SucceedsAsync();
         var definition = new JobDefinition<string>("history.mcp");
         var id = await new JobClient(harness.Store).EnqueueAsync(definition, "SECRET-INPUT");
         var job = (await harness.Store.ClaimAsync(new("worker", [definition.Identity], ["default"], TimeSpan.FromMinutes(1))))!;
@@ -54,7 +54,7 @@ public sealed partial class McpTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         await harness.Store.ConfigureRetentionAsync(new(TimeSpan.FromDays(7), Enabled: true), 0,
-            new(Guid.NewGuid(), new("issuer", "operator"), "SECRET-REASON"));
+            new(Guid.NewGuid(), new("issuer", "operator"), "SECRET-REASON")).SucceedsAsync();
         var lease = (await harness.Store.AcquireMaintenanceAsync("SECRET-OWNER", new("issuer", "service"), TimeSpan.FromMinutes(1)))!;
         await using var server = await McpTestHost.CreateAsync(harness);
         using var viewer = server.Client();
@@ -79,7 +79,7 @@ public sealed partial class McpTests
         var id = await new JobClient(harness.Store).EnqueueAsync(definition, "SECRET-INPUT");
         var job = (await harness.Store.ClaimAsync(new("worker", [definition.Identity], ["default"], TimeSpan.FromMinutes(1))))!;
         await harness.Store.CompleteAsync(id, job.LeaseToken!.Value, JobResult.Done());
-        await harness.Store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), new(Guid.NewGuid(), new("tests", "operator"), "SECRET-REASON"));
+        await harness.Store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), new(Guid.NewGuid(), new("tests", "operator"), "SECRET-REASON")).SucceedsAsync();
         await using var blocked = await McpTestHost.CreateAsync(harness, deniedArchive: id);
         using var denied = blocked.Client();
         var request = new { name = "workthrough_get_archive", arguments = new { archiveId = id } };

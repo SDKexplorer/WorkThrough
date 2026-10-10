@@ -26,9 +26,9 @@ public sealed class RuntimeQueryTests
         var worker = new WorkerHeartbeat("capable", default, [Invoice.Identity], ["default"], 2, 0);
         await store.HeartbeatAsync(worker);
         Assert.Equal("AwaitingAcquisition", (await store.ReadReadinessAsync(id)).Reason);
-        await store.SetWorkerDrainingAsync(worker.WorkerId, true, 0, Command());
+        await store.SetWorkerDrainingAsync(worker.WorkerId, true, 0, Command()).SucceedsAsync();
         Assert.Equal("WorkersDraining", (await store.ReadReadinessAsync(id)).Reason);
-        await store.SetWorkerDrainingAsync(worker.WorkerId, false, 1, Command());
+        await store.SetWorkerDrainingAsync(worker.WorkerId, false, 1, Command()).SucceedsAsync();
         await store.HeartbeatAsync(worker with { Acquisition = new(default, default, 3) });
         Assert.Equal("AcquisitionFailing", (await store.ReadReadinessAsync(id)).Reason);
         await store.HeartbeatAsync(worker with { Running = 2 });
@@ -37,7 +37,7 @@ public sealed class RuntimeQueryTests
         var stopped = await store.ReadReadinessAsync(id);
         Assert.Equal("SharedCapacity", stopped.Reason);
         Assert.Equal(0, stopped.Capacity!.GlobalMaximum);
-        await store.SetQueuePausedAsync("default", true, 0, Command());
+        await store.SetQueuePausedAsync("default", true, 0, Command()).SucceedsAsync();
         Assert.Equal("QueuePaused", (await store.ReadReadinessAsync(id)).Reason);
         await ExecuteAsync(harness, "UPDATE dj_jobs SET payload='SECRET-INVALID-JSON',output='SECRET-INVALID-JSON'");
         Assert.DoesNotContain("SECRET", JsonSerializer.Serialize(await store.ReadReadinessAsync(id)));
@@ -79,9 +79,9 @@ public sealed class RuntimeQueryTests
         var jobs = await store.ListFlowJobsAsync(run);
         var waiting = jobs.Single(job => job.StepId == "second");
         Assert.Equal("Dependencies", (await store.ReadReadinessAsync(waiting.Id)).Reason);
-        await store.SetFlowPausedAsync(run, true, Command());
+        await store.SetFlowPausedAsync(run, true, Command()).SucceedsAsync();
         Assert.Equal("FlowPaused", (await store.ReadReadinessAsync(waiting.Id)).Reason);
-        await store.SetFlowPausedAsync(run, false, Command());
+        await store.SetFlowPausedAsync(run, false, Command()).SucceedsAsync();
         var active = (await store.ClaimAsync(Claim()))!;
         await store.BeginAttemptAsync(active.Id, active.LeaseToken!.Value, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(10));
         await ExecuteAsync(harness, "UPDATE dj_progress SET last_progress_at=0,description='SECRET-PROGRESS'");
@@ -121,7 +121,7 @@ public sealed class RuntimeQueryTests
         Assert.Equal(100, result.MaximumDurationMilliseconds);
         Assert.Equal(1, result.SuccessfulAttemptsPerSecond);
         Assert.Equal(0, (await store.ReadRuntimeMetricsAsync(new(boundary.AddTicks(1), boundary.AddSeconds(1)))).FinishedAttempts);
-        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command());
+        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command()).SucceedsAsync();
         Assert.Equal(0, (await store.ReadRuntimeMetricsAsync(new())).FinishedAttempts);
         Assert.Equal("live-attempts", result.Coverage);
         await Assert.ThrowsAnyAsync<ArgumentException>(() => store.ReadReadinessAsync(id, 101));

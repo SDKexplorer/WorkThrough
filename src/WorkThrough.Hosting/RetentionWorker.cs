@@ -1,22 +1,14 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace WorkThrough;
 
-public sealed class RetentionWorkerOptions
-{
-    public string Owner { get; set; } = $"retention:{Guid.NewGuid():N}";
-    public OperationActor Actor { get; set; } = new("workthrough-maintenance", "retention-service");
-    public TimeSpan PollInterval { get; set; } = TimeSpan.FromMinutes(1);
-    public TimeSpan BatchBudget { get; set; } = TimeSpan.FromSeconds(5);
-    public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromSeconds(30);
-}
-
 /// <summary>One bounded batch per interval. Database policy must also be explicitly enabled.</summary>
 internal sealed class RetentionWorker(IRetentionMaintenance maintenance, IExecutionArchives archives,
     IEnumerable<IArchiveDestination> destinations, RetentionWorkerOptions options, ILogger<RetentionWorker> logger) : BackgroundService
 {
+    private static readonly TimeSpan FailureEvidenceBudget = TimeSpan.FromSeconds(1);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var configured = destinations.ToDictionary(destination => destination.Id, StringComparer.Ordinal);
@@ -71,7 +63,7 @@ internal sealed class RetentionWorker(IRetentionMaintenance maintenance, IExecut
                 {
                     try
                     {
-                        using var evidenceBudget = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                        using var evidenceBudget = new CancellationTokenSource(FailureEvidenceBudget);
                         await maintenance.RecordMaintenanceFailureAsync(lease, error is OperationCanceledException, evidenceBudget.Token);
                     }
                     catch (Exception)
@@ -90,34 +82,5 @@ internal sealed class RetentionWorker(IRetentionMaintenance maintenance, IExecut
                 break;
             }
         }
-    }
-}
-
-public static class RetentionHosting
-{
-    public static WorkThroughBuilder AddRetentionMaintenance(this WorkThroughBuilder builder, Action<RetentionWorkerOptions>? configure = null)
-    {
-        var options = new RetentionWorkerOptions();
-        configure?.Invoke(options);
-        if (options.PollInterval < TimeSpan.FromSeconds(1) || options.BatchBudget < TimeSpan.FromMilliseconds(100)
-            || options.BatchBudget > TimeSpan.FromSeconds(30) || options.LeaseDuration < TimeSpan.FromSeconds(10)
-            || options.LeaseDuration > TimeSpan.FromMinutes(5) || options.LeaseDuration <= options.BatchBudget
-            || string.IsNullOrWhiteSpace(options.Owner) || options.Owner.Length > 200 || options.Actor is null
-            || string.IsNullOrWhiteSpace(options.Actor.Issuer) || string.IsNullOrWhiteSpace(options.Actor.Subject))
-        {
-            throw new ArgumentException("Invalid retention host identity, interval, budget or lease duration.");
-        }
-
-        builder.Services.AddSingleton(options);
-        builder.Services.AddHostedService<RetentionWorker>();
-
-        return builder;
-    }
-
-    public static WorkThroughBuilder AddArchiveDirectory(this WorkThroughBuilder builder, string destinationId, string directory)
-    {
-        builder.Services.AddSingleton<IArchiveDestination>(new FileArchiveDestination(destinationId, directory));
-
-        return builder;
     }
 }
