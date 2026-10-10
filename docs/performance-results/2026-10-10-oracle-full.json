@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-10-10T15:00:30.501303+00:00",
-  "gitRevision": "1e66a31b9000926ad6e9902ac8f084d344811063",
+  "recordedAt": "2026-10-10T15:18:27.732785+00:00",
+  "gitRevision": "808e79c6fd058915441f4473f054ee901b88c913",
   "workingTree": "clean",
   "runtime": ".NET 8.0.31",
   "os": "Darwin 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:17:26 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T6041",
@@ -17,6 +17,7 @@
     "pollMs": 10,
     "leaseSeconds": 30,
     "load": "finite concurrent burst",
+    "latencyOrigin": "stored creation time; outbox uses the source commit observed by the harness clock",
     "repetitions": 3,
     "measuredOperations": 500
   },
@@ -27,41 +28,41 @@
       "databaseVersion": "Oracle AI Database 26ai Free Release 23.26.3.0.0 - Develop, Learn, and Run for Free\nVersion 23.26.3.0.0",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 64.62416813347372,
-      "acceptedOperationsPerSecond": 193.1513029098398,
+      "jobsPerSecond": 64.19874781883149,
+      "acceptedOperationsPerSecond": 197.8302923124573,
       "acceptanceMs": {
-        "min": 2.4275,
-        "p50": 20.7816,
-        "p95": 26.8312,
-        "p99": 30.6818,
-        "max": 36.8105
+        "min": 2.658,
+        "p50": 20.4665,
+        "p95": 26.317,
+        "p99": 28.4236,
+        "max": 33.3553
       },
       "queueWaitMs": {
-        "min": 11,
-        "p50": 1874,
-        "p95": 4397,
-        "p99": 4592,
-        "max": 4657
+        "min": 13,
+        "p50": 1951,
+        "p95": 4528,
+        "p99": 4727,
+        "max": 4773
       },
       "endToEndMs": {
-        "min": 80,
-        "p50": 1934,
-        "p95": 4436,
-        "p99": 4627,
-        "max": 4686
+        "min": 81,
+        "p50": 2012,
+        "p95": 4568,
+        "p99": 4765,
+        "max": 4805
       },
       "attemptMs": {
-        "min": 26,
-        "p50": 62,
-        "p95": 82,
-        "p99": 89,
-        "max": 100
+        "min": 28,
+        "p50": 60,
+        "p95": 80,
+        "p99": 84,
+        "max": 92
       },
-      "wallSeconds": 7.7370435,
-      "workerCpuMs": 17729.3583,
-      "harnessCpuMs": 6977.3416,
+      "wallSeconds": 7.7883139,
+      "workerCpuMs": 17544.912500000002,
+      "harnessCpuMs": 7305.3958,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 112.51563141832861,
+      "idleWorkerCpuPercentOfOneCore": 95.9418747422028,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -71,41 +72,41 @@
       "databaseVersion": "Oracle AI Database 26ai Free Release 23.26.3.0.0 - Develop, Learn, and Run for Free\nVersion 23.26.3.0.0",
       "jobs": 1000,
       "operations": 500,
-      "jobsPerSecond": 46.84057817648936,
-      "acceptedOperationsPerSecond": 87.1789174317314,
+      "jobsPerSecond": 46.91144102728738,
+      "acceptedOperationsPerSecond": 87.6715664610178,
       "acceptanceMs": {
-        "min": 16.7385,
-        "p50": 44.6824,
-        "p95": 57.094,
-        "p99": 73.9636,
-        "max": 106.6878
+        "min": 6.4014,
+        "p50": 44.957,
+        "p95": 56.6447,
+        "p99": 81.67,
+        "max": 96.283
       },
       "queueWaitMs": {
-        "min": 30,
-        "p50": 6110,
-        "p95": 14223,
-        "p99": 14726,
-        "max": 14861
+        "min": 31,
+        "p50": 6126,
+        "p95": 14338,
+        "p99": 14817,
+        "max": 14926
       },
       "endToEndMs": {
-        "min": 183,
-        "p50": 6179,
-        "p95": 14261,
-        "p99": 14764,
-        "max": 14893
+        "min": 121,
+        "p50": 6219,
+        "p95": 14374,
+        "p99": 14850,
+        "max": 14963
       },
       "attemptMs": {
-        "min": 30,
-        "p50": 70,
-        "p95": 145,
-        "p99": 158,
-        "max": 185
+        "min": 29,
+        "p50": 72,
+        "p95": 147,
+        "p99": 160,
+        "max": 187
       },
-      "wallSeconds": 21.3490106,
-      "workerCpuMs": 39756.174999999996,
-      "harnessCpuMs": 21455.916699999998,
+      "wallSeconds": 21.3167615,
+      "workerCpuMs": 39693.07919999999,
+      "harnessCpuMs": 21632.050000000003,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 115.8316834224633,
+      "idleWorkerCpuPercentOfOneCore": 112.33671549361917,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -115,41 +116,41 @@
       "databaseVersion": "Oracle AI Database 26ai Free Release 23.26.3.0.0 - Develop, Learn, and Run for Free\nVersion 23.26.3.0.0",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 54.75112165885387,
-      "acceptedOperationsPerSecond": 577.3422051585526,
+      "jobsPerSecond": 55.03362703202449,
+      "acceptedOperationsPerSecond": 598.5794512463023,
       "acceptanceMs": {
-        "min": 2.8386,
-        "p50": 6.5462,
-        "p95": 8.7828,
-        "p99": 10.1257,
-        "max": 49.5234
+        "min": 2.7897,
+        "p50": 6.3037,
+        "p95": 7.8205,
+        "p99": 10.3225,
+        "max": 49.4444
       },
       "queueWaitMs": {
-        "min": 1,
-        "p50": 2,
-        "p95": 6,
-        "p99": 9,
-        "max": 12
+        "min": 331.794,
+        "p50": 4341.824,
+        "p95": 7693.192,
+        "p99": 8265.367,
+        "max": 8513.961
       },
       "endToEndMs": {
-        "min": 30,
-        "p50": 43,
-        "p95": 53,
-        "p99": 58,
-        "max": 71
+        "min": 368.794,
+        "p50": 4385.535,
+        "p95": 7732.192,
+        "p99": 8305.367,
+        "max": 8553.961
       },
       "attemptMs": {
-        "min": 28,
+        "min": 29,
         "p50": 41,
         "p95": 50,
-        "p99": 56,
-        "max": 69
+        "p99": 54,
+        "max": 64
       },
-      "wallSeconds": 9.132233,
-      "workerCpuMs": 20379.779199999997,
-      "harnessCpuMs": 10497.699999999997,
+      "wallSeconds": 9.0853543,
+      "workerCpuMs": 19809.4874,
+      "harnessCpuMs": 10425.429100000001,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 119.96770906676227,
+      "idleWorkerCpuPercentOfOneCore": 98.6990463483285,
       "maximumGlobalLeases": 5,
       "maximumLimitedLeases": 0
     },
@@ -159,41 +160,41 @@
       "databaseVersion": "Oracle AI Database 26ai Free Release 23.26.3.0.0 - Develop, Learn, and Run for Free\nVersion 23.26.3.0.0",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 66.23030871920558,
-      "acceptedOperationsPerSecond": 201.33995768639448,
+      "jobsPerSecond": 64.8090450095577,
+      "acceptedOperationsPerSecond": 198.84391353296283,
       "acceptanceMs": {
-        "min": 2.365,
-        "p50": 20.1499,
-        "p95": 25.8899,
-        "p99": 32.3626,
-        "max": 42.2857
+        "min": 2.3844,
+        "p50": 20.568,
+        "p95": 26.091,
+        "p99": 29.4124,
+        "max": 30.1315
       },
       "queueWaitMs": {
-        "min": 9,
-        "p50": 1908,
-        "p95": 4362,
-        "p99": 4571,
-        "max": 4616
+        "min": 11,
+        "p50": 1946,
+        "p95": 4549,
+        "p99": 4756,
+        "max": 4816
       },
       "endToEndMs": {
-        "min": 72,
-        "p50": 1970,
-        "p95": 4397,
-        "p99": 4604,
-        "max": 4644
+        "min": 81,
+        "p50": 1998,
+        "p95": 4589,
+        "p99": 4788,
+        "max": 4843
       },
       "attemptMs": {
         "min": 27,
         "p50": 58,
-        "p95": 77,
-        "p99": 84,
-        "max": 95
+        "p95": 80,
+        "p99": 87,
+        "max": 90
       },
-      "wallSeconds": 7.5494137,
-      "workerCpuMs": 17575.0084,
-      "harnessCpuMs": 6946.3125,
+      "wallSeconds": 7.7149725,
+      "workerCpuMs": 17929.5583,
+      "harnessCpuMs": 7093.4000000000015,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 115.45683629206303,
+      "idleWorkerCpuPercentOfOneCore": 112.45734795766124,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -203,41 +204,41 @@
       "databaseVersion": "Oracle AI Database 26ai Free Release 23.26.3.0.0 - Develop, Learn, and Run for Free\nVersion 23.26.3.0.0",
       "jobs": 1000,
       "operations": 500,
-      "jobsPerSecond": 44.493678578413444,
-      "acceptedOperationsPerSecond": 89.04419621415776,
+      "jobsPerSecond": 47.37109400400898,
+      "acceptedOperationsPerSecond": 88.42024743026887,
       "acceptanceMs": {
-        "min": 7.0469,
-        "p50": 44.8677,
-        "p95": 56.6974,
-        "p99": 72.2524,
-        "max": 103.1594
+        "min": 6.5097,
+        "p50": 43.5103,
+        "p95": 61.8208,
+        "p99": 89.7687,
+        "max": 104.75
       },
       "queueWaitMs": {
-        "min": 28,
-        "p50": 6514,
-        "p95": 15337,
-        "p99": 15856,
-        "max": 15996
+        "min": 26,
+        "p50": 5944,
+        "p95": 13877,
+        "p99": 14326,
+        "max": 14459
       },
       "endToEndMs": {
-        "min": 172,
-        "p50": 6605,
-        "p95": 15373,
-        "p99": 15890,
-        "max": 16029
+        "min": 164,
+        "p50": 6019,
+        "p95": 13913,
+        "p99": 14361,
+        "max": 14487
       },
       "attemptMs": {
-        "min": 31,
-        "p50": 75,
-        "p95": 149,
-        "p99": 163,
-        "max": 182
+        "min": 28,
+        "p50": 67,
+        "p95": 147,
+        "p99": 180,
+        "max": 265
       },
-      "wallSeconds": 22.4751028,
-      "workerCpuMs": 40990.3666,
-      "harnessCpuMs": 22484.125,
+      "wallSeconds": 21.1099199,
+      "workerCpuMs": 38594.641599999995,
+      "harnessCpuMs": 21154.31659999999,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 112.13534757435623,
+      "idleWorkerCpuPercentOfOneCore": 110.74933092779409,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -247,41 +248,41 @@
       "databaseVersion": "Oracle AI Database 26ai Free Release 23.26.3.0.0 - Develop, Learn, and Run for Free\nVersion 23.26.3.0.0",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 50.737242576989196,
-      "acceptedOperationsPerSecond": 588.7744036686769,
+      "jobsPerSecond": 52.50073771411599,
+      "acceptedOperationsPerSecond": 456.6033659156363,
       "acceptanceMs": {
-        "min": 2.9992,
-        "p50": 6.5132,
-        "p95": 9.7559,
-        "p99": 12.1839,
-        "max": 37.655
+        "min": 3.3064,
+        "p50": 7.0369,
+        "p95": 13.1655,
+        "p99": 40.5788,
+        "max": 81.7996
       },
       "queueWaitMs": {
-        "min": 1,
-        "p50": 2,
-        "p95": 8,
-        "p99": 10,
-        "max": 12
+        "min": 186.415,
+        "p50": 4377.943,
+        "p95": 8047.675,
+        "p99": 8499.263,
+        "max": 8909.081
       },
       "endToEndMs": {
-        "min": 33,
-        "p50": 45,
-        "p95": 62,
-        "p99": 75,
-        "max": 80
+        "min": 222.415,
+        "p50": 4431.943,
+        "p95": 8087.492,
+        "p99": 8540.263,
+        "max": 8940.081
       },
       "attemptMs": {
-        "min": 31,
-        "p50": 43,
+        "min": 29,
+        "p50": 41,
         "p95": 58,
-        "p99": 66,
-        "max": 76
+        "p99": 69,
+        "max": 81
       },
-      "wallSeconds": 9.854694,
-      "workerCpuMs": 21057.4834,
-      "harnessCpuMs": 10901.041699999987,
+      "wallSeconds": 9.5236757,
+      "workerCpuMs": 20577.5375,
+      "harnessCpuMs": 10697.1584,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 119.5585461400901,
+      "idleWorkerCpuPercentOfOneCore": 117.06392395334815,
       "maximumGlobalLeases": 5,
       "maximumLimitedLeases": 0
     },
@@ -291,41 +292,41 @@
       "databaseVersion": "Oracle AI Database 26ai Free Release 23.26.3.0.0 - Develop, Learn, and Run for Free\nVersion 23.26.3.0.0",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 63.362380211360936,
-      "acceptedOperationsPerSecond": 191.51088182066482,
+      "jobsPerSecond": 65.58640608925182,
+      "acceptedOperationsPerSecond": 185.6947315284994,
       "acceptanceMs": {
-        "min": 2.5835,
-        "p50": 21.2079,
-        "p95": 27.0285,
-        "p99": 29.707,
-        "max": 33.2117
+        "min": 2.606,
+        "p50": 21.6836,
+        "p95": 30.118,
+        "p99": 38.277,
+        "max": 43.0231
       },
       "queueWaitMs": {
-        "min": 6,
-        "p50": 1936,
-        "p95": 4552,
-        "p99": 4772,
-        "max": 4825
+        "min": 7,
+        "p50": 1924,
+        "p95": 4443,
+        "p99": 4632,
+        "max": 4695
       },
       "endToEndMs": {
-        "min": 77,
-        "p50": 1997,
-        "p95": 4585,
-        "p99": 4801,
-        "max": 4859
+        "min": 69,
+        "p50": 1992,
+        "p95": 4474,
+        "p99": 4666,
+        "max": 4720
       },
       "attemptMs": {
-        "min": 29,
-        "p50": 61,
-        "p95": 84,
-        "p99": 90,
-        "max": 95
+        "min": 25,
+        "p50": 62,
+        "p95": 88,
+        "p99": 105,
+        "max": 118
       },
-      "wallSeconds": 7.8911177,
-      "workerCpuMs": 18140.612500000003,
-      "harnessCpuMs": 7145.425000000003,
+      "wallSeconds": 7.623531,
+      "workerCpuMs": 17564.6792,
+      "harnessCpuMs": 6873.483300000007,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 114.0508556436319,
+      "idleWorkerCpuPercentOfOneCore": 114.02127551393984,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -335,41 +336,41 @@
       "databaseVersion": "Oracle AI Database 26ai Free Release 23.26.3.0.0 - Develop, Learn, and Run for Free\nVersion 23.26.3.0.0",
       "jobs": 1000,
       "operations": 500,
-      "jobsPerSecond": 45.36773059015596,
-      "acceptedOperationsPerSecond": 83.28724633557354,
+      "jobsPerSecond": 38.47719586846184,
+      "acceptedOperationsPerSecond": 81.27557793234767,
       "acceptanceMs": {
-        "min": 8.5703,
-        "p50": 47.0684,
-        "p95": 60.1394,
-        "p99": 76.5907,
-        "max": 94.9515
+        "min": 7.231,
+        "p50": 47.7872,
+        "p95": 67.1137,
+        "p99": 93.7889,
+        "max": 107.4817
       },
       "queueWaitMs": {
-        "min": 29,
-        "p50": 6480,
-        "p95": 14792,
-        "p99": 15291,
-        "max": 15480
+        "min": 30,
+        "p50": 6939,
+        "p95": 17708,
+        "p99": 18552,
+        "max": 18770
       },
       "endToEndMs": {
-        "min": 180,
-        "p50": 6547,
-        "p95": 14827,
-        "p99": 15335,
-        "max": 15522
+        "min": 194,
+        "p50": 7018,
+        "p95": 17763,
+        "p99": 18599,
+        "max": 18816
       },
       "attemptMs": {
-        "min": 30,
-        "p50": 73,
-        "p95": 153,
-        "p99": 170,
-        "max": 195
+        "min": 32,
+        "p50": 79,
+        "p95": 167,
+        "p99": 198,
+        "max": 220
       },
-      "wallSeconds": 22.0420988,
-      "workerCpuMs": 40647.837499999994,
-      "harnessCpuMs": 22162.295900000012,
+      "wallSeconds": 25.9894199,
+      "workerCpuMs": 47546.32919999999,
+      "harnessCpuMs": 25680.045899999997,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 113.13799490606628,
+      "idleWorkerCpuPercentOfOneCore": 113.61326216869743,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -379,41 +380,41 @@
       "databaseVersion": "Oracle AI Database 26ai Free Release 23.26.3.0.0 - Develop, Learn, and Run for Free\nVersion 23.26.3.0.0",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 51.41998023703912,
-      "acceptedOperationsPerSecond": 579.556805955804,
+      "jobsPerSecond": 30.099496776145237,
+      "acceptedOperationsPerSecond": 310.63351966788554,
       "acceptanceMs": {
-        "min": 2.8528,
-        "p50": 6.6252,
-        "p95": 8.8045,
-        "p99": 11.0053,
-        "max": 35.2047
+        "min": 5.3267,
+        "p50": 12.0958,
+        "p95": 17.6225,
+        "p99": 24.7708,
+        "max": 67.0568
       },
       "queueWaitMs": {
-        "min": 1,
-        "p50": 2,
-        "p95": 8,
-        "p99": 10,
-        "max": 13
+        "min": 343.631,
+        "p50": 7891.228,
+        "p95": 14323.879,
+        "p99": 15193.929,
+        "max": 15734.487
       },
       "endToEndMs": {
-        "min": 31,
-        "p50": 45,
-        "p95": 58,
-        "p99": 62,
-        "max": 78
+        "min": 431.229,
+        "p50": 7952.982,
+        "p95": 14387.879,
+        "p99": 15270.929,
+        "max": 15799.487
       },
       "attemptMs": {
-        "min": 30,
-        "p50": 42,
-        "p95": 54,
-        "p99": 57,
-        "max": 76
+        "min": 42,
+        "p50": 65,
+        "p95": 93,
+        "p99": 119,
+        "max": 174
       },
-      "wallSeconds": 9.7238466,
-      "workerCpuMs": 21232.6042,
-      "harnessCpuMs": 10773.104199999972,
+      "wallSeconds": 16.6115734,
+      "workerCpuMs": 29199.216699999997,
+      "harnessCpuMs": 15226.120800000004,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 119.6249428620065,
+      "idleWorkerCpuPercentOfOneCore": 26.47068716859875,
       "maximumGlobalLeases": 5,
       "maximumLimitedLeases": 0
     }

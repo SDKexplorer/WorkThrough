@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-10-10T14:53:21.372955+00:00",
-  "gitRevision": "1e66a31b9000926ad6e9902ac8f084d344811063",
+  "recordedAt": "2026-10-10T15:35:58.450508+00:00",
+  "gitRevision": "808e79c6fd058915441f4473f054ee901b88c913",
   "workingTree": "clean",
   "runtime": ".NET 8.0.31",
   "os": "Darwin 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:17:26 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T6041",
@@ -17,6 +17,7 @@
     "pollMs": 10,
     "leaseSeconds": 30,
     "load": "finite concurrent burst",
+    "latencyOrigin": "stored creation time; outbox uses the source commit observed by the harness clock",
     "repetitions": 3,
     "measuredOperations": 500
   },
@@ -27,41 +28,41 @@
       "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 57.289518966147845,
-      "acceptedOperationsPerSecond": 1093.2790017400628,
+      "jobsPerSecond": 34.28701358719603,
+      "acceptedOperationsPerSecond": 1096.5532698999198,
       "acceptanceMs": {
-        "min": 0.0738,
-        "p50": 0.1107,
-        "p95": 0.1827,
-        "p99": 1.6175,
-        "max": 453.6709
+        "min": 0.0803,
+        "p50": 0.1055,
+        "p95": 0.1655,
+        "p99": 0.9837,
+        "max": 454.29
       },
       "queueWaitMs": {
-        "min": 155,
-        "p50": 2388,
-        "p95": 5307,
-        "p99": 7810,
-        "max": 8134
+        "min": 153,
+        "p50": 1966,
+        "p95": 11099,
+        "p99": 13662,
+        "max": 14225
       },
       "endToEndMs": {
-        "min": 167,
-        "p50": 2457,
-        "p95": 5477,
-        "p99": 7984,
-        "max": 8600
+        "min": 164,
+        "p50": 1999,
+        "p95": 11425,
+        "p99": 13825,
+        "max": 14466
       },
       "attemptMs": {
         "min": 10,
         "p50": 12,
         "p95": 315,
-        "p99": 615,
-        "max": 618
+        "p99": 613,
+        "max": 769
       },
-      "wallSeconds": 8.7275999,
-      "workerCpuMs": 3199.7916,
-      "harnessCpuMs": 996.2042000000001,
+      "wallSeconds": 14.5827807,
+      "workerCpuMs": 4613.7708,
+      "harnessCpuMs": 1881.1125,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 42.59104834273621,
+      "idleWorkerCpuPercentOfOneCore": 51.73093074978703,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -71,41 +72,41 @@
       "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
       "jobs": 1000,
       "operations": 500,
-      "jobsPerSecond": 14.12508518909503,
-      "acceptedOperationsPerSecond": 471.1619220504062,
+      "jobsPerSecond": 13.843478913318746,
+      "acceptedOperationsPerSecond": 824.1098953841935,
       "acceptanceMs": {
-        "min": 0.2312,
-        "p50": 0.281,
-        "p95": 0.62,
-        "p99": 1.2434,
-        "max": 1061.0677
+        "min": 0.2511,
+        "p50": 0.3228,
+        "p95": 0.7682,
+        "p99": 1.3761,
+        "max": 606.5987
       },
       "queueWaitMs": {
-        "min": 244,
-        "p50": 6126,
-        "p95": 64224,
-        "p99": 69232,
-        "max": 70382
+        "min": 282,
+        "p50": 5297,
+        "p95": 66073,
+        "p99": 70844,
+        "max": 71823
       },
       "endToEndMs": {
-        "min": 257,
-        "p50": 6304,
-        "p95": 64540,
-        "p99": 69577,
-        "max": 70547
+        "min": 296,
+        "p50": 5537,
+        "p95": 66238,
+        "p99": 71008,
+        "max": 71987
       },
       "attemptMs": {
-        "min": 10,
-        "p50": 163,
-        "p95": 466,
-        "p99": 766,
-        "max": 924
+        "min": 9,
+        "p50": 164,
+        "p95": 467,
+        "p99": 619,
+        "max": 920
       },
-      "wallSeconds": 70.7960332,
-      "workerCpuMs": 19243.529199999997,
-      "harnessCpuMs": 12947.0042,
+      "wallSeconds": 72.2361775,
+      "workerCpuMs": 19866.2499,
+      "harnessCpuMs": 14474.9583,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 42.73539063196087,
+      "idleWorkerCpuPercentOfOneCore": 41.16211567157881,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -115,41 +116,41 @@
       "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 70.78169048109565,
-      "acceptedOperationsPerSecond": 1634.6872794193853,
+      "jobsPerSecond": 84.56149604575224,
+      "acceptedOperationsPerSecond": 1636.735681263403,
       "acceptanceMs": {
-        "min": 0.0403,
-        "p50": 0.0946,
-        "p95": 0.1455,
-        "p99": 0.2696,
-        "max": 305.8185
+        "min": 0.0392,
+        "p50": 0.1029,
+        "p95": 0.1533,
+        "p99": 0.5087,
+        "max": 304.5617
       },
       "queueWaitMs": {
-        "min": 138,
-        "p50": 2553,
-        "p95": 6099,
-        "p99": 6337,
-        "max": 6393
+        "min": 240.455,
+        "p50": 2630.014,
+        "p95": 5307.449,
+        "p99": 5452.079,
+        "max": 5515.171
       },
       "endToEndMs": {
-        "min": 150,
-        "p50": 2632,
-        "p95": 6137,
-        "p99": 6398,
-        "max": 6603
+        "min": 570.361,
+        "p50": 2671.089,
+        "p95": 5331.389,
+        "p99": 5527.171,
+        "max": 5797.456
       },
       "attemptMs": {
-        "min": 10,
+        "min": 9,
         "p50": 12,
-        "p95": 316,
-        "p99": 765,
-        "max": 1218
+        "p95": 313,
+        "p99": 465,
+        "max": 468
       },
-      "wallSeconds": 7.0639737,
-      "workerCpuMs": 3185.0833999999995,
-      "harnessCpuMs": 923.4333000000006,
+      "wallSeconds": 5.9128566,
+      "workerCpuMs": 2823.9125000000004,
+      "harnessCpuMs": 826.9749999999985,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 39.680237407219096,
+      "idleWorkerCpuPercentOfOneCore": 42.07351947901212,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 0
     },
@@ -159,41 +160,41 @@
       "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 39.90625669128159,
-      "acceptedOperationsPerSecond": 550.5870579446629,
+      "jobsPerSecond": 25.14318515941398,
+      "acceptedOperationsPerSecond": 1098.288471178055,
       "acceptanceMs": {
-        "min": 0.0717,
-        "p50": 0.1032,
-        "p95": 0.1496,
-        "p99": 0.5517,
-        "max": 908.0526
+        "min": 0.0693,
+        "p50": 0.112,
+        "p95": 0.206,
+        "p99": 0.604,
+        "max": 455.1843
       },
       "queueWaitMs": {
-        "min": 155,
-        "p50": 2343,
-        "p95": 9224,
-        "p99": 11494,
-        "max": 12046
+        "min": 156,
+        "p50": 2818,
+        "p95": 16560,
+        "p99": 18952,
+        "max": 19361
       },
       "endToEndMs": {
-        "min": 169,
-        "p50": 2366,
-        "p95": 9388,
-        "p99": 11659,
-        "max": 12293
+        "min": 168,
+        "p50": 2992,
+        "p95": 16874,
+        "p99": 19117,
+        "max": 19592
       },
       "attemptMs": {
         "min": 10,
-        "p50": 12,
-        "p95": 317,
-        "p99": 467,
-        "max": 617
+        "p50": 13,
+        "p95": 463,
+        "p99": 618,
+        "max": 919
       },
-      "wallSeconds": 12.5293636,
-      "workerCpuMs": 4490.8957,
-      "harnessCpuMs": 1301.5041999999994,
+      "wallSeconds": 19.8861042,
+      "workerCpuMs": 6291.2708999999995,
+      "harnessCpuMs": 2499.120799999997,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 40.270960859211435,
+      "idleWorkerCpuPercentOfOneCore": 44.61647106533678,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -203,41 +204,41 @@
       "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
       "jobs": 1000,
       "operations": 500,
-      "jobsPerSecond": 14.364906290303976,
-      "acceptedOperationsPerSecond": 823.5997568733517,
+      "jobsPerSecond": 14.363934651371235,
+      "acceptedOperationsPerSecond": 1091.2484493359534,
       "acceptanceMs": {
-        "min": 0.2101,
-        "p50": 0.2742,
-        "p95": 0.692,
-        "p99": 0.9977,
-        "max": 607.0314
+        "min": 0.198,
+        "p50": 0.2556,
+        "p95": 0.5873,
+        "p99": 0.9939,
+        "max": 458.0951
       },
       "queueWaitMs": {
-        "min": 157,
-        "p50": 5583,
-        "p95": 63106,
-        "p99": 68079,
-        "max": 69236
+        "min": 160,
+        "p50": 5251,
+        "p95": 62301,
+        "p99": 67804,
+        "max": 69248
       },
       "endToEndMs": {
-        "min": 168,
-        "p50": 5780,
-        "p95": 63271,
-        "p99": 68244,
-        "max": 69400
+        "min": 172,
+        "p50": 5446,
+        "p95": 62632,
+        "p99": 68136,
+        "max": 69412
       },
       "attemptMs": {
         "min": 10,
-        "p50": 163,
-        "p95": 467,
-        "p99": 620,
-        "max": 1075
+        "p50": 164,
+        "p95": 466,
+        "p99": 617,
+        "max": 918
       },
-      "wallSeconds": 69.6140984,
-      "workerCpuMs": 19037.2125,
-      "harnessCpuMs": 12376.099999999999,
+      "wallSeconds": 69.6188074,
+      "workerCpuMs": 19444.7709,
+      "harnessCpuMs": 13689.820900000002,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 41.0445167798596,
+      "idleWorkerCpuPercentOfOneCore": 45.65750671534004,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -247,41 +248,41 @@
       "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 73.61809775488065,
-      "acceptedOperationsPerSecond": 1643.262770534458,
+      "jobsPerSecond": 76.90748954973341,
+      "acceptedOperationsPerSecond": 1646.3328101287661,
       "acceptanceMs": {
-        "min": 0.035,
-        "p50": 0.0875,
-        "p95": 0.1148,
-        "p99": 0.1855,
-        "max": 304.1358
+        "min": 0.0373,
+        "p50": 0.0961,
+        "p95": 0.273,
+        "p99": 1.9223,
+        "max": 303.6643
       },
       "queueWaitMs": {
-        "min": 6,
-        "p50": 1259,
-        "p95": 4544,
-        "p99": 4852,
-        "max": 4920
+        "min": 258.943,
+        "p50": 3664.565,
+        "p95": 6133.379,
+        "p99": 6249.842,
+        "max": 6308.467
       },
       "endToEndMs": {
-        "min": 19,
-        "p50": 1322,
-        "p95": 4584,
-        "p99": 4946,
-        "max": 5248
+        "min": 285.189,
+        "p50": 3746.075,
+        "p95": 6173.493,
+        "p99": 6282.525,
+        "max": 6386.065
       },
       "attemptMs": {
         "min": 10,
         "p50": 12,
         "p95": 314,
-        "p99": 477,
-        "max": 768
+        "p99": 617,
+        "max": 1070
       },
-      "wallSeconds": 6.7918082,
-      "workerCpuMs": 3143.1542,
-      "harnessCpuMs": 773.6625000000022,
+      "wallSeconds": 6.5013174,
+      "workerCpuMs": 3207.3749,
+      "harnessCpuMs": 807.3332999999984,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 45.83921191614746,
+      "idleWorkerCpuPercentOfOneCore": 50.61232887005275,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 0
     },
@@ -291,41 +292,41 @@
       "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 37.18159356443132,
-      "acceptedOperationsPerSecond": 1641.5811184026497,
+      "jobsPerSecond": 46.12721272700723,
+      "acceptedOperationsPerSecond": 825.4234380966265,
       "acceptanceMs": {
-        "min": 0.0742,
-        "p50": 0.0995,
-        "p95": 0.1525,
-        "p99": 0.523,
-        "max": 304.5134
+        "min": 0.0686,
+        "p50": 0.1254,
+        "p95": 0.2337,
+        "p99": 0.8611,
+        "max": 605.6867
       },
       "queueWaitMs": {
         "min": 0,
-        "p50": 3394,
-        "p95": 9965,
-        "p99": 12707,
-        "max": 13046
+        "p50": 2700,
+        "p95": 6936,
+        "p99": 9641,
+        "max": 10107
       },
       "endToEndMs": {
         "min": 165,
-        "p50": 3446,
-        "p95": 10130,
-        "p99": 12870,
-        "max": 13213
+        "p50": 2782,
+        "p95": 7252,
+        "p99": 9903,
+        "max": 10343
       },
       "attemptMs": {
         "min": 10,
-        "p50": 13,
-        "p95": 323,
-        "p99": 617,
-        "max": 773
+        "p50": 12,
+        "p95": 315,
+        "p99": 467,
+        "max": 623
       },
-      "wallSeconds": 13.447514,
-      "workerCpuMs": 4812.258400000001,
-      "harnessCpuMs": 1479.9291999999987,
+      "wallSeconds": 10.8395884,
+      "workerCpuMs": 3846.1875000000005,
+      "harnessCpuMs": 1189.4291000000012,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 33.31017941639749,
+      "idleWorkerCpuPercentOfOneCore": 40.848132664473226,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -335,41 +336,41 @@
       "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
       "jobs": 1000,
       "operations": 500,
-      "jobsPerSecond": 13.21231483611282,
-      "acceptedOperationsPerSecond": 659.6961413185242,
+      "jobsPerSecond": 14.71965388794634,
+      "acceptedOperationsPerSecond": 991.184405893979,
       "acceptanceMs": {
-        "min": 0.2053,
-        "p50": 0.273,
-        "p95": 0.6542,
-        "p99": 1.0608,
-        "max": 757.8835
+        "min": 0.2094,
+        "p50": 0.2861,
+        "p95": 0.9257,
+        "p99": 1.8095,
+        "max": 455.7313
       },
       "queueWaitMs": {
-        "min": 156,
-        "p50": 5846,
-        "p95": 67666,
-        "p99": 73632,
-        "max": 75044
+        "min": 3,
+        "p50": 6031,
+        "p95": 62391,
+        "p99": 66453,
+        "max": 67283
       },
       "endToEndMs": {
-        "min": 168,
-        "p50": 6026,
-        "p95": 68133,
-        "p99": 73796,
-        "max": 75360
+        "min": 16,
+        "p50": 6255,
+        "p95": 62705,
+        "p99": 66617,
+        "max": 67448
       },
       "attemptMs": {
         "min": 10,
-        "p50": 164,
-        "p95": 467,
-        "p99": 768,
-        "max": 1071
+        "p50": 163,
+        "p95": 466,
+        "p99": 769,
+        "max": 1219
       },
-      "wallSeconds": 75.6869642,
-      "workerCpuMs": 20887.2084,
-      "harnessCpuMs": 14172.862500000003,
+      "wallSeconds": 67.93638,
+      "workerCpuMs": 17383.375,
+      "harnessCpuMs": 12030.654199999997,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 45.03852634784802,
+      "idleWorkerCpuPercentOfOneCore": 51.58527125666049,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 2
     },
@@ -379,41 +380,41 @@
       "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
       "jobs": 500,
       "operations": 500,
-      "jobsPerSecond": 73.36003746291705,
-      "acceptedOperationsPerSecond": 3271.2194190052614,
+      "jobsPerSecond": 91.68395535732179,
+      "acceptedOperationsPerSecond": 1647.0399891427126,
       "acceptanceMs": {
-        "min": 0.0418,
-        "p50": 0.1156,
-        "p95": 0.1993,
-        "p99": 0.4619,
-        "max": 152.5913
+        "min": 0.0402,
+        "p50": 0.1126,
+        "p95": 0.2006,
+        "p99": 1.3705,
+        "max": 301.812
       },
       "queueWaitMs": {
-        "min": 1,
-        "p50": 1507,
-        "p95": 4421,
-        "p99": 4611,
-        "max": 4668
+        "min": 557.368,
+        "p50": 2601.395,
+        "p95": 4953.165,
+        "p99": 5198.732,
+        "max": 5239.478
       },
       "endToEndMs": {
-        "min": 12,
-        "p50": 1523,
-        "p95": 4477,
-        "p99": 4681,
-        "max": 4964
+        "min": 568.368,
+        "p50": 2617.364,
+        "p95": 5007.327,
+        "p99": 5221.909,
+        "max": 5377.694
       },
       "attemptMs": {
         "min": 10,
         "p50": 12,
-        "p95": 316,
-        "p99": 618,
-        "max": 1369
+        "p95": 312,
+        "p99": 464,
+        "max": 616
       },
-      "wallSeconds": 6.8156999,
-      "workerCpuMs": 3511.9624999999996,
-      "harnessCpuMs": 753.9167000000016,
+      "wallSeconds": 5.4535169,
+      "workerCpuMs": 2743.9375999999993,
+      "harnessCpuMs": 588.5749999999971,
       "sumWorkerPeakRssBytes": null,
-      "idleWorkerCpuPercentOfOneCore": 45.39846586728004,
+      "idleWorkerCpuPercentOfOneCore": 44.12812593060035,
       "maximumGlobalLeases": 6,
       "maximumLimitedLeases": 0
     }
