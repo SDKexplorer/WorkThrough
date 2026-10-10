@@ -63,12 +63,9 @@ public abstract partial class RelationalJobStore
             }
 
             await ExecuteAsync(connection, transaction,
-                "INSERT INTO dj_definitions(flow_key,version,definition) VALUES (@key,@version,@definition) ON CONFLICT DO NOTHING", ct,
+                UpsertSql("dj_definitions", "flow_key,version,definition", "@key,@version,@definition", "flow_key,version", ""), ct,
                 ("key", definition.Key), ("version", definition.Version), ("definition", serialized));
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_definition_lifecycle(flow_key,version,definition,status,revision)
-                VALUES (@key,@version,@definition,'Published',1) ON CONFLICT DO NOTHING
-                """, ct, ("key", definition.Key), ("version", definition.Version), ("definition", serialized));
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_definition_lifecycle", "flow_key,version,definition,status,revision", "@key,@version,@definition,'Published',1", "flow_key,version", ""), ct, ("key", definition.Key), ("version", definition.Version), ("definition", serialized));
             var runId = Guid.NewGuid();
             await ExecuteAsync(connection, transaction, """
                 INSERT INTO dj_flows(id,flow_key,version,input,correlation_id,status)
@@ -128,7 +125,7 @@ public abstract partial class RelationalJobStore
                 if (change.Status == JobStatus.AwaitingSignal)
                 {
                     var signal = definition.Steps.Single(s => s.Id == change.StepId).Signal!;
-                    await ExecuteAsync(connection, transaction, "INSERT INTO dj_signal_waits(job_id,run_id,name,deadline) VALUES (@job,@run,@name,@deadline) ON CONFLICT(job_id) DO UPDATE SET deadline=excluded.deadline", ct,
+                    await ExecuteAsync(connection, transaction, UpsertSql("dj_signal_waits", "job_id,run_id,name,deadline", "@job,@run,@name,@deadline", "job_id", "deadline"), ct,
                         ("job", change.Id.ToString()), ("run", runId.ToString()), ("name", signal.Name), ("deadline", checked(now + (long)Math.Ceiling(signal.Timeout.TotalMilliseconds))));
                 }
 

@@ -7,7 +7,24 @@ internal sealed class WorkerProcess : IDisposable
 {
     private readonly Process process;
     private readonly Task<string> errors;
-    public TimeSpan Cpu => process.TotalProcessorTime;
+    public TimeSpan Cpu
+    {
+        get
+        {
+            process.Refresh();
+
+            return process.TotalProcessorTime;
+        }
+    }
+    public long ResidentBytes
+    {
+        get
+        {
+            process.Refresh();
+
+            return process.WorkingSet64;
+        }
+    }
     public long PeakBytes
     {
         get

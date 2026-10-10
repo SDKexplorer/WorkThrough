@@ -7,7 +7,12 @@ public sealed record FlowCondition(string SourceStep, string Property, JsonEleme
 public sealed record FlowStep(
     string Id, JobContractId Contract, JsonElement Input, string Queue,
     string[] After, InputBinding[] Bindings, FlowCondition? Condition, int MaxAttempts,
-    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] SignalWait? Signal = null);
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] SignalWait? Signal = null)
+{
+    /// <summary>Optional saved display label. Dependencies and dispatch continue to use permanent identities.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; init; }
+}
 public enum FlowFailurePolicy
 {
     Stop, Suspend
@@ -76,6 +81,9 @@ public sealed class FlowBuilder
     }
 
     public FlowBuilder After(params string[] predecessors) => Change(step => step with { After = predecessors.Distinct().ToArray() });
+
+    /// <summary>Labels the last step for operators without changing its permanent step ID.</summary>
+    public FlowBuilder Named(string displayName) => Change(step => step with { DisplayName = displayName });
 
     public FlowBuilder BindInput(string targetProperty, string sourceProperty, string? sourceStep = null) =>
         Change(step => step with { Bindings = [.. step.Bindings, new(targetProperty, sourceStep, sourceProperty)] });

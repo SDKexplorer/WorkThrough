@@ -23,12 +23,7 @@ public abstract partial class RelationalJobStore
                 return false;
             }
 
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_progress(job_id,lease_token,started_at,last_progress_at,deadline,progress_timeout)
-                VALUES (@id,@token,@now,@now,@deadline,@timeout)
-                ON CONFLICT(job_id) DO UPDATE SET lease_token=excluded.lease_token,started_at=excluded.started_at,
-                last_progress_at=excluded.last_progress_at,deadline=excluded.deadline,progress_timeout=excluded.progress_timeout,description=NULL
-                """, ct, ("id", id.ToString()), ("token", leaseToken.ToString()), ("now", now),
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_progress", "job_id,lease_token,started_at,last_progress_at,deadline,progress_timeout,description", "@id,@token,@now,@now,@deadline,@timeout,NULL", "job_id", "lease_token,started_at,last_progress_at,deadline,progress_timeout,description"), ct, ("id", id.ToString()), ("token", leaseToken.ToString()), ("now", now),
                 ("deadline", executionTimeout is { } timeout ? checked(now + (long)timeout.TotalMilliseconds) : null),
                 ("timeout", progressTimeout is { } progress ? (long)progress.TotalMilliseconds : null));
 
@@ -50,7 +45,7 @@ public abstract partial class RelationalJobStore
                 ("now", now), ("description", Clip(description, 500)), ("id", id.ToString()), ("token", leaseToken.ToString())) == 1;
         }, cancellationToken);
 
-    private static async Task<bool> OwnsAsync(DbConnection connection, DbTransaction transaction, Guid id, Guid token, long now, CancellationToken ct) =>
+    private async Task<bool> OwnsAsync(DbConnection connection, DbTransaction transaction, Guid id, Guid token, long now, CancellationToken ct) =>
         Convert.ToInt64(await ScalarAsync(connection, transaction,
             "SELECT COUNT(*) FROM dj_jobs WHERE id=@id AND lease_token=@token AND status='Running' AND lease_expires_at>@now", ct,
             ("id", id.ToString()), ("token", token.ToString()), ("now", now))) == 1;
@@ -170,10 +165,7 @@ public abstract partial class RelationalJobStore
         {
             SeenAt = DateTimeOffset.FromUnixTimeMilliseconds(now)
         };
-        await ExecuteAsync(connection, transaction, """
-            INSERT INTO dj_workers(id,seen_at,details) VALUES (@id,@now,@details)
-            ON CONFLICT(id) DO UPDATE SET seen_at=excluded.seen_at,details=excluded.details
-            """, ct, ("id", worker.WorkerId), ("now", now), ("details", JsonSerializer.Serialize(observed, JobJson.Options)));
+        await ExecuteAsync(connection, transaction, UpsertSql("dj_workers", "id,seen_at,details", "@id,@now,@details", "id", "seen_at,details"), ct, ("id", worker.WorkerId), ("now", now), ("details", JsonSerializer.Serialize(observed, JobJson.Options)));
 
         return true;
     }, cancellationToken);
@@ -185,9 +177,9 @@ public abstract partial class RelationalJobStore
         return await ReadWorkersAsync(connection, cancellationToken);
     }
 
-    private static async Task<IReadOnlyList<WorkerHeartbeat>> ReadWorkersAsync(DbConnection connection, CancellationToken ct)
+    private async Task<IReadOnlyList<WorkerHeartbeat>> ReadWorkersAsync(DbConnection connection, CancellationToken ct)
     {
-        await using var command = Command(connection, null, "SELECT details FROM dj_workers ORDER BY seen_at DESC LIMIT 500");
+        await using var command = Command(connection, null, $"SELECT details FROM dj_workers ORDER BY seen_at DESC {PageSql("500")} ");
         await using var reader = await command.ExecuteReaderAsync(ct);
         var workers = new List<WorkerHeartbeat>();
         while (await reader.ReadAsync(ct))
@@ -201,7 +193,7 @@ public abstract partial class RelationalJobStore
     public async Task<IReadOnlyList<ExecutionEvent>> EventsAsync(Guid runId, long after = 0, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT * FROM dj_events WHERE run_id=@run AND sequence>@after ORDER BY sequence LIMIT 500",
+        await using var command = Command(connection, null, $"SELECT * FROM dj_events WHERE run_id=@run AND sequence>@after ORDER BY sequence {PageSql("500")}",
             ("run", runId.ToString()), ("after", after));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var events = new List<ExecutionEvent>();

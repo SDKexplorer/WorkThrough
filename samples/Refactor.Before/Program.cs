@@ -9,7 +9,7 @@ if (args.Length != 2)
 }
 
 var builder = Host.CreateApplicationBuilder();
-builder.Services.AddWorkThrough().UseSqlite(args[0]).AddGeneratedJobs(typeof(Program).Assembly);
+RefactorStorage.Configure(builder.Services.AddWorkThrough(), args[0]).AddGeneratedJobs(typeof(Program).Assembly);
 using var host = builder.Build();
 await host.StartAsync();
 var jobs = host.Services.GetRequiredService<JobClient>();

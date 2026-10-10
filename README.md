@@ -6,9 +6,9 @@
 
 A .NET 8 library for durable jobs, persisted flows, and recurring schedules, verified on .NET 8 and .NET 10. **Move a processor between classes, namespaces, projects, and assemblies without rewriting queued job metadata.**
 
-WorkThrough is an alpha. SQLite and PostgreSQL are implemented; packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
+WorkThrough is an alpha. SQLite, PostgreSQL, SQL Server and Oracle are implemented and pass their documented [provider verification](docs/verification.md); packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
 
-The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/attempt investigation, protected failure details and saved-flow inspection. Capacity/audit/archive tools and controlled actions remain in the [MCP plan](specs/mcp-operations.spec.md); [automatic retention and SQL Server/Oracle providers](specs/storage-evolution.spec.md) are also planned. The [remaining delivery order](docs/plan.md#remaining-delivery-order) makes those gaps explicit. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
+The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/attempt investigation, protected failure details, saved-flow inspection, audit/archive metadata, waiting/capacity explanations, windowed attempt metrics and retention status/preview. Opt-in [automatic retention](docs/operations-and-retention.md#opt-in-automatic-maintenance) includes holds and verified-copy purge. Controlled MCP actions and large load/restore qualification remain in the [plan](specs/storage-evolution.spec.md). The [remaining delivery order](docs/plan.md#remaining-delivery-order) makes those gaps explicit. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
 
 ## Repository map
 
@@ -16,7 +16,7 @@ The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/at
 |---|---|
 | `src/WorkThrough.Core` | Stable processor identities, flows, state rules, and persistence contracts |
 | `src/WorkThrough.Hosting` | DI composition, background workers, and schedule dispatch |
-| `src/WorkThrough.Storage.*` | SQLite/PostgreSQL adapters and shared transactional operations |
+| `src/WorkThrough.Storage.*` | SQLite/PostgreSQL/SQL Server/Oracle adapters and shared transactional operations |
 | `src/WorkThrough.Dashboard`, `dashboard-ui` | Protected HTTP APIs and the embedded Angular console |
 | `src/WorkThrough.Generators` | Compile-time processor discovery and registration |
 | `src/WorkThrough.Mcp` | Optional bearer-protected, read-only MCP endpoint without a dashboard dependency |
@@ -60,11 +60,11 @@ The [published relocation proof](scripts/check-refactor.sh) creates typed, futur
 
 ## Setup and hosting
 
-Eight local NuGet packages separate Core, Hosting, Dashboard, MCP, Generators, relational mechanics, SQLite, and PostgreSQL. Consumers do not need Node. The Angular console is embedded in the Dashboard package.
+Ten local NuGet packages separate Core, Hosting, Dashboard, MCP, Generators, relational mechanics, SQLite, PostgreSQL, SQL Server, and Oracle. Consumers do not need Node. The Angular console is embedded in the Dashboard package.
 
 ```csharp
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=jobs.db") // Or UsePostgreSql(connectionString).
+    .UseSqlite("Data Source=jobs.db") // Or UsePostgreSql / UseSqlServer / UseOracle with a connection string.
     .AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)
     .SeedClusterLimits(new(null, 20), new(InvoiceJobs.Generate.Identity.Key, 3))
     .AddScheduler()
@@ -88,7 +88,7 @@ await jobs.EnqueueAsync(InvoiceJobs.Generate, invoice,
     new(NotBefore: scheduledAt), ct);
 ```
 
-The explicit key overload lets producer-only hosts enqueue without the processor DLL. Producer, scheduler, BackgroundService worker, API dashboard, and standalone dashboard roles can be deployed independently. The host controls port/address; `MapWorkThroughDashboard("/operations/jobs")` controls the mount path. Generic workers need no HTTP listener. SQLite requires a shared **absolute local file path** for separate local processes; use PostgreSQL for a multi-machine fleet.
+The explicit key overload lets producer-only hosts enqueue without the processor DLL. Producer, scheduler, BackgroundService worker, API dashboard, and standalone dashboard roles can be deployed independently. The host controls port/address; `MapWorkThroughDashboard("/operations/jobs")` controls the mount path. Generic workers need no HTTP listener. SQLite requires a shared **absolute local file path** for separate local processes; use a qualified server database for a multi-machine fleet.
 
 Local total/type concurrency and shared total/type limits all apply. Shared limits count valid admitted leases; lowering a limit does not terminate current handlers. A partitioned process can outlive its lease, so external effects still require idempotency/fencing.
 
@@ -138,19 +138,19 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --project samples/Demo.Host --urls
 
 Open `/operations/jobs`. In Development, POST `{ "orderId": "123", "amount": 250 }` to `/demo/orders`; an amount above 1000 selects the review branch, and a negative amount creates an intentional incident. The [direct processor sample](samples/Demo.Processor) demonstrates typed definitions, configurable delayed and recurring work; `--once` performs a smoke test.
 
-`./scripts/verify.sh` builds the frontend and libraries, tests both runtimes, proves cross-runtime assembly relocation, packs NuGet artifacts, and runs isolated package-only consumers with SDK 8 and SDK 10. Set `DURABLEJOBS_POSTGRES` to a disposable database to include PostgreSQL; see [provider instructions](docs/providers.md). If .NET 8 is installed separately, set `WORKTHROUGH_DOTNET8` to its absolute executable path. Local packages are written to `artifacts/packages`.
+`./scripts/verify.sh` builds the frontend and libraries, tests both runtimes, proves cross-runtime assembly relocation, packs NuGet artifacts, and runs isolated package-only consumers with SDK 8 and SDK 10. Set `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVER` or `DURABLEJOBS_ORACLE` to disposable test databases/servers to include those providers; see [provider instructions](docs/providers.md). If .NET 8 is installed separately, set `WORKTHROUGH_DOTNET8` to its absolute executable path. Local packages are written to `artifacts/packages`.
 
 ## Operational extensions and performance
 
 Typed `JobDefinition<T>` addresses let producers and processors share contracts without sharing implementation DLLs. Assign identities at registration, add compatible historical aliases, and activate the reviewed mapping with fleet fencing. See [identity evolution](docs/identity-evolution.md).
 
-The engine includes scoped middleware/validation/retry policies, rejection/deferral, local observers, durable event cursors, queue pause, worker drain, expiry, causation-aware replay, signals/timeouts, transaction/outbox acceptance, and bounded whole-execution archives. The [operations guide](docs/operations-and-retention.md) explains their boundaries; schema-3 upgrades require stopping old engine writers.
+The engine includes scoped middleware/validation/retry policies, rejection/deferral, local observers, durable event cursors, queue pause, worker drain, expiry, causation-aware replay, signals/timeouts, transaction/outbox acceptance, and bounded whole-execution archives. The [operations guide](docs/operations-and-retention.md) explains their boundaries; schema-4 upgrades require stopping old engine writers.
 
-Run `scripts/format.sh` for braces, statement spacing, and the requested blank lines; CI enforces `--check`. `scripts/performance.sh --full` starts independent worker processes on disposable SQLite/PostgreSQL stores and records latency distributions, throughput, CPU/memory, environment, and correctness assertions. See [performance methodology and results](docs/performance.md).
+Run `scripts/format.sh` for braces, statement spacing, and the requested blank lines; CI enforces `--check`. `scripts/performance.sh --full` starts independent worker processes on disposable SQLite/PostgreSQL/SQL Server stores and records latency distributions, throughput, CPU/memory, environment, and correctness assertions. See [performance methodology and results](docs/performance.md).
 
 ## Release boundaries
 
-Execution is at least once. Arbitrary side effects cannot be undone by rewinding engine state. Compensation/checkpoint forks, child flows, SQL Server and further providers, legacy import/upcasting, automatic retention policy, partition/rate limits, and deployment-specific production soak/partition campaigns remain in the [plan](docs/plan.md). External OIDC login requires a configured identity provider and has not been verified against a real account. There is no production certification or Native AOT claim.
+Execution is at least once. Arbitrary side effects cannot be undone by rewinding engine state. Compensation/checkpoint forks, child flows, further providers, optional interoperability/upcasting, partition/rate limits, and deployment-specific production soak/partition campaigns remain in the [plan](docs/plan.md). External OIDC login requires a configured identity provider and has not been verified against a real account. There is no production certification or Native AOT claim.
 
 The [typed processor and lifecycle exploration](docs/processor-lifecycle-and-extensibility.md) distinguishes existing APIs from implemented middleware, retry policies, and durable subscriptions.
 The [identity evolution design](docs/identity-evolution.md) covers defining a processor before assigning its key and coordinated old-ID aliases, including shared concurrency and rollout requirements.

@@ -14,7 +14,7 @@ public abstract partial class RelationalJobStore
         return snapshot;
     }
 
-    private static async Task<ProcessorRegistrySnapshot> ReadRegistryAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
+    private async Task<ProcessorRegistrySnapshot> ReadRegistryAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
     {
         var revision = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT revision FROM dj_registry WHERE id=1", ct));
         var aliases = new List<ProcessorAliasMapping>();
@@ -76,7 +76,8 @@ public abstract partial class RelationalJobStore
                 throw new StateConflictException("Drain active leases before changing processor mappings.");
             }
 
-            await ExecuteAsync(connection, transaction, "DELETE FROM dj_processor_aliases; DELETE FROM dj_processor_groups", ct);
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_processor_aliases", ct);
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_processor_groups", ct);
             foreach (var alias in ordered)
             {
                 await ExecuteAsync(connection, transaction, "INSERT INTO dj_processor_aliases(alias_key,alias_version,target_key,target_version) VALUES (@alias,@version,@target,@targetVersion)", ct,

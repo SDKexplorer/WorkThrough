@@ -3,12 +3,21 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore
 {
     private const string Schema = """
+        CREATE TABLE IF NOT EXISTS dj_retention_policy (id INTEGER PRIMARY KEY,revision INTEGER NOT NULL,policy TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS dj_retention_holds (unit_id TEXT PRIMARY KEY,held INTEGER NOT NULL,revision INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS dj_retention_incidents (unit_id TEXT PRIMARY KEY,code TEXT NOT NULL,at BIGINT NOT NULL);
+        CREATE TABLE IF NOT EXISTS dj_maintenance (id INTEGER PRIMARY KEY,batch_id TEXT,token TEXT,owner TEXT,lease_expires_at BIGINT,last_batch_id TEXT,failure_code TEXT,failed_at BIGINT);
+        INSERT INTO dj_maintenance(id) VALUES (1) ON CONFLICT DO NOTHING;
+        CREATE TABLE IF NOT EXISTS dj_maintenance_batches (id TEXT PRIMARY KEY,descriptor TEXT NOT NULL,result TEXT);
+        CREATE TABLE IF NOT EXISTS dj_archive_exports (archive_id TEXT NOT NULL,destination TEXT NOT NULL,sha256 TEXT NOT NULL,object_version TEXT NOT NULL,bytes BIGINT NOT NULL,verified_at BIGINT NOT NULL,batch_id TEXT NOT NULL,PRIMARY KEY(archive_id,destination));
         CREATE TABLE IF NOT EXISTS dj_signals (run_id TEXT NOT NULL,name TEXT NOT NULL,payload TEXT NOT NULL,received_at BIGINT NOT NULL,PRIMARY KEY(run_id,name));
         CREATE TABLE IF NOT EXISTS dj_signal_receipts (run_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,fingerprint TEXT NOT NULL,PRIMARY KEY(run_id,idempotency_key));
         CREATE TABLE IF NOT EXISTS dj_signal_waits (job_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,name TEXT NOT NULL,deadline BIGINT NOT NULL);
         CREATE INDEX IF NOT EXISTS ix_dj_waits_due ON dj_signal_waits(deadline,run_id);
         CREATE TABLE IF NOT EXISTS dj_archives (id TEXT PRIMARY KEY,kind TEXT NOT NULL,correlation_id TEXT,archived_at BIGINT NOT NULL,jobs INTEGER NOT NULL,sha256 TEXT NOT NULL,body TEXT);
         CREATE INDEX IF NOT EXISTS ix_dj_archives_correlation ON dj_archives(correlation_id,archived_at);
+        CREATE INDEX IF NOT EXISTS ix_dj_archives_history ON dj_archives(archived_at DESC,id);
+        CREATE INDEX IF NOT EXISTS ix_dj_archives_correlation_history ON dj_archives(correlation_id,archived_at DESC,id);
         CREATE TABLE IF NOT EXISTS dj_job_receipts (idempotency_key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, job_id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS dj_queue_controls (queue TEXT PRIMARY KEY,paused INTEGER NOT NULL,revision INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS dj_worker_controls (worker_id TEXT PRIMARY KEY,draining INTEGER NOT NULL,revision INTEGER NOT NULL);
@@ -43,6 +52,7 @@ public abstract partial class RelationalJobStore
           started_at BIGINT NOT NULL,finished_at BIGINT,status TEXT NOT NULL,error TEXT,handler TEXT,
           PRIMARY KEY(job_id,number));
         CREATE INDEX IF NOT EXISTS ix_dj_attempts_failure_time ON dj_attempts(finished_at,job_id) WHERE status='Failed';
+        CREATE INDEX IF NOT EXISTS ix_dj_attempts_finished ON dj_attempts(finished_at);
         CREATE TABLE IF NOT EXISTS dj_limits (job_key TEXT PRIMARY KEY,maximum INTEGER NOT NULL CHECK(maximum>=0));
         CREATE TABLE IF NOT EXISTS dj_definitions (
           flow_key TEXT NOT NULL,version INTEGER NOT NULL,definition TEXT NOT NULL,
@@ -60,6 +70,9 @@ public abstract partial class RelationalJobStore
         CREATE TABLE IF NOT EXISTS dj_audit (
           command_id TEXT PRIMARY KEY,at BIGINT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,reason TEXT NOT NULL,outcome TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS dj_audit_changes (command_id TEXT PRIMARY KEY,changes TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS ix_dj_audit_history ON dj_audit(at DESC,command_id);
+        CREATE INDEX IF NOT EXISTS ix_dj_audit_target_history ON dj_audit(target,at DESC,command_id);
+        CREATE INDEX IF NOT EXISTS ix_dj_audit_action_history ON dj_audit(action,at DESC,command_id);
         CREATE TABLE IF NOT EXISTS dj_failures (
           job_id TEXT NOT NULL,attempt INTEGER NOT NULL,exception_type TEXT NOT NULL,message TEXT NOT NULL,stack_trace TEXT,
           PRIMARY KEY(job_id,attempt));
@@ -67,6 +80,7 @@ public abstract partial class RelationalJobStore
           job_id TEXT PRIMARY KEY,lease_token TEXT NOT NULL,started_at BIGINT NOT NULL,last_progress_at BIGINT NOT NULL,
           deadline BIGINT,progress_timeout BIGINT,description TEXT);
         CREATE TABLE IF NOT EXISTS dj_workers (id TEXT PRIMARY KEY,seen_at BIGINT NOT NULL,details TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS ix_dj_workers_seen ON dj_workers(seen_at DESC,id);
         CREATE TABLE IF NOT EXISTS dj_events (
           sequence BIGINT PRIMARY KEY,job_id TEXT NOT NULL,run_id TEXT,at BIGINT NOT NULL,kind TEXT NOT NULL,attempt INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS ix_dj_events_run ON dj_events(run_id,sequence);

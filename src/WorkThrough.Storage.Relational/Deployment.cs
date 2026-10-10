@@ -17,14 +17,14 @@ public abstract partial class RelationalJobStore
         var now = await NowAsync(connection, transaction, cancellationToken);
         var items = new Dictionary<(JobContractId, string), DeploymentRequirement>();
         var truncated = false;
-        await using (var command = Command(connection, transaction, """
+        await using (var command = Command(connection, transaction, $"""
             SELECT j.job_key,j.contract_version,j.queue,COUNT(*) AS outstanding,
               SUM(CASE WHEN j.status='Queued' AND j.available_at<=@now AND (j.workflow_run_id IS NULL OR f.status='Running') THEN 1 ELSE 0 END) AS ready,
               MIN(CASE WHEN j.status='Queued' AND j.available_at<=@now AND (j.workflow_run_id IS NULL OR f.status='Running') THEN j.available_at ELSE NULL END) AS oldest
             FROM dj_jobs j LEFT JOIN dj_flows f ON j.workflow_run_id=f.id
             WHERE j.job_key<>'workthrough.signal' AND (j.status IN ('Queued','Running','Waiting')
               OR (j.status IN ('Failed','Cancelled','Rejected','Expired') AND f.status IN ('Running','Paused','Incident')))
-            GROUP BY j.job_key,j.contract_version,j.queue ORDER BY j.job_key,j.contract_version,j.queue LIMIT @limit
+            GROUP BY j.job_key,j.contract_version,j.queue ORDER BY j.job_key,j.contract_version,j.queue {PageSql("@limit")}
             """, ("now", now), ("limit", limit + 1)))
         {
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
@@ -39,14 +39,14 @@ public abstract partial class RelationalJobStore
 
                     var processor = new JobContractId(reader.GetString(0), reader.GetInt32(1));
                     var queue = reader.GetString(2);
-                    items.Add((processor, queue), new(processor, queue, reader.GetInt64(3), reader.GetInt64(4),
+                    items.Add((processor, queue), new(processor, queue, Convert.ToInt64(reader.GetValue(3)), Convert.ToInt64(reader.GetValue(4)),
                         reader.IsDBNull(5) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(5)), 0));
                 }
             }
         }
 
         await using (var command = Command(connection, transaction,
-            "SELECT definition FROM dj_schedules WHERE status='Published' AND enabled=1 ORDER BY schedule_key,version LIMIT @limit", ("limit", limit + 1)))
+            $"SELECT definition FROM dj_schedules WHERE status='Published' AND enabled=1 ORDER BY schedule_key,version {PageSql("@limit")}", ("limit", limit + 1)))
         {
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {

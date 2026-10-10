@@ -7,13 +7,13 @@ namespace WorkThrough.Tests;
 
 public sealed class CompatibilityTests
 {
-    public static IEnumerable<object[]> Providers() => StorageConformanceTests.Providers();
+    public static IEnumerable<object[]> Providers() => StorageConformanceTests.Providers().Where(row => (string)row[0] is "sqlite" or "postgres");
 
     [Theory, MemberData(nameof(Providers))]
     public async Task Schema_one_fixtures_upgrade_without_rewriting_invocations_or_flow_semantics(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider, initialize: false);
-        await using DbConnection connection = provider == "sqlite" ? new SqliteConnection(harness.ConnectionString) : new NpgsqlConnection(harness.ConnectionString);
+        await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var query = connection.CreateCommand();
         query.CommandText = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "schema1.sql"));

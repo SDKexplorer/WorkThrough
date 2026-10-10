@@ -43,13 +43,13 @@ public abstract partial class RelationalJobStore
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
         await using var connection = await OpenAsync(cancellationToken);
 
-        return await ReadJobsAsync(connection, null, $"SELECT * FROM dj_jobs {where} ORDER BY created_at DESC,id LIMIT @limit OFFSET @offset", cancellationToken, values.ToArray());
+        return await ReadJobsAsync(connection, null, $"SELECT * FROM dj_jobs {where} ORDER BY created_at DESC,id {PageSql("@limit", "@offset")}", cancellationToken, values.ToArray());
     }
 
     public async Task<IReadOnlyList<JobAttempt>> AttemptsAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT * FROM dj_attempts WHERE job_id=@id ORDER BY number", ("id", jobId.ToString()));
+        await using var command = Command(connection, null, $"SELECT * FROM dj_attempts WHERE job_id=@id ORDER BY {AttemptNumberSql}", ("id", jobId.ToString()));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var result = new List<JobAttempt>();
         while (await reader.ReadAsync(cancellationToken))
@@ -72,7 +72,7 @@ public abstract partial class RelationalJobStore
             {
                 while (await reader.ReadAsync(cancellationToken))
                 {
-                    counts.Add(Enum.Parse<JobStatus>(reader.GetString(0)), reader.GetInt64(1));
+                    counts.Add(Enum.Parse<JobStatus>(reader.GetString(0)), Convert.ToInt64(reader.GetValue(1)));
                 }
             }
         }
@@ -106,7 +106,7 @@ public abstract partial class RelationalJobStore
             Text(reader, "correlation_id"), reader.GetString(reader.GetOrdinal("status")), Text(reader, "error"));
     }
 
-    private static async Task<List<JobRecord>> ReadJobsAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken ct, params (string, object?)[] values)
+    private async Task<List<JobRecord>> ReadJobsAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken ct, params (string, object?)[] values)
     {
         await using var command = Command(connection, transaction, sql, values);
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -127,7 +127,7 @@ public abstract partial class RelationalJobStore
         return jobs;
     }
 
-    private static Task<int> InsertJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) =>
+    private Task<int> InsertJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) =>
         ExecuteAsync(connection, transaction, """
             INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,correlation_id,status,attempt,max_attempts,
               created_at,available_at,idempotency_key,workflow_run_id,step_id,expires_at,causation_job_id)

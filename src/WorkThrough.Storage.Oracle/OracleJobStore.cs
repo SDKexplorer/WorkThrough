@@ -1,0 +1,170 @@
+using System.Data;
+using System.Data.Common;
+using System.Text.RegularExpressions;
+using Oracle.ManagedDataAccess.Client;
+
+namespace WorkThrough.Storage;
+
+/// <summary>Oracle schema/credential selection. Initialize separately when runtime credentials have DML-only grants.</summary>
+public sealed record OracleStorageOptions(string? Schema = null, string? MigrationConnectionString = null);
+
+/// <summary>Oracle storage with a singleton admission-row lock and serializable inspection snapshots.</summary>
+public sealed partial class OracleJobStore : RelationalJobStore
+{
+    private readonly string connectionString;
+    private readonly OracleStorageOptions options;
+    private readonly string schema;
+
+    public OracleJobStore(string connectionString, OracleStorageOptions? options = null)
+    {
+        var settings = new OracleConnectionStringBuilder(connectionString);
+        this.options = options ?? new();
+        schema = (this.options.Schema ?? settings.UserID).ToUpperInvariant();
+        if (!Regex.IsMatch(schema, "^[A-Z][A-Z0-9_]{0,127}$") || schema is "SYS" or "SYSTEM")
+        {
+            throw new ArgumentException("Choose a dedicated Oracle schema using an unquoted identifier.", nameof(options));
+        }
+
+        this.connectionString = settings.ConnectionString;
+    }
+
+    protected override DbConnection CreateConnection() => new OracleConnection(connectionString);
+    protected override string PageSql(string limit, string offset = "0") => $"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY";
+    protected override string TextType => "VARCHAR2(2000 CHAR)";
+    protected override string FloatingPointType => "BINARY_DOUBLE";
+    protected override string AttemptNumberSql => "\"NUMBER\"";
+    protected override string DiagnosticExceptionSql => "COALESCE(f.exception_type,TO_CLOB('Unspecified'))";
+    protected override string ClockSql => """
+        SELECT FLOOR(EXTRACT(DAY FROM elapsed)*86400000+EXTRACT(HOUR FROM elapsed)*3600000+
+          EXTRACT(MINUTE FROM elapsed)*60000+EXTRACT(SECOND FROM elapsed)*1000)
+        FROM (SELECT SYS_EXTRACT_UTC(SYSTIMESTAMP)-TIMESTAMP '1970-01-01 00:00:00' AS elapsed FROM dual)
+        """;
+
+    protected override async Task<DbConnection> OpenAsync(CancellationToken ct)
+    {
+        var connection = (OracleConnection)await base.OpenAsync(ct);
+        try
+        {
+            await ConfigureSessionAsync(connection, ct);
+            await RequireReadyAsync(connection, null, ct);
+
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync();
+            throw;
+        }
+    }
+
+    private async Task ConfigureSessionAsync(OracleConnection connection, CancellationToken ct)
+    {
+        await ExecuteAsync(connection, null, $"ALTER SESSION SET CURRENT_SCHEMA={schema}", ct);
+        await ExecuteAsync(connection, null, "ALTER SESSION SET NLS_COMP=BINARY", ct);
+        await ExecuteAsync(connection, null, "ALTER SESSION SET NLS_SORT=BINARY", ct);
+    }
+
+    private async Task RequireReadyAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
+    {
+        await using var command = Command(connection, transaction, "SELECT version,status,step,definition_hash FROM dj_schema");
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct) || reader.GetInt32(0) != 4 || reader.GetString(1) != "Ready" ||
+            reader.GetInt32(2) != OracleSchema.Length || reader.GetString(3) != SchemaFingerprint || await reader.ReadAsync(ct))
+        {
+            throw new InvalidOperationException("The Oracle WorkThrough schema is incomplete or incompatible. Complete initialization before starting runtime hosts.");
+        }
+    }
+
+    protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+
+    protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
+    {
+        var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        try
+        {
+            // This row belongs to this schema. No DBMS_LOCK privilege is required for runtime writers.
+            if (Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT id FROM dj_admission WHERE id=1 FOR UPDATE WAIT 5", cancellationToken)) != 1)
+            {
+                throw new InvalidOperationException("The Oracle admission row is missing; writes are refused.");
+            }
+
+            await RequireReadyAsync(connection, transaction, cancellationToken);
+
+            return transaction;
+        }
+        catch
+        {
+            await transaction.DisposeAsync();
+            throw;
+        }
+    }
+
+    protected override string UpsertSql(string table, string columns, string values, string keys, string updates = "")
+    {
+        var names = columns.Split(',');
+        var source = string.Join(",", names.Zip(values.Split(',')).Select(pair => $"{pair.Second} AS {pair.First}"));
+        var predicate = string.Join(" AND ", keys.Split(',').Select(key => $"target.{key}=source.{key}"));
+        var change = updates.Length == 0 ? "" : "WHEN MATCHED THEN UPDATE SET " +
+            string.Join(",", updates.Split(',').Select(column => $"target.{column}=source.{column}"));
+
+        return $"MERGE INTO {table} target USING (SELECT {source} FROM dual) source ON ({predicate}) {change} " +
+            $"WHEN NOT MATCHED THEN INSERT ({columns}) VALUES ({string.Join(",", names.Select(column => $"source.{column}"))})";
+    }
+
+    // Match only bind markers outside SQL string literals. Caller business SQL never passes through this method.
+    private static readonly Regex BindTokens = new("'(?:''|[^'])*'|@[A-Za-z][A-Za-z0-9_]*", RegexOptions.Compiled);
+
+    protected override DbCommand Command(DbConnection connection, DbTransaction? transaction, string sql, params (string Name, object? Value)[] values)
+    {
+        var supplied = values.ToDictionary(value => value.Name, value => value.Value, StringComparer.Ordinal);
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        var bound = BindTokens.Replace(sql, match =>
+        {
+            if (match.Value[0] != '@')
+            {
+                return match.Value;
+            }
+
+            var name = match.Value[1..];
+            if (!supplied.TryGetValue(name, out var value))
+            {
+                throw new InvalidOperationException($"The library SQL bind '{name}' has no value.");
+            }
+
+            if (value is string { Length: 0 })
+            {
+                if (name is "error" or "description" or "message" or "stack" or "handler" or "type")
+                {
+                    return "EMPTY_CLOB()";
+                }
+
+                throw new ArgumentException($"Oracle does not accept an empty identity/filter '{name}'; use null for an absent value. JSON empty strings remain supported.");
+            }
+
+            used.Add(name);
+
+            return ":wt_" + name;
+        });
+        var command = (OracleCommand)connection.CreateCommand();
+        command.Transaction = (OracleTransaction?)transaction;
+        command.BindByName = true;
+        command.CommandText = bound;
+        foreach (var name in used)
+        {
+            var value = supplied[name];
+            var type = value switch
+            {
+                int => OracleDbType.Int32,
+                long => OracleDbType.Int64,
+                string text when text.Length > 2000 => OracleDbType.Clob,
+                null when name is "failure" or "expiry" or "deadline" or "timeout" or "next" => OracleDbType.Int64,
+                null when name is "output" or "error" or "description" or "stack" => OracleDbType.Clob,
+                _ => OracleDbType.Varchar2
+            };
+            command.Parameters.Add(new OracleParameter("wt_" + name, type) { Value = value ?? DBNull.Value });
+        }
+
+        return command;
+    }
+}

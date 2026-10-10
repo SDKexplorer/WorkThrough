@@ -170,6 +170,12 @@ public static partial class DashboardEndpoints
 
             var sensitive = await AllowedAsync(context, options, "payloads.read");
             var health = await diagnostics.HealthAsync(id, ct);
+            if (context.RequestServices.GetService<IRuntimeQueries>() is { } runtime)
+            {
+                var readiness = await runtime.ReadReadinessAsync(id, cancellationToken: ct);
+                health = new(readiness.Reason, readiness.SuspectedStalled, readiness.ObservedAt, health?.Progress);
+            }
+
             if (!sensitive && health?.Progress is { } progress)
             {
                 health = health with
@@ -289,6 +295,7 @@ public static partial class DashboardEndpoints
             .Mutation(options, "limits.manage");
         MapOperations(group, options);
         MapExecutionQueries(group, options);
+        MapRetention(group, options);
 
         return group;
     }
@@ -316,7 +323,7 @@ public static partial class DashboardEndpoints
         definition.Key,
         definition.Version,
         definition.FailurePolicy,
-        steps = definition.Steps.Select(s => new { s.Id, s.Contract, s.After, s.Queue, signal = s.Signal, conditional = s.Condition is not null })
+        steps = definition.Steps.Select(s => new { s.Id, s.DisplayName, s.Contract, s.After, s.Queue, signal = s.Signal, conditional = s.Condition is not null })
     };
     private static async Task<bool> ValidTokenAsync(HttpContext context, IAntiforgery antiforgery)
     {

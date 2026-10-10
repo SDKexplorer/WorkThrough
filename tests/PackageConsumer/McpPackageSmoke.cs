@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Text.Json;
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -45,7 +46,9 @@ internal static class McpPackageSmoke
         {
             var token = new JwtSecurityToken(authority, resource.AbsoluteUri,
                 [new("sub", "package-consumer"), new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadExecutions),
-                    new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadPayloads)],
+                    new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadPayloads),
+                    new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadAudit),
+                    new Claim(OperationPermissions.ClaimType, OperationPermissions.ReadRetention)],
                 DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(1),
                 new SigningCredentials(new RsaSecurityKey(key), SecurityAlgorithms.RsaSha256));
             using var http = new HttpClient();
@@ -74,6 +77,34 @@ internal static class McpPackageSmoke
             if (diagnostic.IsError == true || !diagnostic.StructuredContent!.Value.GetProperty("diagnostic").GetProperty("attemptExists").GetBoolean())
             {
                 throw new InvalidOperationException("Packaged MCP did not inspect the selected attempt.");
+            }
+
+            var audit = await client.CallToolAsync("workthrough_get_audit", new Dictionary<string, object?> { ["query"] = new AuditQuery() });
+            var retention = await client.CallToolAsync("workthrough_get_retention");
+            if (retention.IsError == true || retention.StructuredContent!.Value.GetProperty("configuration").ValueKind != JsonValueKind.Null)
+            {
+                throw new InvalidOperationException("Packaged MCP must show that retention is unconfigured by default.");
+            }
+
+            var capacity = await client.CallToolAsync("workthrough_get_capacity", new Dictionary<string, object?> { ["id"] = executionId });
+            var metrics = await client.CallToolAsync("workthrough_get_metrics", new Dictionary<string, object?> { ["query"] = new RuntimeMetricsQuery() });
+            if (capacity.IsError == true || metrics.IsError == true
+                || capacity.StructuredContent!.Value.GetProperty("executionId").GetGuid() != executionId
+                || metrics.StructuredContent!.Value.GetProperty("coverage").GetString() != "live-attempts")
+            {
+                throw new InvalidOperationException("Packaged MCP did not return runtime evidence.");
+            }
+
+            var archives = await client.CallToolAsync("workthrough_search_archives", new Dictionary<string, object?> { ["query"] = new ArchiveQuery() });
+            var preview = await client.CallToolAsync("workthrough_preview_retention", new Dictionary<string, object?>
+            {
+                ["policy"] = new ArchivePolicy(DateTimeOffset.UtcNow.AddDays(1))
+            });
+            if (audit.IsError == true || archives.IsError == true || preview.IsError == true
+                || preview.StructuredContent!.Value.GetProperty("candidates").GetArrayLength() == 0
+                || preview.StructuredContent.Value.GetProperty("policySource").GetString() != "caller-supplied")
+            {
+                throw new InvalidOperationException("Packaged MCP did not expose read-only operational history and retention preview.");
             }
         }
         finally

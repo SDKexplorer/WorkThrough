@@ -2,6 +2,8 @@
   <PropertyGroup><OutputType>Exe</OutputType><IsPackable>false</IsPackable></PropertyGroup>
   <ItemGroup>
     <PackageReference Include="WorkThrough.Hosting" Version="0.1.0-alpha.1" />
+    <PackageReference Include="WorkThrough.Storage.Oracle" Version="0.1.0-alpha.1" />
+    <PackageReference Include="WorkThrough.Storage.SqlServer" Version="0.1.0-alpha.1" />
     <PackageReference Include="WorkThrough.Storage.Sqlite" Version="0.1.0-alpha.1" />
     <PackageReference Include="WorkThrough.Mcp" Version="0.1.0-alpha.1" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

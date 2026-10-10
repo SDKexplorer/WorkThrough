@@ -8,12 +8,12 @@ public abstract partial class RelationalJobStore : IExecutionQueries
 {
     private const int OperationQuerySeconds = 5;
     private const long MaximumWindowMilliseconds = 7 * 24 * 60 * 60 * 1000;
-    private const string ExecutionColumns = """
-        j.id,j.job_key,j.contract_version,SUBSTR(j.queue,1,512) AS queue,
-        SUBSTR(j.correlation_id,1,512) AS correlation_id,j.status,j.attempt,j.max_attempts,
+    private string ExecutionColumns => $"""
+        j.id,j.job_key,j.contract_version,{SubstringFunction}(j.queue,1,512) AS queue,
+        {SubstringFunction}(j.correlation_id,1,512) AS correlation_id,j.status,j.attempt,j.max_attempts,
         j.created_at,j.available_at,j.terminal_at,j.expires_at,j.workflow_run_id,
-        SUBSTR(j.step_id,1,512) AS step_id,j.causation_job_id,
-        CASE WHEN LENGTH(j.queue)>512 OR LENGTH(j.correlation_id)>512 OR LENGTH(j.step_id)>512 THEN 1 ELSE 0 END AS clipped
+        {SubstringFunction}(j.step_id,1,512) AS step_id,j.causation_job_id,
+        CASE WHEN {LengthSql("j.queue")}>512 OR {LengthSql("j.correlation_id")}>512 OR {LengthSql("j.step_id")}>512 THEN 1 ELSE 0 END AS clipped
         """;
 
     public async Task<ExecutionStoreContext> GetExecutionContextAsync(CancellationToken cancellationToken = default)
@@ -69,7 +69,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         }
 
         await using var command = OperationCommand(connection, transaction,
-            $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE {string.Join(" AND ", conditions)} ORDER BY j.created_at DESC,j.id LIMIT @limit", values.ToArray());
+            $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE {string.Join(" AND ", conditions)} ORDER BY j.created_at DESC,j.id {PageSql("@limit")}", values.ToArray());
         var items = await ReadExecutionMetadataAsync(command, ct);
         string? next = null;
         if (items.Count > query.Limit)
@@ -120,9 +120,9 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         }
 
         var items = new List<ExecutionAttemptMetadata>();
-        await using (var command = OperationCommand(connection, transaction, """
-            SELECT number,status,started_at,finished_at FROM dj_attempts
-            WHERE job_id=@id AND number>@after ORDER BY number LIMIT @limit
+        await using (var command = OperationCommand(connection, transaction, $"""
+            SELECT {AttemptNumberSql},status,started_at,finished_at FROM dj_attempts
+            WHERE job_id=@id AND {AttemptNumberSql}>@after ORDER BY {AttemptNumberSql} {PageSql("@limit")}
             """, ("id", id.ToString()), ("after", afterAttempt), ("limit", limit + 1)))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);
@@ -144,7 +144,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         return new(storeId, observed, exists, items, next);
     }
 
-    private static async Task<List<ExecutionMetadata>> ReadExecutionMetadataAsync(DbCommand command, CancellationToken ct)
+    private async Task<List<ExecutionMetadata>> ReadExecutionMetadataAsync(DbCommand command, CancellationToken ct)
     {
         await using var reader = await command.ExecuteReaderAsync(ct);
         var items = new List<ExecutionMetadata>();
@@ -274,7 +274,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         return timeout;
     }
 
-    private static DbCommand OperationCommand(DbConnection connection, DbTransaction transaction, string sql, params (string, object?)[] values)
+    private DbCommand OperationCommand(DbConnection connection, DbTransaction transaction, string sql, params (string, object?)[] values)
     {
         var command = Command(connection, transaction, sql, values);
         command.CommandTimeout = OperationQuerySeconds;

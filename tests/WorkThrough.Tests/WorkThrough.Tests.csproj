@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsPackable>false</IsPackable><IsTestProject>true</IsTestProject><TargetFramework></TargetFramework><TargetFrameworks>net8.0;net10.0</TargetFrameworks></PropertyGroup>
   <ItemGroup>
+    <Compile Include="../WorkThrough.Exercises/LatencyHistogram.cs" Link="ExerciseLatencyHistogram.cs" />
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/schema1.sql" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="../../src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Dashboard/WorkThrough.Dashboard.csproj" />

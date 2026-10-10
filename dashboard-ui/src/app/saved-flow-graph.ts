@@ -1,5 +1,13 @@
 import { Component, computed, input, output } from '@angular/core';
 
+interface SavedStep {
+    id: string;
+    displayName?: string | null;
+    after: string[];
+    contract: { key: string };
+    conditional: boolean;
+}
+
 @Component({
     selector: 'app-saved-flow-graph',
     template: ` <div
@@ -52,7 +60,7 @@ import { Component, computed, input, output } from '@angular/core';
                                 ? 'After ' + node.after.join(', ')
                                 : 'Start'
                     }}</span>
-                    <strong>{{ node.id }}</strong
+                    <strong>{{ node.displayName ?? node.id }}</strong
                     ><code>{{ node.contract.key }}</code>
                     <span class="badge" [attr.data-status]="node.status">{{ node.status }}</span>
                 </button>
@@ -61,10 +69,7 @@ import { Component, computed, input, output } from '@angular/core';
     </div>`,
 })
 export class SavedFlowGraph {
-    readonly steps =
-        input.required<
-            { id: string; after: string[]; contract: { key: string }; conditional: boolean }[]
-        >();
+    readonly steps = input.required<SavedStep[]>();
     readonly jobs = input.required<{ stepId: string | null; status: string }[]>();
     readonly selected = input<string | null>(null);
     readonly choose = output<string>();

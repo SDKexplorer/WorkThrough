@@ -11,7 +11,7 @@ public abstract partial class RelationalJobStore : IExecutionEvents
         return await ReadEventPositionAsync(connection, null, cancellationToken);
     }
 
-    private static async Task<EventPosition> ReadEventPositionAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
+    private async Task<EventPosition> ReadEventPositionAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
     {
         await using var command = Command(connection, transaction, "SELECT value,floor FROM dj_event_sequence WHERE id=1");
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -60,7 +60,7 @@ public abstract partial class RelationalJobStore : IExecutionEvents
         }
 
         var entries = new List<ExecutionEvent>();
-        await using (var command = Command(connection, transaction, "SELECT * FROM dj_events WHERE sequence>@after ORDER BY sequence LIMIT @limit", ("after", after), ("limit", limit)))
+        await using (var command = Command(connection, transaction, $"SELECT * FROM dj_events WHERE sequence>@after ORDER BY sequence {PageSql("@limit")}", ("after", after), ("limit", limit)))
         {
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {
@@ -111,9 +111,10 @@ public abstract partial class RelationalJobStore : IExecutionEvents
 
             var behind = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_subscriptions WHERE sequence<@through", ct, ("through", through)));
             var unarchived = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_events e WHERE e.sequence<=@through AND EXISTS (SELECT 1 FROM dj_jobs j WHERE j.id=e.job_id)", ct, ("through", through)));
-            if (behind > 0 || unarchived > 0)
+            var held = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_events e WHERE e.sequence<=@through AND EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=COALESCE(e.run_id,e.job_id) AND h.held=1)", ct, ("through", through)));
+            if (behind > 0 || unarchived > 0 || held > 0)
             {
-                throw new StateConflictException("Archive the affected executions and advance every subscriber before trimming.");
+                throw new StateConflictException("Archive the affected executions, release applicable holds and advance every subscriber before trimming.");
             }
 
             var removed = await ExecuteAsync(connection, transaction, "DELETE FROM dj_events WHERE sequence<=@through", ct, ("through", through));

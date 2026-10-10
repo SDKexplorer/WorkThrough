@@ -22,7 +22,7 @@ public sealed class ScheduleTests
         await Assert.ThrowsAsync<StateConflictException>(() => store.SetScheduleEnabledAsync(schedule.Key, 1, 1, true, Command()));
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
         await store.PublishScheduleAsync(schedule.Key, 1, 1, Command());
-        await SetDueAsync(harness.ConnectionString, provider, DateTimeOffset.UtcNow.AddMinutes(-10));
+        await SetDueAsync(harness, DateTimeOffset.UtcNow.AddMinutes(-10));
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
         await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command());
         var counts = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => harness.NewStore().DispatchDueSchedulesAsync())));
@@ -47,9 +47,9 @@ public sealed class ScheduleTests
         await store.SaveScheduleDraftAsync(definition, 0, Command());
         await store.PublishScheduleAsync(definition.Key, 1, 1, Command());
         await store.SetScheduleEnabledAsync(definition.Key, 1, 2, true, Command());
-        await SetDueAsync(harness.ConnectionString, provider, DateTimeOffset.UtcNow.AddMinutes(-5));
+        await SetDueAsync(harness, DateTimeOffset.UtcNow.AddMinutes(-5));
         Assert.Equal(1, await store.DispatchDueSchedulesAsync());
-        await SetDueAsync(harness.ConnectionString, provider, DateTimeOffset.UtcNow.AddMinutes(-2));
+        await SetDueAsync(harness, DateTimeOffset.UtcNow.AddMinutes(-2));
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
         var job = (await store.ClaimAsync(new("worker", [definition.Processor], ["default"], TimeSpan.FromSeconds(30))))!;
@@ -72,16 +72,6 @@ public sealed class ScheduleTests
         Assert.Equal(new DateTime(2026, 11, 2), second.UtcDateTime.Date);
     }
 
-    private static async Task SetDueAsync(string connectionString, string provider, DateTimeOffset due)
-    {
-        await using DbConnection connection = provider == "sqlite" ? new SqliteConnection(connectionString) : new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        await using var query = connection.CreateCommand();
-        query.CommandText = "UPDATE dj_schedules SET next_due=@due";
-        var parameter = query.CreateParameter();
-        parameter.ParameterName = "due";
-        parameter.Value = due.ToUnixTimeMilliseconds();
-        query.Parameters.Add(parameter);
-        await query.ExecuteNonQueryAsync();
-    }
+    private static Task SetDueAsync(StoreHarness harness, DateTimeOffset due) =>
+        harness.ExecuteAsync("UPDATE dj_schedules SET next_due=@due", ("due", due.ToUnixTimeMilliseconds()));
 }

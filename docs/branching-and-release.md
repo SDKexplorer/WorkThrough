@@ -18,7 +18,7 @@ The workflow change in this proposal verifies PRs and pushes to both long-lived 
 Prepared policy in [branch-protection.json](../.github/branch-protection.json):
 
 - Require a pull request and resolved review conversations.
-- Require successful `console` and `verify` checks from the verified GitHub Actions app (ID 15368).
+- Require successful `console`, `verify` and `oracle` checks from the verified GitHub Actions app (ID 15368).
 - Require the source branch to be current with its target.
 - Apply restrictions to administrators too; block force pushes and branch deletion.
 - Allow merge commits for release promotion.
@@ -45,7 +45,7 @@ Before changing visibility:
 - [ ] Review the complete reachable Git history, branches, release artifacts and examples for credentials/private data. Rotate any exposed real secret; deleting its latest copy is insufficient. This review has not been run by the planning task.
 - [ ] Establish a private security-reporting channel and enable the applicable GitHub security controls; update `SECURITY.md`.
 - [ ] Apply and verify branch protection, including the solo-maintainer approval policy.
-- [ ] Document supported provider/runtime versions and alpha limitations; keep planned MCP/Oracle/SQL Server features out of implemented claims.
+- [x] Document the verified provider/runtime matrix and alpha limitations; distinguish read-only MCP and implemented providers from planned controlled actions and sustained qualification.
 - [ ] Decide package ownership, release versioning and artifact provenance before publishing to NuGet.
 - [ ] Verify clean public-consumer setup, examples and links; add contribution/issue guidance suitable for outside users.
 

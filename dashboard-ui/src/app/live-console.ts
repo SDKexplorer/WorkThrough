@@ -1,5 +1,5 @@
 import { Component, ElementRef, signal, viewChild } from '@angular/core';
-import { DatePipe, JsonPipe } from '@angular/common';
+import { DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { SavedFlowGraph } from './saved-flow-graph';
 
 interface Processor {
@@ -48,6 +48,7 @@ interface Graph {
     version: number;
     steps: {
         id: string;
+        displayName?: string | null;
         contract: Processor;
         after: string[];
         queue: string;
@@ -81,6 +82,11 @@ interface Schedule {
     misfire: string;
 }
 interface Worker {
+    acquisition?: {
+        lastAttemptAt: string | null;
+        lastSucceededAt: string | null;
+        consecutiveFailures: number;
+    } | null;
     descriptions?: {
         identity: Processor;
         canonicalIdentity: Processor;
@@ -105,6 +111,15 @@ interface Audit {
 interface Statistics {
     counts: Record<string, number>;
     limits: { jobKey: string | null; maximum: number }[];
+}
+interface RuntimeMetrics {
+    from: string;
+    until: string;
+    succeededAttempts: number;
+    failedAttempts: number;
+    meanDurationMilliseconds: number | null;
+    maximumDurationMilliseconds: number | null;
+    successfulAttemptsPerSecond: number;
 }
 interface DeploymentReport {
     observedAt: string;
@@ -163,9 +178,44 @@ interface Pending {
     command?: object;
 }
 
+interface RetentionStatus {
+    lastFailureCode: string | null;
+    lastFailureAt: string | null;
+    configuration: {
+        revision: number;
+        policy: {
+            enabled: boolean;
+            succeededAfter: string;
+            failedAfter: string | null;
+            purgeAfter: string | null;
+            exportDestination: string | null;
+            eventsAfter: string | null;
+            batchSize: number;
+        };
+    } | null;
+    pendingBatchId: string | null;
+    maintenanceActive: boolean;
+    leaseExpiresAt: string | null;
+    lastBatch: {
+        batchId: string;
+        outcome: string;
+        completedAt: string;
+        archived: string[];
+        purged: string[];
+        blocked: string[];
+        eventsTrimmed: number;
+    } | null;
+    heldUnits: number;
+    incidentCount: number;
+    incidentExamples: { unitId: string; code: string; at: string }[];
+    retainedAfterEvent: number;
+    lastEventSequence: number;
+    slowestSubscriberPosition: number | null;
+}
+
 @Component({
     selector: 'app-console',
-    imports: [DatePipe, JsonPipe, SavedFlowGraph],
+    imports: [DatePipe, DecimalPipe, JsonPipe, SavedFlowGraph],
     templateUrl: './live-console.html',
 })
 export class LiveConsoleComponent {
@@ -179,6 +229,8 @@ export class LiveConsoleComponent {
     readonly user = signal('');
     readonly jobs = signal<Job[]>([]);
     readonly stats = signal<Statistics>({ counts: {}, limits: [] });
+    readonly metrics = signal<RuntimeMetrics | null>(null);
+    readonly metricsError = signal('');
     readonly definitions = signal<Definition[]>([]);
     readonly workers = signal<Worker[]>([]);
     readonly schedules = signal<Schedule[]>([]);
@@ -186,6 +238,8 @@ export class LiveConsoleComponent {
     readonly controls = signal<Controls>({ queues: [], workers: [] });
     readonly archives = signal<Archive[]>([]);
     readonly archiveCandidates = signal<Candidate[] | null>(null);
+    readonly retention = signal<RetentionStatus | null>(null);
+    readonly retentionError = signal('');
     archiveBefore = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 16);
     readonly audit = signal<Audit[]>([]);
     readonly detail = signal<Detail | null>(null);
@@ -288,8 +342,26 @@ export class LiveConsoleComponent {
                 this.workers.set(workers);
                 this.schedules.set(schedules);
                 this.deployment.set(deployment);
+                try {
+                    this.metrics.set(await this.request<RuntimeMetrics>('/api/metrics'));
+                    this.metricsError.set('');
+                } catch {
+                    this.metrics.set(null);
+                    this.metricsError.set(
+                        'Windowed metrics are unavailable. Stored job totals remain available.',
+                    );
+                }
             }
             if (this.can('audit.read')) this.audit.set(await this.request<Audit[]>('/api/audit'));
+            if (this.can('executions.read') && this.can('retention.read')) {
+                try {
+                    this.retention.set(await this.request<RetentionStatus>('/api/retention'));
+                    this.retentionError.set('');
+                } catch {
+                    this.retention.set(null);
+                    this.retentionError.set('Automatic retention status is unavailable.');
+                }
+            }
             this.updated.set(new Date());
             const selected = this.detail();
             if (selected) await this.inspect(selected.job);
@@ -330,6 +402,17 @@ export class LiveConsoleComponent {
     }
     stepStatus(id: string) {
         return this.flow()?.jobs.find((j) => j.stepId === id)?.status ?? 'Unknown';
+    }
+    acquisitionStatus(worker: Worker) {
+        if (
+            this.updated() &&
+            this.updated()!.getTime() - new Date(worker.seenAt).getTime() > 60_000
+        )
+            return 'Heartbeat stale';
+        if (worker.acquisition == null) return 'Not reported';
+        if (worker.acquisition.consecutiveFailures > 0)
+            return `${worker.acquisition.consecutiveFailures} consecutive polling failures`;
+        return worker.acquisition.lastSucceededAt ? 'Last poll succeeded' : 'No poll recorded';
     }
     applyFilters() {
         this.offset = 0;

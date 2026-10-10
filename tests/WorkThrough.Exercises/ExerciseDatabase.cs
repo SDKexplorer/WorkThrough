@@ -1,18 +1,28 @@
 using System.Data.Common;
 using Microsoft.Data.Sqlite;
+using Microsoft.Data.SqlClient;
 using Npgsql;
+using Oracle.ManagedDataAccess.Client;
 using WorkThrough.Storage;
 
 namespace WorkThrough.Exercises;
 
 internal sealed class ExerciseDatabase(string provider, string connectionString, string? schema, string directory) : IAsyncDisposable
 {
+    private OracleTestDatabase? oracleDatabase;
     public string Provider { get; } = provider;
     public string ConnectionString { get; } = connectionString;
     public string DirectoryPath { get; } = directory;
     public RelationalJobStore Store { get; } = OpenStore(provider, connectionString);
     public static RelationalJobStore OpenStore(string provider, string connection) =>
-        provider == "postgres" ? new PostgresJobStore(connection) : new SqliteJobStore(connection);
+        provider switch
+        {
+            "oracle" => new OracleJobStore(connection),
+            "sqlserver" => new SqlServerJobStore(connection),
+            "postgres" => new PostgresJobStore(connection),
+            "sqlite" => new SqliteJobStore(connection),
+            _ => throw new ArgumentException("Unknown provider.", nameof(provider))
+        };
 
     public static async Task<ExerciseDatabase> CreateAsync(string provider)
     {
@@ -20,7 +30,25 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
         Directory.CreateDirectory(directory);
         string? schema = null;
         string connection;
-        if (provider == "postgres")
+        OracleTestDatabase? oracle = null;
+        if (provider == "oracle")
+        {
+            oracle = await OracleTestDatabase.CreateAsync(Environment.GetEnvironmentVariable("DURABLEJOBS_ORACLE")
+                ?? throw new InvalidOperationException("A disposable Oracle PDB administrator is required."));
+            connection = oracle.ConnectionString;
+        }
+        else if (provider == "sqlserver")
+        {
+            schema = "wt_exercise_" + Guid.NewGuid().ToString("N");
+            var admin = Environment.GetEnvironmentVariable("DURABLEJOBS_SQLSERVER") ?? throw new InvalidOperationException("A disposable SQL Server connection is required.");
+            await using var database = new SqlConnection(admin);
+            await database.OpenAsync();
+            await using var command = database.CreateCommand();
+            command.CommandText = $"CREATE DATABASE [{schema}]; ALTER DATABASE [{schema}] SET ALLOW_SNAPSHOT_ISOLATION ON;";
+            await command.ExecuteNonQueryAsync();
+            connection = new SqlConnectionStringBuilder(admin) { InitialCatalog = schema }.ToString();
+        }
+        else if (provider == "postgres")
         {
             schema = "wt_exercise_" + Guid.NewGuid().ToString("N");
             var admin = Environment.GetEnvironmentVariable("DURABLEJOBS_POSTGRES") ?? throw new InvalidOperationException("A disposable PostgreSQL connection is required.");
@@ -35,20 +63,20 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             connection = new SqliteConnectionStringBuilder { DataSource = Path.Combine(directory, "jobs.db"), DefaultTimeout = 30 }.ToString();
         }
 
-        var result = new ExerciseDatabase(provider, connection, schema, directory);
+        var result = new ExerciseDatabase(provider, connection, schema, directory) { oracleDatabase = oracle };
         await result.Store.InitializeAsync();
 
         return result;
     }
 
-    public DbConnection OpenConnection() => Provider == "postgres" ? new NpgsqlConnection(ConnectionString) : new SqliteConnection(ConnectionString);
+    public DbConnection OpenConnection() => Provider == "oracle" ? new OracleConnection(ConnectionString) : Provider == "sqlserver" ? new SqlConnection(ConnectionString) : Provider == "postgres" ? new NpgsqlConnection(ConnectionString) : new SqliteConnection(ConnectionString);
 
     public async Task<string> VersionAsync()
     {
         await using var connection = OpenConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = Provider == "postgres" ? "SELECT version()" : "SELECT sqlite_version()";
+        command.CommandText = Provider == "oracle" ? "SELECT banner_full FROM v$version WHERE banner_full LIKE 'Oracle%'" : Provider == "sqlserver" ? "SELECT @@VERSION" : Provider == "postgres" ? "SELECT version()" : "SELECT sqlite_version()";
 
         var version = (string)(await command.ExecuteScalarAsync())!;
         if (Provider == "sqlite")
@@ -64,7 +92,20 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
 
     public async ValueTask DisposeAsync()
     {
-        if (schema is not null)
+        if (oracleDatabase is not null)
+        {
+            await oracleDatabase.DisposeAsync();
+        }
+        else if (Provider == "sqlserver")
+        {
+            SqlConnection.ClearPool(new SqlConnection(ConnectionString));
+            await using var connection = new SqlConnection(Environment.GetEnvironmentVariable("DURABLEJOBS_SQLSERVER"));
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"ALTER DATABASE [{schema}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{schema}];";
+            await command.ExecuteNonQueryAsync();
+        }
+        else if (schema is not null)
         {
             await using var connection = new NpgsqlConnection(Environment.GetEnvironmentVariable("DURABLEJOBS_POSTGRES"));
             await connection.OpenAsync();

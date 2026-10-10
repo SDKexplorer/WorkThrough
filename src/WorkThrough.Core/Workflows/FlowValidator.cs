@@ -124,6 +124,11 @@ public static class FlowValidator
 
         foreach (var step in definition.Steps)
         {
+            if (step?.DisplayName is { } label && (string.IsNullOrWhiteSpace(label) || label.Length > 200))
+            {
+                throw new ArgumentException("Step display names must contain 1–200 characters.");
+            }
+
             if (step is null || step.Contract is null || step.After is null || step.Bindings is null
                 || step.After.Any(string.IsNullOrWhiteSpace) || step.Bindings.Any(b => b is null || string.IsNullOrWhiteSpace(b.TargetProperty) || string.IsNullOrWhiteSpace(b.SourceProperty)))
             {

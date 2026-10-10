@@ -75,7 +75,49 @@
             </article>
             }
         </section>
-        } @if (section() === 'executions' && can('executions.read')) {
+        @if (metrics(); as window) {
+        <section class="live-panel" aria-label="Attempt metrics">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Attempt metrics · last hour</h2>
+                    <p class="muted">
+                        {{ window.from | date:'mediumTime' }} – {{ window.until | date:'mediumTime'
+                        }} · Archived attempts excluded
+                    </p>
+                </div>
+            </div>
+            <div class="live-metrics">
+                <article>
+                    <span class="muted">Successful attempts</span
+                    ><strong>{{ window.succeededAttempts }}</strong
+                    ><small class="muted"
+                        >{{ window.successfulAttemptsPerSecond | number:'1.0-2' }} per second</small
+                    >
+                </article>
+                <article>
+                    <span class="muted">Failed attempts</span
+                    ><strong>{{ window.failedAttempts }}</strong
+                    ><small class="muted">Includes subsequently recovered jobs</small>
+                </article>
+                <article>
+                    <span class="muted">Mean duration</span
+                    ><strong
+                        >{{ window.meanDurationMilliseconds === null ? '—' :
+                        (window.meanDurationMilliseconds | number:'1.0-0') + ' ms' }}</strong
+                    ><small class="muted">Finished attempts in this window</small>
+                </article>
+                <article>
+                    <span class="muted">Longest duration</span
+                    ><strong
+                        >{{ window.maximumDurationMilliseconds === null ? '—' :
+                        (window.maximumDurationMilliseconds | number:'1.0-0') + ' ms' }}</strong
+                    ><small class="muted">Finished attempts in this window</small>
+                </article>
+            </div>
+        </section>
+        } @else if (metricsError()) {
+        <p class="muted" role="status">{{ metricsError() }}</p>
+        } } @if (section() === 'executions' && can('executions.read')) {
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
@@ -563,6 +605,7 @@
                             <th>Queues</th>
                             <th>Processors</th>
                             <th>Admission</th>
+                            <th>Acquisition health</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -592,10 +635,19 @@
                                 </button>
                                 }
                             </td>
+                            <td>
+                                {{ acquisitionStatus(worker) }} @if
+                                (worker.acquisition?.lastSucceededAt) {
+                                <small class="muted"
+                                    >{{ worker.acquisition!.lastSucceededAt | date:'mediumTime'
+                                    }}</small
+                                >
+                                }
+                            </td>
                         </tr>
                         } @empty {
                         <tr>
-                            <td colspan="6" class="live-empty">No worker heartbeats recorded.</td>
+                            <td colspan="7" class="live-empty">No worker heartbeats recorded.</td>
                         </tr>
                         }
                     </tbody>
@@ -654,7 +706,90 @@
                 </table>
             </div>
         </section>
-        } @if (section() === 'archives') {
+        } @if (section() === 'archives') { @if (retentionError()) {
+        <p class="live-alert" role="status">{{ retentionError() }}</p>
+        } @if (retention(); as maintenance) {
+        <section class="live-panel" aria-label="Automatic retention">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Automatic retention</h2>
+                    @if (maintenance.lastFailureCode) {
+                    <p class="live-alert">
+                        {{ label(maintenance.lastFailureCode) }} · {{ maintenance.lastFailureAt |
+                        date:'medium' }}
+                    </p>
+                    }
+                    <p class="muted">
+                        {{ maintenance.configuration?.policy?.enabled ? 'Enabled' : 'Disabled' }} ·
+                        {{ maintenance.maintenanceActive ? 'Batch in progress' :
+                        maintenance.pendingBatchId ? 'Batch awaiting recovery' : 'No active batch'
+                        }}
+                    </p>
+                </div>
+            </div>
+            <div class="live-panel-heading">
+                <div>
+                    @if (maintenance.configuration; as configuration) {
+                    <p>
+                        Policy revision {{ configuration.revision }} · Up to {{
+                        configuration.policy.batchSize }} units per batch
+                    </p>
+                    <p class="muted">
+                        Archive successful work after {{ configuration.policy.succeededAfter }}.
+                        Failure retention: {{ configuration.policy.failedAfter ?? 'Indefinite' }}.
+                    </p>
+                    <p class="muted">
+                        Body purge: {{ configuration.policy.purgeAfter ?? 'Disabled' }} · Verified
+                        destination: {{ configuration.policy.exportDestination ?? 'None' }}
+                    </p>
+                    } @else {
+                    <p class="muted">
+                        No automatic policy is configured. Manual archival remains available.
+                    </p>
+                    }
+                    <p>
+                        {{ maintenance.heldUnits }} held units · {{ maintenance.incidentCount }}
+                        maintenance incidents
+                    </p>
+                    @if (maintenance.lastBatch; as batch) {
+                    <p class="muted">
+                        Last batch: {{ batch.completedAt | date:'medium' }} · {{
+                        label(batch.outcome) }} · {{ batch.archived.length }} archived, {{
+                        batch.purged.length }} bodies purged, {{ batch.eventsTrimmed }} events
+                        trimmed
+                    </p>
+                    }
+                    <p class="muted">
+                        Journal retained after {{ maintenance.retainedAfterEvent }} · Latest event
+                        {{ maintenance.lastEventSequence }} · Slowest subscriber {{
+                        maintenance.slowestSubscriberPosition ?? 'None registered' }}
+                    </p>
+                </div>
+            </div>
+            @if (maintenance.incidentExamples.length) {
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Retained unit</th>
+                            <th>Maintenance issue</th>
+                            <th>Observed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (incident of maintenance.incidentExamples; track incident.unitId) {
+                        <tr>
+                            <td><code>{{ incident.unitId }}</code></td>
+                            <td>{{ label(incident.code) }}</td>
+                            <td>{{ incident.at | date:'medium' }}</td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            }
+        </section>
+        }
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>

@@ -34,7 +34,7 @@ public sealed class TransactionalJobs
 public abstract partial class RelationalJobStore : IJobOutbox
 {
     /// <summary>Commits business SQL and accepted jobs/outbox requests atomically in this database.</summary>
-    /// <remarks>Keep callbacks short, await every command, and do not call external services or commit/dispose the supplied transaction.</remarks>
+    /// <remarks>Keep callbacks short and DML-only. Await every command; do not run DDL, autonomous transactions, external calls, or commit/dispose the supplied transaction.</remarks>
     public Task<T> InTransactionAsync<T>(Func<DbConnection, DbTransaction, TransactionalJobs, CancellationToken, Task<T>> action, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(action);
@@ -55,7 +55,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
         }, cancellationToken);
     }
 
-    private static async Task<Guid> AcceptOutboxAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
+    private async Task<Guid> AcceptOutboxAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
     {
         var fingerprint = JobFingerprint(job);
         if (job.IdempotencyKey is not null)
@@ -98,7 +98,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
             var claimed = await WriteAsync<(JobRecord Job, Guid Token)?>(async (connection, transaction, ct) =>
             {
                 var now = await NowAsync(connection, transaction, ct);
-                var json = await ScalarAsync(connection, transaction, "SELECT request FROM dj_outbox WHERE status='Pending' OR (status='Delivering' AND lease_expires_at<=@now) ORDER BY id LIMIT 1", ct, ("now", now));
+                var json = await ScalarAsync(connection, transaction, $"SELECT request FROM dj_outbox WHERE status='Pending' OR (status='Delivering' AND lease_expires_at<=@now) ORDER BY id {PageSql("1")}", ct, ("now", now));
                 if (json is not string payload)
                 {
                     return null;

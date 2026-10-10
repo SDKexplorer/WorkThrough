@@ -88,11 +88,10 @@ public sealed class FlowStartTests
     public async Task Receipt_write_failure_rolls_back_the_run_steps_and_definition(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await using DbConnection connection = provider == "postgres"
-            ? new NpgsqlConnection(harness.ConnectionString) : new SqliteConnection(harness.ConnectionString);
+        await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = provider == "postgres" ? """
+        command.CommandText = provider == "oracle" ? "CREATE TRIGGER reject_start BEFORE INSERT ON dj_flow_starts BEGIN raise_application_error(-20001, 'injected start receipt failure'); END;" : provider == "sqlserver" ? "CREATE TRIGGER reject_start ON dj_flow_starts AFTER INSERT AS THROW 51000,'injected start receipt failure',1;" : provider == "postgres" ? """
             CREATE FUNCTION reject_start() RETURNS trigger LANGUAGE plpgsql AS $$
             BEGIN RAISE EXCEPTION 'injected start receipt failure'; END; $$;
             CREATE TRIGGER reject_start BEFORE INSERT ON dj_flow_starts FOR EACH ROW EXECUTE FUNCTION reject_start();

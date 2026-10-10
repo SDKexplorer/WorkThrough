@@ -1,6 +1,6 @@
 # ADR-012: retention automation and provider expansion
 
-Status: proposed, 2026-10-08. Existing archive and SQLite/PostgreSQL guarantees remain unchanged until implementation is verified.
+Status: retention implemented on SQLite/PostgreSQL, 2026-10-10; provider expansion remains proposed. [ADR-013](0013-fenced-retention-maintenance.md) records schema-4 guarantees and remaining qualification.
 
 ## Context
 

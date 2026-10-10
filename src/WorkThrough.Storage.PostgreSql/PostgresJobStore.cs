@@ -7,6 +7,23 @@ namespace WorkThrough.Storage;
 /// <summary>PostgreSQL provider with a transaction-scoped admission lock for this table set.</summary>
 public sealed class PostgresJobStore(string connectionString) : RelationalJobStore
 {
+    protected override string ReadinessWorkersSql => """
+        WITH recent AS (
+          SELECT id,seen_at,(CASE WHEN LENGTH(details)<=262144 THEN details ELSE '{}' END)::jsonb AS info
+          FROM dj_workers WHERE seen_at>=@fresh ORDER BY seen_at DESC,id LIMIT 501)
+        SELECT SUBSTR(r.id,1,512),r.seen_at,COALESCE((r.info->>'capacity')::integer,0),
+          COALESCE((r.info->>'running')::integer,0),COALESCE(c.draining,0),
+          CASE WHEN EXISTS(SELECT 1 FROM jsonb_array_elements(r.info->'processors') p WHERE
+            p->>'key'=j.job_key AND (p->>'version')::integer=j.contract_version)
+            AND EXISTS(SELECT 1 FROM jsonb_array_elements_text(r.info->'queues') q(value) WHERE q.value=j.queue) THEN 1 ELSE 0 END,
+          CASE WHEN jsonb_typeof(r.info->'processors')='array' AND jsonb_typeof(r.info->'queues')='array'
+            AND jsonb_typeof(r.info->'capacity')='number' AND jsonb_typeof(r.info->'running')='number' THEN 1 ELSE 0 END,
+          CASE WHEN LENGTH(r.id)>512 THEN 1 ELSE 0 END,(r.info->'acquisition'->>'consecutiveFailures')::integer
+        FROM recent r JOIN dj_jobs j ON j.id=@id LEFT JOIN dj_worker_controls c ON c.worker_id=r.id
+        ORDER BY r.seen_at DESC,r.id
+        """;
+    protected override string AuditActorValueSql(string field) =>
+        $"((CASE WHEN LENGTH(a.actor)<=16384 THEN a.actor ELSE '{{}}' END)::jsonb->>'{field}')";
     protected override DbConnection CreateConnection() => new NpgsqlConnection(connectionString);
     protected override string ClockSql => "SELECT CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)";
     protected override string FlowDependencySql => """
@@ -49,6 +66,11 @@ public static class PostgresRegistration
         builder.Services.AddSingleton<IJobQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IExecutionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IExecutionInspectionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IOperationHistoryQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IRuntimeQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IRetentionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IRetentionAdministration>(sp => sp.GetRequiredService<PostgresJobStore>());
+        builder.Services.AddSingleton<IRetentionMaintenance>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IJobAdministration>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<PostgresJobStore>());
         builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<PostgresJobStore>());

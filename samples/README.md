@@ -19,3 +19,5 @@ The development sample uses a negative order amount to create an intentional fai
 Use a common absolute SQLite path for separate local processes. Configure PostgreSQL for a multi-machine fleet. Only isolated Development hosts enable anonymous access. See `docs/dashboard-security.md` before configuring the standalone OIDC host; credentials and the real provider are supplied by the deployment.
 
 Run `scripts/performance.sh --smoke` for independent worker processes, real-provider load checks, and crash recovery. Use `--full` for repeated measured runs; see [performance methodology](../docs/performance.md).
+
+`Demo.Host` also accepts `Jobs__SqlServer` for a dedicated SQL Server database with snapshot isolation enabled. It also accepts `Jobs__Oracle` for an initialized dedicated Oracle schema. Configure only one of `Jobs__PostgreSql`, `Jobs__SqlServer` and `Jobs__Oracle`; otherwise startup fails explicitly. The processor definitions, flows and Angular dashboard stay the same. See [provider setup](../docs/providers.md#sql-server-setup).

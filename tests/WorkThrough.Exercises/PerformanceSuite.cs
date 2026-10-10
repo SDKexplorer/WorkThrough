@@ -115,7 +115,8 @@ internal static class PerformanceSuite
         var completed = await WaitForSuccessAsync(database, correlation, expected, workers);
         var elapsed = clock.Elapsed.TotalSeconds;
         var cpu = workers.Sum(w => w.Cpu.TotalMilliseconds) - beforeCpu;
-        var peakBytes = workers.Sum(w => w.PeakBytes);
+        var workerPeaks = workers.Select(worker => worker.PeakBytes).ToArray();
+        long? peakBytes = workerPeaks.All(peak => peak > 0) ? workerPeaks.Sum() : null;
         parentCpu = parent.TotalProcessorTime.TotalMilliseconds - parentCpu;
         var attempts = new List<(JobRecord Job, JobAttempt Attempt)>();
         foreach (var job in completed)
@@ -206,4 +207,4 @@ internal sealed record Distribution(double Min, double P50, double P95, double P
 internal sealed record RunResult(string Scenario, int Repetition, string DatabaseVersion, int Jobs, int Operations,
     double JobsPerSecond, double AcceptedOperationsPerSecond, Distribution AcceptanceMs, Distribution QueueWaitMs,
     Distribution EndToEndMs, Distribution AttemptMs, double WallSeconds, double WorkerCpuMs, double HarnessCpuMs,
-    long SumWorkerPeakRssBytes, double IdleWorkerCpuPercentOfOneCore, int MaximumGlobalLeases, int MaximumLimitedLeases);
+    long? SumWorkerPeakRssBytes, double IdleWorkerCpuPercentOfOneCore, int MaximumGlobalLeases, int MaximumLimitedLeases);

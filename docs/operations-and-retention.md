@@ -1,6 +1,6 @@
 # Transactions, operations, and retention
 
-This document describes implemented operations. Automatic maintenance, retention holds and verified external-export receipts are proposed in [storage evolution](../specs/storage-evolution.spec.md); they are not available configuration options yet.
+This document describes implemented operations on SQLite/PostgreSQL. Automatic retention is opt-in and uses schema 4; see [ADR-013](adr/0013-fenced-retention-maintenance.md) for migration and failure boundaries. The broader [storage plan](../specs/storage-evolution.spec.md) still includes provider and load qualification work.
 
 ## Business writes and separate job databases
 
@@ -33,13 +33,56 @@ Retry/recover retains a job's logical identity and effect key. Replay intentiona
 
 Start with one configured store per environment. `ArchiveCandidatesAsync` previews a bounded policy. `ArchiveCompletedAsync` moves at most ten units per call: a terminal standalone execution or a whole completed flow. Active, Paused, and Incident flows remain live. Failures/cancellations/rejections/expiry require a separate failure cutoff; the dashboard's initial archive action selects successful work only. The preview is advisory and candidates are reselected atomically when the command executes.
 
-Archive packages contain job inputs/outputs, attempts, diagnostics, the pinned flow definition/input, signals, and event history. SHA-256 identifies the UTF-8 exported JSON. Bounds cap jobs, evidence counts, accumulated evidence size, and final package size. Oversized executions require separately designed streaming export rather than loading an unbounded package. An oversized oldest candidate blocks that batch and must be investigated.
+Archive packages contain job inputs/outputs, attempts, diagnostics, the pinned flow definition/input, signals, and event history. SHA-256 identifies the UTF-8 exported JSON. Bounds cap jobs, evidence counts, accumulated evidence size, and final package size. Oversized executions require separately designed streaming export rather than loading an unbounded package. An oversized candidate rejects a manual batch; automatic maintenance instead records an incident, preserves the unit and proceeds to other units on subsequent batches. `RetryRetentionIncidentAsync` removes that exclusion through an audited command after investigation.
 
 Export and verify a copy before using `PurgeArchiveAsync(id, expectedHash, command)` to remove the stored body. Purge keeps the archive tombstone and hash. The SDK operation is intentionally explicit; the dashboard exports but does not purge. Export contains sensitive data and requires both metadata and payload permissions. Deployments may add payload-access logging at the host boundary.
 
-Job/flow/signal request receipts, command receipts, audits, and definitions have separate lifetimes. Archival and body purge do not remove them. That preserves deduplication across retry, old producers, and restore windows, but these tables can still grow. There is no automatic destructive retention job. Event trimming is separately audited and blocked by lagging subscriptions or unarchived executions.
+Job/flow/signal request receipts, command receipts, audits, and definitions have separate lifetimes. Archival and body purge do not remove them. That preserves deduplication across retry, old producers, and restore windows, but these tables can still grow. Event trimming is separately enabled and blocked by lagging subscriptions, held evidence or unarchived executions.
 
 Separate hot/archive tables improve query isolation, not physical disk reclamation. PostgreSQL vacuum and SQLite checkpoint/vacuum require provider-specific maintenance windows. Do not split a live flow across databases. Cross-database/object-store archival uses export → verified external copy → explicit body purge, without a distributed transaction on the worker path.
+
+## Opt-in automatic maintenance
+
+Register maintenance in a web host or generic background host independently of processors:
+
+```csharp
+builder.Services.AddWorkThrough()
+    .UsePostgreSql(connectionString)
+    .AddArchiveDirectory("operations-vault-v1", archiveDirectory)
+    .AddRetentionMaintenance(options =>
+    {
+        options.Actor = new("my-service", "retention-worker");
+        options.PollInterval = TimeSpan.FromMinutes(1);
+        options.BatchBudget = TimeSpan.FromSeconds(5);
+    });
+```
+
+`archiveDirectory` must be an absolute, operator-controlled path on suitable durable storage. Protect it as payload data. Changing its location/durability contract requires a new destination ID. Register only hosts that have access to the destination selected by the persisted policy. Missing or failed destinations produce incidents and retain bodies; they never fall back to another path.
+
+Registration does **not** enable deletion. Configure the database once through `IRetentionAdministration` using the current revision and a trusted actor:
+
+```csharp
+var policy = new RetentionPolicy(
+    SucceededAfter: TimeSpan.FromDays(7),
+    FailedAfter: TimeSpan.FromDays(30),
+    Enabled: true,
+    BatchSize: 1,
+    PurgeAfter: TimeSpan.FromDays(90),
+    ExportDestination: "operations-vault-v1");
+
+await retention.ConfigureRetentionAsync(policy, expectedRevision,
+    new AdministrativeCommand(commandId, operatorActor, "Apply the approved retention policy"), ct);
+```
+
+These durations are an example, not defaults. Omit `FailedAfter` to retain unsuccessful executions indefinitely. Omit both `PurgeAfter` and `ExportDestination` to keep archive bodies. `EventsAfter` is a separate opt-in age for journal cleanup, additionally bounded by every subscriber and live/held evidence. Maintenance does not expire acceptance receipts or audit records. Policy revisions survive deployments; do not overwrite them on every application startup.
+
+`SetRetentionHoldAsync(unitId, held, expectedRevision, command)` protects a whole unit from manual/automatic archival, body purge and event trimming. For a live flow step, use the returned flow ID for future hold reads/changes. Holds do not restore previously removed evidence. Hold reasons remain in protected audit data. Release holds and retry incidents only after reviewing why evidence was retained.
+
+Each cycle handles one persisted batch, then yields for the configured interval. A crashed host's lease expires and another host can resume its batch. Shutdown never means cleanup succeeded. Partial writes, checkpoint changes and audit roll back together. A lost response can be reconciled by rerunning the same batch handle; finished batches return their durable result. An export can succeed before a crash: the same immutable file is verified and reused. Automatic purge only follows recorded verification for that batch and rechecks current policy/hold state.
+
+`IRetentionQueries.ReadRetentionStatusAsync` exposes policy, pending ownership, last result, bounded failure codes, hold/incident counts, up to 100 incident examples and journal/subscriber positions without bodies, reasons or lease tokens. The Archives tab and read-only `workthrough_get_retention` tool use it. Dashboard reads require `executions.read` plus `retention.read`; configuration, holds and incident retry require `retention.manage`, CSRF protection and an audited command. APIs are `/api/retention`, `/api/retention/policy`, `/api/retention/holds/{unitId}` and `/api/retention/incidents/{unitId}/retry` beneath the configured dashboard path. The console currently inspects maintenance; configure it through these APIs or the SDK.
+
+Timeout/failure keeps a pending batch; failure evidence is saved when the store and lease remain available. Host logs are still necessary when the database itself is unreachable. The cancellation budget is cooperative, particularly with SQLite. Measure maintenance impact before enabling it under production load; the full contention/soak and restore campaigns remain pending.
 
 ## Restore and reconciliation
 

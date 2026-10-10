@@ -13,7 +13,12 @@ public sealed record JobHealth(string Reason, bool SuspectedStalled, DateTimeOff
 public sealed record ExecutionEvent(long Sequence, Guid JobId, Guid? RunId, DateTimeOffset At, string Kind, int Attempt);
 public sealed record ProcessorDescription(JobContractId Identity, JobContractId CanonicalIdentity, string? DisplayName);
 public sealed record WorkerHeartbeat(string WorkerId, DateTimeOffset SeenAt, IReadOnlyList<JobContractId> Processors,
-    IReadOnlyList<string> Queues, int Capacity, int Running, IReadOnlyList<ProcessorDescription>? Descriptions = null);
+    IReadOnlyList<string> Queues, int Capacity, int Running, IReadOnlyList<ProcessorDescription>? Descriptions = null)
+{
+    public WorkerAcquisition? Acquisition { get; init; }
+}
+/// <summary>Worker-reported acquisition observations. A successful empty poll also resets consecutive failures.</summary>
+public sealed record WorkerAcquisition(DateTimeOffset? LastAttemptAt, DateTimeOffset? LastSucceededAt, int ConsecutiveFailures);
 
 public interface IJobDiagnostics
 {

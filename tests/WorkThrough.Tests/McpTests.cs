@@ -43,7 +43,7 @@ public sealed partial class McpTests
             EnableStandaloneGetStream = false
         }, http));
         var tools = await client.ListToolsAsync();
-        Assert.Equal(5, tools.Count);
+        Assert.Equal(9, tools.Count);
         Assert.All(tools, tool =>
         {
             Assert.True(tool.ProtocolTool.Annotations!.ReadOnlyHint);
@@ -277,7 +277,8 @@ public sealed partial class McpTests
 
         internal static async Task<McpTestHost> CreateAsync(StoreHarness harness, Guid? deniedId = null, int requestsPerMinute = 120,
             IExecutionQueries? queries = null, int concurrentRequests = 16, Guid? deniedRun = null,
-            bool includeInspection = true, IMcpDiagnosticRedactor? redactor = null, ILoggerProvider? loggerProvider = null)
+            bool includeInspection = true, IMcpDiagnosticRedactor? redactor = null, ILoggerProvider? loggerProvider = null,
+            bool includeHistory = true, Guid? deniedArchive = null, bool includeRuntime = true, bool includeRetention = true)
         {
             var key = RSA.Create(2048);
             var audit = new AccessRecorder();
@@ -289,10 +290,27 @@ public sealed partial class McpTests
             }
 
             builder.WebHost.UseTestServer();
+            await harness.ProvisionReadOnlySqlServerAsync();
+            await harness.ProvisionReadOnlyOracleAsync();
             builder.Services.AddSingleton<IExecutionQueries>(queries ?? ReadOnlyQueries(harness));
             if (includeInspection)
             {
                 builder.Services.AddSingleton<IExecutionInspectionQueries>((IExecutionInspectionQueries)ReadOnlyQueries(harness));
+            }
+
+            if (includeHistory)
+            {
+                builder.Services.AddSingleton<IOperationHistoryQueries>((IOperationHistoryQueries)ReadOnlyQueries(harness));
+            }
+
+            if (includeRuntime)
+            {
+                builder.Services.AddSingleton<IRuntimeQueries>((IRuntimeQueries)ReadOnlyQueries(harness));
+            }
+
+            if (includeRetention)
+            {
+                builder.Services.AddSingleton<IRetentionQueries>((IRetentionQueries)ReadOnlyQueries(harness));
             }
 
             if (redactor is not null)
@@ -320,7 +338,8 @@ public sealed partial class McpTests
             builder.Services.AddAuthorization(options => options.AddPolicy(OperationPermissions.PolicyPrefix + OperationPermissions.ReadExecutions,
                 policy => policy.RequireAuthenticatedUser().RequireClaim(OperationPermissions.ClaimType, OperationPermissions.ReadExecutions)
                     .RequireAssertion(context => context.Resource is OperationResource resource && (deniedId is null || resource.ExecutionId != deniedId)
-                        && (deniedRun is null || resource.WorkflowRunId != deniedRun))));
+                        && (deniedRun is null || resource.WorkflowRunId != deniedRun)
+                        && (deniedArchive is null || resource.ArchiveId != deniedArchive))));
             var app = builder.Build();
             app.UseAuthentication();
             app.UseAuthorization();
@@ -332,6 +351,16 @@ public sealed partial class McpTests
 
         private static IExecutionQueries ReadOnlyQueries(StoreHarness harness)
         {
+            if (harness.Store is OracleJobStore)
+            {
+                return new OracleJobStore(harness.ReadOnlyConnectionString!, new(Schema: harness.OracleSchema));
+            }
+
+            if (harness.Store is SqlServerJobStore)
+            {
+                return new SqlServerJobStore(harness.ReadOnlyConnectionString!);
+            }
+
             if (harness.Store is SqliteJobStore)
             {
                 return new SqliteJobStore(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(harness.ConnectionString)
@@ -348,19 +377,21 @@ public sealed partial class McpTests
             }.ToString());
         }
 
-        internal HttpClient Client(bool authenticated = true, bool permission = true, string subject = "operator", bool payloads = false)
+        internal HttpClient Client(bool authenticated = true, bool permission = true, string subject = "operator", bool payloads = false,
+            bool audit = false, bool retention = false)
         {
             var client = app.GetTestClient();
             client.BaseAddress = new("https://localhost");
             if (authenticated)
             {
-                client.DefaultRequestHeaders.Authorization = new("Bearer", Token(permission: permission, subject: subject, payloads: payloads));
+                client.DefaultRequestHeaders.Authorization = new("Bearer", Token(permission: permission, subject: subject, payloads: payloads, audit: audit, retention: retention));
             }
 
             return client;
         }
 
-        internal string Token(string audience = Resource, bool expired = false, string issuer = Issuer, bool permission = true, string subject = "operator", bool payloads = false)
+        internal string Token(string audience = Resource, bool expired = false, string issuer = Issuer, bool permission = true, string subject = "operator", bool payloads = false,
+            bool audit = false, bool retention = false)
         {
             var claims = new List<Claim> { new("sub", subject), new("client_id", "integration-client") };
             if (permission)
@@ -371,6 +402,16 @@ public sealed partial class McpTests
             if (payloads)
             {
                 claims.Add(new(OperationPermissions.ClaimType, OperationPermissions.ReadPayloads));
+            }
+
+            if (audit)
+            {
+                claims.Add(new(OperationPermissions.ClaimType, OperationPermissions.ReadAudit));
+            }
+
+            if (retention)
+            {
+                claims.Add(new(OperationPermissions.ClaimType, OperationPermissions.ReadRetention));
             }
 
             var token = new JwtSecurityToken(issuer, audience, claims, DateTime.UtcNow.AddHours(-1),

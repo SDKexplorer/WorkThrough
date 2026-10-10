@@ -48,8 +48,10 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             }
 
             var now = await NowAsync(connection, transaction, ct);
-            await ExecuteAsync(connection, transaction, "INSERT INTO dj_signals(run_id,name,payload,received_at) VALUES (@run,@name,@input,@now); INSERT INTO dj_signal_receipts(run_id,idempotency_key,fingerprint) VALUES (@run,@key,@hash)", ct,
-                ("run", runId.ToString()), ("name", name), ("input", input.GetRawText()), ("now", now), ("key", idempotencyKey), ("hash", hash));
+            await ExecuteAsync(connection, transaction, "INSERT INTO dj_signals(run_id,name,payload,received_at) VALUES (@run,@name,@input,@now)", ct,
+                ("run", runId.ToString()), ("name", name), ("input", input.GetRawText()), ("now", now));
+            await ExecuteAsync(connection, transaction, "INSERT INTO dj_signal_receipts(run_id,idempotency_key,fingerprint) VALUES (@run,@key,@hash)", ct,
+                ("run", runId.ToString()), ("key", idempotencyKey), ("hash", hash));
             await AdvanceWorkflowAsync(connection, transaction, runId, ct);
 
             return true;
@@ -69,9 +71,9 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
     private async Task<int> DispatchSignalsCoreAsync(DbConnection connection, DbTransaction transaction, long now, int batchSize, CancellationToken ct)
     {
         var runs = new List<Guid>();
-        await using (var command = Command(connection, transaction, """
+        await using (var command = Command(connection, transaction, $"""
             SELECT DISTINCT w.run_id FROM dj_signal_waits w JOIN dj_jobs j ON j.id=w.job_id JOIN dj_flows f ON f.id=w.run_id
-            WHERE j.status='AwaitingSignal' AND f.status='Running' AND (w.deadline<=@now OR EXISTS (SELECT 1 FROM dj_signals s WHERE s.run_id=w.run_id AND s.name=w.name)) LIMIT @limit
+            WHERE j.status='AwaitingSignal' AND f.status='Running' AND (w.deadline<=@now OR EXISTS (SELECT 1 FROM dj_signals s WHERE s.run_id=w.run_id AND s.name=w.name)) ORDER BY w.run_id {PageSql("@limit")}
             """, ("now", now), ("limit", batchSize)))
         {
             await using (var reader = await command.ExecuteReaderAsync(ct))

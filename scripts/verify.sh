@@ -39,3 +39,6 @@ Lifecycle__BusinessConnection="Data Source=$lifecycle_dir/business.db" Lifecycle
 
 # Independent process termination and a bounded performance/correctness smoke campaign.
 WORKTHROUGH_DOTNET8="$runtime8" ./scripts/performance.sh --smoke
+
+# Official MCP clients must remain bounded and redacted while real workers make progress.
+WORKTHROUGH_DOTNET8="$runtime8" ./scripts/investigation.sh --smoke

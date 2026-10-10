@@ -54,7 +54,7 @@ internal sealed class InspectionTools(IMcpDiagnosticRedactor redactor, IExecutio
 
     private IExecutionInspectionQueries Queries => queries ?? throw new NotSupportedException("Inspection queries are not registered.");
 
-    private static async Task<T> ReadSafelyAsync<T>(Func<Task<T>> read)
+    internal static async Task<T> ReadSafelyAsync<T>(Func<Task<T>> read)
     {
         try
         {

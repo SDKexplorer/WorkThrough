@@ -30,10 +30,22 @@ jobs:
       - run: npm run build
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: WorkThrough_Test_2026!
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'WorkThrough_Test_2026!' -C -Q 'SELECT 1' -b"
+          --health-interval 5s --health-timeout 5s --health-retries 30
       postgres:
-        image: postgres:17-alpine
+        # Docker Official Images mirror avoids Docker Hub's shared-runner anonymous pull quota.
+        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: durablejobs-test
@@ -44,6 +56,7 @@ jobs:
           --health-cmd "pg_isready -U postgres -d durablejobs"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
+      DURABLEJOBS_SQLSERVER: Server=127.0.0.1,1433;User ID=sa;Password=WorkThrough_Test_2026!;TrustServerCertificate=true;Encrypt=true
       DURABLEJOBS_POSTGRES: Host=127.0.0.1;Port=5432;Database=durablejobs;Username=postgres;Password=durablejobs-test
     steps:
       - uses: actions/checkout@v7
@@ -64,4 +77,52 @@ jobs:
         if: always()
         with:
           name: performance-smoke
+          path: artifacts/performance/*.json
+  oracle:
+    # Separate runner: Oracle and SQL Server would compete for a single runner's memory.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      oracle:
+        image: container-registry.oracle.com/database/free:23.26.3.0-lite-amd64@sha256:770ca58ab319d8cfde610b0db25c06899ce0af9591c4addfa10d2cb8f0318e65
+        env:
+          ORACLE_PWD: WorkThrough_Oracle_2026
+        ports:
+          - 1521:1521
+        options: >-
+          --shm-size 1g
+          --health-cmd "/opt/oracle/checkDBStatus.sh"
+          --health-interval 10s --health-timeout 10s --health-retries 30
+    env:
+      DURABLEJOBS_ORACLE: User Id=system;Password=WorkThrough_Oracle_2026;Data Source=127.0.0.1:1521/FREEPDB1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dashboard-ui/package-lock.json
+      - name: Provision disposable integration-test tablespace and migration grant
+        env:
+          ORACLE_CONTAINER: ${{ job.services.oracle.id }}
+        run: |
+          docker exec -i "$ORACLE_CONTAINER" sqlplus -s / as sysdba <<'SQL'
+          WHENEVER SQLERROR EXIT SQL.SQLCODE
+          ALTER SESSION SET CONTAINER=FREEPDB1;
+          CREATE TABLESPACE USERS DATAFILE '/opt/oracle/oradata/workthrough-tests.dbf' SIZE 100M AUTOEXTEND ON NEXT 100M MAXSIZE 2G;
+          GRANT EXECUTE ON SYS.DBMS_LOCK TO SYSTEM WITH GRANT OPTION;
+          EXIT;
+          SQL
+      - run: ./scripts/verify.sh
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: oracle-performance-smoke
           path: artifacts/performance/*.json
