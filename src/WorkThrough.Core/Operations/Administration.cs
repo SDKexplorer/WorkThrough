@@ -24,6 +24,18 @@ public interface IJobAdministration
     Task<Result> RecoverStepAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> SetFlowPausedAsync(Guid id, bool paused, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> ChangeLimitAsync(ConcurrencyLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>Creates or replaces the partition limit for its scope.</summary>
+    Task<Result> SetPartitionLimitAsync(PartitionLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the partition limit for a job key, or the all-work limit when the key is null.</summary>
+    Task<Result> RemovePartitionLimitAsync(string? jobKey, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>Creates or replaces the rate limit for its scope and partitioning.</summary>
+    Task<Result> SetRateLimitAsync(RateLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    Task<Result> RemoveRateLimitAsync(string? jobKey, bool perPartition, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<AuditEntry>> AuditAsync(int limit = 100, CancellationToken cancellationToken = default);
 }
 

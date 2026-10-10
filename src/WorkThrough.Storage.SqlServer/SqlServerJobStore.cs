@@ -8,6 +8,7 @@ namespace WorkThrough.Storage;
 /// <remarks>Use a dedicated database with ALLOW_SNAPSHOT_ISOLATION enabled. Identity strings may not end in a space.</remarks>
 public sealed partial class SqlServerJobStore : RelationalJobStore
 {
+    private const int PartitionedSchemaPredecessor = 4;
     private readonly string connectionString;
 
     public SqlServerJobStore(string connectionString)
@@ -69,7 +70,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
         return command;
     }
 
-    private static bool IsIdentityParameter(string name) => name is "id" or "job" or "run" or "flow" or "worker" or "key"
+    private static bool IsIdentityParameter(string name) => name is "id" or "job" or "run" or "flow" or "worker" or "key" or "partition"
         or "name" or "correlation" or "queue" or "step" or "target" or "alias" or "group" or "destination" or "action"
         || name.StartsWith("queue", StringComparison.Ordinal) || name.StartsWith("key", StringComparison.Ordinal);
 
@@ -108,12 +109,15 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
 
         await ExecuteAsync(connection, transaction, "IF OBJECT_ID(N'dj_schema',N'U') IS NULL CREATE TABLE dj_schema(version int NOT NULL PRIMARY KEY)", ct);
         var version = await ScalarAsync(connection, transaction, "SELECT MAX(version) FROM dj_schema", ct);
-        if (version is not null and not DBNull && Convert.ToInt32(version) != SchemaVersion)
+        // Schema 4 stores upgrade in place; stop schema-4 writers first because they ignore the new admission policies.
+        if (version is not null and not DBNull && Convert.ToInt32(version) is not (PartitionedSchemaPredecessor or SchemaVersion))
         {
             throw new InvalidOperationException("Unsupported SQL Server WorkThrough schema version. Stop writers and use a compatible migration.");
         }
 
         await ExecuteAsync(connection, transaction, SqlServerSchema, ct);
+        await ExecuteAsync(connection, transaction, SqlServerAdmissionSchema, ct);
+        await ExecuteAsync(connection, transaction, SqlServerAdmissionIndexes, ct);
         await ExecuteAsync(connection, transaction, """
             IF NOT EXISTS(SELECT 1 FROM dj_store) INSERT INTO dj_store(id) VALUES (@id);
             IF NOT EXISTS(SELECT 1 FROM dj_schema WHERE version=@version) INSERT INTO dj_schema(version) VALUES (@version);

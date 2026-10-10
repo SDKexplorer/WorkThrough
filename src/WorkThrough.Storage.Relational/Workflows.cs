@@ -6,19 +6,26 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore
 {
     public Task<Guid> StartWorkflowAsync(FlowDefinition definition, JsonElement input, string? correlationId, CancellationToken cancellationToken = default)
-        => StartWorkflowCoreAsync(definition, input, correlationId, null, cancellationToken);
+        => StartWorkflowAsync(definition, input, new FlowStart(correlationId), cancellationToken);
 
     public Task<Guid> StartWorkflowAsync(FlowDefinition definition, JsonElement input, string? correlationId, string idempotencyKey, CancellationToken cancellationToken = default)
     {
         WorkflowClient.ValidateIdempotencyKey(idempotencyKey);
 
-        return StartWorkflowCoreAsync(definition, input, correlationId, idempotencyKey, cancellationToken);
+        return StartWorkflowAsync(definition, input, new FlowStart(correlationId, idempotencyKey), cancellationToken);
     }
 
-    private Task<Guid> StartWorkflowCoreAsync(FlowDefinition definition, JsonElement input, string? correlationId, string? idempotencyKey, CancellationToken cancellationToken)
+    public Task<Guid> StartWorkflowAsync(FlowDefinition definition, JsonElement input, FlowStart start, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(start);
         FlowValidator.Validate(definition);
-        var fingerprint = idempotencyKey is null ? null : Fingerprint(new { definition, input, correlationId });
+        start.Validate();
+        var (correlationId, idempotencyKey, partitionKey) = (start.CorrelationId, start.IdempotencyKey, start.PartitionKey);
+
+        // Unpartitioned starts keep the fingerprint shape of earlier releases, so existing receipts still match.
+        var fingerprint = idempotencyKey is null ? null
+            : partitionKey is null ? Fingerprint(new { definition, input, correlationId })
+            : Fingerprint(new { definition, input, correlationId, partitionKey });
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
@@ -69,7 +76,10 @@ public abstract partial class RelationalJobStore
             foreach (var step in definition.Steps)
             {
                 await InsertJobAsync(connection, transaction, new(Guid.NewGuid(), step.Contract, step.Input, step.Queue,
-                    correlationId, JobStatus.Waiting, 0, step.MaxAttempts, now, now, WorkflowRunId: runId, StepId: step.Id), ct);
+                    correlationId, JobStatus.Waiting, 0, step.MaxAttempts, now, now, WorkflowRunId: runId, StepId: step.Id)
+                {
+                    PartitionKey = partitionKey
+                }, ct);
             }
 
             await AdvanceWorkflowAsync(connection, transaction, runId, ct);

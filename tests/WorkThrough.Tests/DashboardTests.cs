@@ -108,6 +108,7 @@ public sealed class DashboardTests
         builder.Services.AddSingleton<IExecutionOperations>(harness.Store);
         builder.Services.AddSingleton<IExecutionArchives>(harness.Store);
         builder.Services.AddSingleton<IProcessorRegistry>(harness.Store);
+        builder.Services.AddSingleton<IAdmissionPolicies>(harness.Store);
         builder.Services.AddSingleton<IRuntimeQueries>(harness.Store);
         builder.Services.AddSingleton<IRetentionQueries>(harness.Store);
         builder.Services.AddSingleton<IRetentionAdministration>(harness.Store);
@@ -151,6 +152,11 @@ public sealed class DashboardTests
             new DashboardCommand(Guid.NewGuid(), "Retry an execution that was never accepted"))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/jobs/api/limits",
             new LimitCommand(new(null, -1), new(Guid.NewGuid(), "Negative limit")))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/jobs/api/limits/partition",
+            new PartitionLimitCommand(new(null, 1), new(Guid.NewGuid(), "One attempt per customer")))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/jobs/api/limits/rate",
+            new RateLimitCommand(new(null, 5, TimeSpan.Zero), new(Guid.NewGuid(), "Window too short")))).StatusCode);
+        Assert.Contains("\"maximumPerPartition\":1", await client.GetStringAsync("/jobs/api/admission"));
         client.DefaultRequestHeaders.Remove("X-Test-User");
         client.DefaultRequestHeaders.Add("X-Test-User", "unidentified");
 
@@ -159,7 +165,9 @@ public sealed class DashboardTests
         client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
         client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", unidentifiedToken.RootElement.GetProperty("token").GetString());
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/retry", new DashboardCommand(Guid.NewGuid(), "No subject", 1))).StatusCode);
-        Assert.Equal("operator", Assert.Single(await harness.Store.AuditAsync()).Actor.Subject);
+        var audit = await harness.Store.AuditAsync();
+        Assert.Equal([AuditActions.SetPartitionLimit, AuditActions.ConfigureRetention], audit.Select(entry => entry.Action).Order(StringComparer.Ordinal));
+        Assert.All(audit, entry => Assert.Equal("operator", entry.Actor.Subject));
     }
 
     public sealed class TestAuthentication(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)

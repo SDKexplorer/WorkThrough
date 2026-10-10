@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WorkThrough;
 
@@ -26,6 +27,10 @@ public sealed record JobRecord(
     /// <summary>For immediate acceptance envelopes, assign creation and eligibility from the destination storage clock.</summary>
     /// <remarks>Preserved by the outbox; cleared on acceptance. Existing envelopes without this flag retain their explicit times.</remarks>
     public bool UseStorageTime { get; init; }
+
+    /// <summary>Optional admission partition, such as a customer ID. Independent of <see cref="CorrelationId"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PartitionKey { get; init; }
 }
 
 public sealed record JobAttempt(

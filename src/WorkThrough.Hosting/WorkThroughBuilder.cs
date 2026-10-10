@@ -32,7 +32,7 @@ public sealed class WorkThroughBuilder
         where TStore : class, IJobStore, IJobQueries, IExecutionQueries, IExecutionInspectionQueries, IOperationHistoryQueries,
         IRuntimeQueries, IRetentionQueries, IRetentionAdministration, IRetentionMaintenance, IJobAdministration, IWorkflowDefinitions,
         IJobDiagnostics, IJobSchedules, IDeploymentQueries, IProcessorRegistry, IExecutionOperations, IExecutionArchives,
-        IWorkflowSignals, IJobOutbox, IExecutionEvents
+        IWorkflowSignals, IJobOutbox, IExecutionEvents, IAdmissionPolicies
     {
         ArgumentNullException.ThrowIfNull(store);
         Services.AddSingleton(store);
@@ -42,7 +42,7 @@ public sealed class WorkThroughBuilder
             typeof(IRuntimeQueries), typeof(IRetentionQueries), typeof(IRetentionAdministration), typeof(IRetentionMaintenance),
             typeof(IJobAdministration), typeof(IWorkflowDefinitions), typeof(IJobDiagnostics), typeof(IJobSchedules), typeof(IDeploymentQueries),
             typeof(IProcessorRegistry), typeof(IExecutionOperations), typeof(IExecutionArchives), typeof(IWorkflowSignals), typeof(IJobOutbox),
-            typeof(IExecutionEvents)
+            typeof(IExecutionEvents), typeof(IAdmissionPolicies)
         ];
         foreach (var port in ports)
         {
@@ -179,6 +179,22 @@ public sealed class WorkThroughBuilder
     public WorkThroughBuilder SeedClusterLimits(params ConcurrencyLimit[] limits)
     {
         Initialization.Limits.AddRange(limits);
+
+        return this;
+    }
+
+    /// <summary>Sets initial partition limits. Existing database policies survive restarts and deployments.</summary>
+    public WorkThroughBuilder SeedPartitionLimits(params PartitionLimit[] limits)
+    {
+        Initialization.PartitionLimits.AddRange(limits);
+
+        return this;
+    }
+
+    /// <summary>Sets initial rate limits. Existing database policies survive restarts and deployments.</summary>
+    public WorkThroughBuilder SeedRateLimits(params RateLimit[] limits)
+    {
+        Initialization.RateLimits.AddRange(limits);
 
         return this;
     }

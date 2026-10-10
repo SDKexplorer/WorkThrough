@@ -26,6 +26,8 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
     protected override string AuditActorValueSql(string field) =>
         $"((CASE WHEN LENGTH(a.actor)<=16384 THEN a.actor ELSE '{{}}' END)::jsonb->>'{field}')";
     protected override DbConnection CreateConnection() => new NpgsqlConnection(connectionString);
+    protected override string ColumnExistsSql =>
+        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=@table AND column_name=@column";
     protected override string ClockSql => "SELECT CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)";
     protected override string FlowDependencySql => """
         SELECT DISTINCT predecessor_job.id,successor_job.id
@@ -37,8 +39,22 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
         WHERE f.id=@run ORDER BY successor_job.id,predecessor_job.id LIMIT @limit OFFSET @offset
         """;
 
-    protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
-        await connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
+    protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken)
+    {
+        var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
+        try
+        {
+            // Store reads are bounded and index-driven; JIT compilation would dominate their cost, as in admission.
+            await ExecuteAsync(connection, transaction, "SET LOCAL jit = off", cancellationToken);
+
+            return transaction;
+        }
+        catch
+        {
+            await transaction.DisposeAsync();
+            throw;
+        }
+    }
 
     private const long AdmissionLockKey = 68491730251;
 
@@ -48,7 +64,9 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
         try
         {
             // One short write boundary per database. Handlers never run while this lock is held.
-            await ExecuteAsync(connection, transaction, "SELECT pg_advisory_xact_lock(@key)", cancellationToken, ("key", AdmissionLockKey));
+            // Admission statements touch few rows, but their correlated policy checks have high estimated costs. JIT compilation
+            // then costs hundreds of milliseconds per claim for no benefit, so it is disabled for this transaction only.
+            await ExecuteAsync(connection, transaction, "SELECT pg_advisory_xact_lock(@key); SET LOCAL jit = off", cancellationToken, ("key", AdmissionLockKey));
 
             return transaction;
         }

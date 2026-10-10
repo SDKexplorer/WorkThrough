@@ -19,6 +19,9 @@ public static partial class DashboardEndpoints
         group.MapPost("/api/queues", async (QueueControlCommand request, HttpContext context, IExecutionOperations operations, CancellationToken ct) =>
             ToHttp(await operations.SetQueuePausedAsync(request.Queue, request.Paused, request.Command.ExpectedRevision, Command(context, options, request.Command), ct)))
             .Mutation(options, OperationPermissions.ManageQueues);
+        group.MapPost("/api/queues/weight", async (QueueWeightCommand request, HttpContext context, IExecutionOperations operations, CancellationToken ct) =>
+            ToHttp(await operations.SetQueueWeightAsync(request.Queue, request.Weight, request.Command.ExpectedRevision, Command(context, options, request.Command), ct)))
+            .Mutation(options, OperationPermissions.ManageQueues);
         group.MapPost("/api/workers", async (WorkerControlCommand request, HttpContext context, IExecutionOperations operations, CancellationToken ct) =>
             ToHttp(await operations.SetWorkerDrainingAsync(request.WorkerId, request.Draining, request.Command.ExpectedRevision, Command(context, options, request.Command), ct)))
             .Mutation(options, OperationPermissions.ManageWorkers);

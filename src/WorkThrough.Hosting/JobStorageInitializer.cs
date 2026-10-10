@@ -6,6 +6,8 @@ internal sealed class StorageInitialization
 {
     public bool Enabled { get; set; } = true;
     public List<ConcurrencyLimit> Limits { get; } = [];
+    public List<PartitionLimit> PartitionLimits { get; } = [];
+    public List<RateLimit> RateLimits { get; } = [];
 }
 
 internal sealed class JobStorageInitializer(IJobStore store, StorageInitialization initialization) : IHostedService
@@ -20,6 +22,13 @@ internal sealed class JobStorageInitializer(IJobStore store, StorageInitializati
         if (initialization.Limits.Count > 0)
         {
             await store.SeedLimitsAsync(initialization.Limits, cancellationToken);
+        }
+
+        if (initialization.PartitionLimits.Count > 0 || initialization.RateLimits.Count > 0)
+        {
+            var policies = store as IAdmissionPolicies
+                ?? throw new NotSupportedException("This provider does not support partition or rate limits.");
+            await policies.SeedAdmissionPoliciesAsync(initialization.PartitionLimits, initialization.RateLimits, cancellationToken);
         }
     }
 

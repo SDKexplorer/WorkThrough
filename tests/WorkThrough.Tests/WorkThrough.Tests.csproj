@@ -4,6 +4,7 @@
     <Compile Include="../WorkThrough.Exercises/LatencyHistogram.cs" Link="ExerciseLatencyHistogram.cs" />
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/schema1.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/schema4.sql" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../../src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />

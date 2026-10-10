@@ -19,7 +19,14 @@ public abstract partial class RelationalJobStore
         CREATE INDEX IF NOT EXISTS ix_dj_archives_history ON dj_archives(archived_at DESC,id);
         CREATE INDEX IF NOT EXISTS ix_dj_archives_correlation_history ON dj_archives(correlation_id,archived_at DESC,id);
         CREATE TABLE IF NOT EXISTS dj_job_receipts (idempotency_key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, job_id TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS dj_queue_controls (queue TEXT PRIMARY KEY,paused INTEGER NOT NULL,revision INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS dj_queue_controls (queue TEXT PRIMARY KEY,paused INTEGER NOT NULL,revision INTEGER NOT NULL,weight INTEGER NOT NULL DEFAULT 1);
+        CREATE TABLE IF NOT EXISTS dj_queue_turns (queue TEXT PRIMARY KEY,pass BIGINT NOT NULL);
+        CREATE TABLE IF NOT EXISTS dj_queue_clock (id INTEGER PRIMARY KEY,value BIGINT NOT NULL);
+        INSERT INTO dj_queue_clock(id,value) VALUES (1,0) ON CONFLICT DO NOTHING;
+        CREATE TABLE IF NOT EXISTS dj_partition_limits (job_key TEXT PRIMARY KEY,maximum INTEGER NOT NULL CHECK(maximum>=0));
+        CREATE TABLE IF NOT EXISTS dj_rate_limits (
+          job_key TEXT NOT NULL,per_partition INTEGER NOT NULL,permits INTEGER NOT NULL CHECK(permits>0),window_ms BIGINT NOT NULL CHECK(window_ms>0),
+          PRIMARY KEY(job_key,per_partition));
         CREATE TABLE IF NOT EXISTS dj_worker_controls (worker_id TEXT PRIMARY KEY,draining INTEGER NOT NULL,revision INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS dj_outbox (id TEXT PRIMARY KEY,request TEXT NOT NULL,status TEXT NOT NULL,lease_token TEXT,lease_expires_at BIGINT,idempotency_key TEXT UNIQUE,fingerprint TEXT NOT NULL,delivered_job_id TEXT);
         CREATE TABLE IF NOT EXISTS dj_store (id TEXT PRIMARY KEY);
@@ -38,6 +45,7 @@ public abstract partial class RelationalJobStore
           created_at BIGINT NOT NULL, available_at BIGINT NOT NULL,
           idempotency_key TEXT UNIQUE, workflow_run_id TEXT, step_id TEXT,
           output TEXT, error TEXT, worker_id TEXT, lease_token TEXT, lease_expires_at BIGINT, expires_at BIGINT, causation_job_id TEXT, terminal_at BIGINT,
+          partition_key TEXT,
           UNIQUE(workflow_run_id,step_id));
         CREATE INDEX IF NOT EXISTS ix_dj_jobs_ready ON dj_jobs(status,available_at,created_at);
         CREATE INDEX IF NOT EXISTS ix_dj_jobs_correlation ON dj_jobs(correlation_id,created_at);

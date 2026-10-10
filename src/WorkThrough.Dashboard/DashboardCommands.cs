@@ -17,3 +17,12 @@ public sealed record ArchiveCommand(ArchivePolicy Policy, DashboardCommand Comma
 public sealed record RetentionPolicyCommand(RetentionPolicy Policy, DashboardCommand Command);
 
 public sealed record RetentionHoldCommand(bool Held, DashboardCommand Command);
+
+public sealed record PartitionLimitCommand(PartitionLimit Limit, DashboardCommand Command);
+
+public sealed record RateLimitCommand(RateLimit Limit, DashboardCommand Command);
+
+/// <summary>Removes a partition limit, or a rate limit identified by its key and partitioning.</summary>
+public sealed record PolicyRemovalCommand(string? JobKey, DashboardCommand Command, bool PerPartition = false);
+
+public sealed record QueueWeightCommand(string Queue, int Weight, DashboardCommand Command);

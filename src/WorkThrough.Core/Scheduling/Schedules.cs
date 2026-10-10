@@ -15,7 +15,8 @@ public enum ScheduleMisfire
 
 public sealed record ScheduleDefinition(string Key, int Version, string Cron, string TimeZone, JobContractId Processor,
     JsonElement Input, string Queue = JobDefaults.Queue, int MaxAttempts = JobDefaults.MaxAttempts, ScheduleOverlap Overlap = ScheduleOverlap.SkipIfActive,
-    ScheduleMisfire Misfire = ScheduleMisfire.Coalesce, string? CorrelationId = null);
+    ScheduleMisfire Misfire = ScheduleMisfire.Coalesce, string? CorrelationId = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? PartitionKey = null);
 public sealed record StoredSchedule(ScheduleDefinition Definition, DefinitionStatus Status, int Revision, bool Enabled, DateTimeOffset? NextOccurrence);
 
 /// <summary>Outcome is one of <see cref="ScheduleOccurrenceOutcomes"/>.</summary>

@@ -33,4 +33,29 @@ public sealed class CompatibilityTests
         await query.ExecuteNonQueryAsync();
         await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Store.InitializeAsync());
     }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Schema_four_stores_upgrade_to_admission_controls_without_losing_work(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider, initialize: false);
+        await using DbConnection connection = harness.CreateConnection();
+        await connection.OpenAsync();
+        await using var query = connection.CreateCommand();
+        query.CommandText = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "schema4.sql"));
+        await query.ExecuteNonQueryAsync();
+        await harness.Store.InitializeAsync();
+        await harness.NewStore().InitializeAsync();
+
+        var queue = Assert.Single(await harness.Store.QueuesAsync());
+        Assert.Equal((2, QueueControl.DefaultWeight), (queue.Revision, queue.Weight));
+        var existing = (await harness.Store.GetAsync(Guid.Parse("44444444-4444-4444-4444-444444444444")))!;
+        Assert.Null(existing.PartitionKey);
+        await harness.Store.SeedAdmissionPoliciesAsync([new(null, 1)], []);
+        var partitioned = await new JobClient(harness.Store).EnqueueAsync(new Alpha("five"), new(PartitionKey: "customer"));
+        Assert.Equal("customer", (await harness.Store.GetAsync(partitioned))!.PartitionKey);
+        var claims = new[] { await harness.Store.ClaimAsync(Claim()), await harness.Store.ClaimAsync(Claim()) };
+        Assert.Equal(new[] { existing.Id, partitioned }.Order(), claims.Select(job => job!.Id).Order());
+    }
+
+    private static ClaimRequest Claim() => new("upgraded", [new("tests.alpha", 1)], ["default"], TimeSpan.FromSeconds(30));
 }

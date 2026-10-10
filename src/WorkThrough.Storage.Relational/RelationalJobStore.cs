@@ -9,7 +9,7 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobAdministration, IWorkflowDefinitions, IJobDiagnostics, IJobSchedules, IDeploymentQueries, IProcessorRegistry
 {
     /// <summary>The schema version this package writes. Providers refuse other versions.</summary>
-    protected const int SchemaVersion = 4;
+    protected const int SchemaVersion = 5;
 
     // Version 3 added expiry, causation and terminal timestamps to existing job tables.
     private const int TerminalTimestampsVersion = 3;
@@ -52,8 +52,16 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                     """, ct);
             }
 
-            // Old schema upgrades must add terminal_at before this optional inspection index is created.
-            await ExecuteAsync(connection, transaction, "CREATE INDEX IF NOT EXISTS ix_dj_jobs_terminal ON dj_jobs(status,terminal_at,id)", ct);
+            // Schema 5 columns are added by name: older stores may have created these tables at any earlier version.
+            await AddColumnIfMissingAsync(connection, transaction, "dj_jobs", "partition_key", "TEXT", ct);
+            await AddColumnIfMissingAsync(connection, transaction, "dj_queue_controls", "weight", "INTEGER NOT NULL DEFAULT 1", ct);
+
+            // Indexes on upgraded columns are created after the columns exist.
+            await ExecuteAsync(connection, transaction, """
+                CREATE INDEX IF NOT EXISTS ix_dj_jobs_terminal ON dj_jobs(status,terminal_at,id);
+                CREATE INDEX IF NOT EXISTS ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at);
+                CREATE INDEX IF NOT EXISTS ix_dj_attempts_started ON dj_attempts(started_at,job_id);
+                """, ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_event_sequence(id,value) SELECT 1,COALESCE(MAX(sequence),0) FROM dj_events WHERE 1=1 ON CONFLICT DO NOTHING", ct);
             if (Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_store", ct)) == 0)
             {
@@ -70,18 +78,21 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task AddColumnIfMissingAsync(DbConnection connection, DbTransaction transaction, string table, string column, string definition, CancellationToken ct)
+    {
+        if (Convert.ToInt64(await ScalarAsync(connection, transaction, ColumnExistsSql, ct, ("table", table), ("column", column))) == 0)
+        {
+            await ExecuteAsync(connection, transaction, $"ALTER TABLE {table} ADD COLUMN {column} {definition}", ct);
+        }
+    }
+
     public Task<Guid> EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default) =>
         WriteAsync((connection, transaction, ct) => AcceptJobAsync(connection, transaction, job, ct), cancellationToken);
 
-    private static string JobFingerprint(JobRecord job) => Fingerprint(new
-    {
-        job.Contract,
-        job.Payload,
-        job.Queue,
-        job.CorrelationId,
-        job.ExpiresAt,
-        job.CausationJobId
-    });
+    // Unpartitioned work keeps the fingerprint shape of earlier releases, so existing receipts still match.
+    private static string JobFingerprint(JobRecord job) => job.PartitionKey is null
+        ? Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId })
+        : Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId, job.PartitionKey });
 
     private static string Fingerprint(object value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, JobJson.Options))));
@@ -92,6 +103,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         {
             throw new ArgumentException("Inline input exceeds 1 MiB.");
         }
+
+        PartitionKeys.Validate(job.PartitionKey, nameof(job));
 
         if (job.IdempotencyKey is not null && await FindAcceptedAsync(connection, transaction, job, ct) is { } accepted)
         {
@@ -201,9 +214,23 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 return null;
             }
 
-            var candidate = await FindClaimableAsync(connection, transaction, request, now, ct);
+            var order = await FairQueueOrderAsync(connection, transaction, request, now, ct);
+            foreach (var queue in order.Queues)
+            {
+                if (await FindClaimableAsync(connection, transaction, request, queue, now, ct) is not { } candidate)
+                {
+                    continue;
+                }
 
-            return candidate is null ? null : await LeaseAsync(connection, transaction, candidate, request, now, ct);
+                if (order.Competing)
+                {
+                    await AdvanceQueueTurnAsync(connection, transaction, queue, order.Clock, ct);
+                }
+
+                return await LeaseAsync(connection, transaction, candidate, request, now, ct);
+            }
+
+            return null;
         }, cancellationToken);
     }
 
@@ -224,21 +251,15 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         return active >= Convert.ToInt64(maximum);
     }
 
-    private async Task<JobRecord?> FindClaimableAsync(DbConnection connection, DbTransaction transaction, ClaimRequest request, long now, CancellationToken ct)
+    private async Task<JobRecord?> FindClaimableAsync(DbConnection connection, DbTransaction transaction, ClaimRequest request, string queue, long now, CancellationToken ct)
     {
-        var parameters = new List<(string, object?)> { ("now", now), ("all", AllJobsLimitKey) };
+        var parameters = new List<(string, object?)> { ("now", now), ("all", AllJobsLimitKey), ("queue", queue) };
         var contracts = request.Contracts.Select((contract, index) =>
         {
             parameters.Add(($"key{index}", contract.Key));
             parameters.Add(($"version{index}", contract.Version));
 
             return $"(j.job_key=@key{index} AND j.contract_version=@version{index})";
-        }).ToArray();
-        var queues = request.Queues.Select((queue, index) =>
-        {
-            parameters.Add(($"queue{index}", queue));
-
-            return $"@queue{index}";
         }).ToArray();
         var sql = $"""
             WITH active_counts AS (
@@ -257,9 +278,10 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
               AND NOT EXISTS (SELECT 1 FROM dj_queue_controls q WHERE q.queue=j.queue AND q.paused=1)
               AND (j.workflow_run_id IS NULL OR EXISTS (
                 SELECT 1 FROM dj_flows f WHERE f.id=j.workflow_run_id AND f.status='Running'))
-              AND ({string.Join(" OR ", contracts)}) AND j.queue IN ({string.Join(",", queues)})
-              AND COALESCE((SELECT group_key FROM dj_processor_groups WHERE job_key=j.job_key),j.job_key)
-                NOT IN (SELECT group_key FROM blocked_groups)
+              AND ({string.Join(" OR ", contracts)}) AND j.queue=@queue
+              AND {AdmissionGroupSql("j.job_key")} NOT IN (SELECT group_key FROM blocked_groups)
+              AND NOT {PartitionBlockedSql("j")}
+              AND NOT {RateBlockedSql("j")}
             ORDER BY j.available_at,j.created_at,j.id {PageSql(1)}
             """;
 

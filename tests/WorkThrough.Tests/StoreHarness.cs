@@ -258,7 +258,10 @@ internal sealed class StoreHarness : IAsyncDisposable
     {
         await using var command = connection.CreateCommand();
         command.CommandText = $"DROP USER {user} CASCADE";
-        for (var attempt = 0; ; attempt++)
+
+        // Sessions killed by fault tests can take several seconds to leave v$session on a loaded instance.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (true)
         {
             try
             {
@@ -266,7 +269,7 @@ internal sealed class StoreHarness : IAsyncDisposable
 
                 return;
             }
-            catch (OracleException error) when (error.Number == 1940 && attempt < 20)
+            catch (OracleException error) when (error.Number == 1940 && DateTime.UtcNow < deadline)
             {
                 // Oracle may retain pooled sessions after ClearPool. Disconnect only this fixture's exact user.
                 await using var sessions = connection.CreateCommand();

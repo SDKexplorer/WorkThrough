@@ -2,6 +2,20 @@ using System.Text.Json;
 
 namespace WorkThrough;
 
+/// <summary>Options for one flow run. The partition key applies to every step of the run.</summary>
+public sealed record FlowStart(string? CorrelationId = null, string? IdempotencyKey = null, string? PartitionKey = null)
+{
+    public void Validate()
+    {
+        if (IdempotencyKey is not null)
+        {
+            WorkflowClient.ValidateIdempotencyKey(IdempotencyKey);
+        }
+
+        PartitionKeys.Validate(PartitionKey, nameof(PartitionKey));
+    }
+}
+
 public sealed class WorkflowClient(IJobStore store)
 {
     public Task<bool> SignalAsync<TInput>(Guid runId, SignalDefinition<TInput> signal, TInput input, string idempotencyKey, CancellationToken cancellationToken = default)
@@ -31,6 +45,16 @@ public sealed class WorkflowClient(IJobStore store)
         ValidateIdempotencyKey(idempotencyKey);
 
         return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), correlationId, idempotencyKey, cancellationToken);
+    }
+
+    /// <summary>Starts a run with explicit start options, such as an admission partition shared by all steps.</summary>
+    public Task<Guid> StartAsync<T>(FlowDefinition definition, T input, FlowStart start, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        FlowValidator.Validate(definition);
+        start.Validate();
+
+        return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), start, cancellationToken);
     }
 
     /// <summary>Validates the store-scoped flow-start request key.</summary>

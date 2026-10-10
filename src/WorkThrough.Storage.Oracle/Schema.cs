@@ -1,8 +1,14 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace WorkThrough.Storage;
 
 public sealed partial class OracleJobStore
 {
-    private sealed record SchemaStep(string Name, bool Index, string Sql);
+    /// <summary>One idempotent migration step. A step with a column adds that column to table <paramref name="Name"/>.</summary>
+    private sealed record SchemaStep(string Name, bool Index, string Sql, string? Column = null);
+
+    /// <summary>Schema 4. Never edit or reorder: its fingerprint identifies existing installations.</summary>
     private static readonly SchemaStep[] OracleSchema =
     [
         new("DJ_ADMISSION", false, """
@@ -197,4 +203,44 @@ public sealed partial class OracleJobStore
             CREATE INDEX ix_dj_jobs_terminal ON dj_jobs(status,terminal_at,id)
             """),
     ];
+
+    /// <summary>Schema 5 additions (ADR-018), applied after the schema-4 steps.</summary>
+    private static readonly SchemaStep[] OracleAdmissionSchema =
+    [
+        new("DJ_JOBS", false, """
+            ALTER TABLE dj_jobs ADD partition_key VARCHAR2(256 CHAR)
+            """, Column: "PARTITION_KEY"),
+        new("DJ_QUEUE_CONTROLS", false, """
+            ALTER TABLE dj_queue_controls ADD weight NUMBER(10) DEFAULT 1 NOT NULL
+            """, Column: "WEIGHT"),
+        new("DJ_QUEUE_TURNS", false, """
+            CREATE TABLE dj_queue_turns (queue VARCHAR2(512 CHAR) PRIMARY KEY,pass NUMBER(19) NOT NULL) SEGMENT CREATION IMMEDIATE
+            """),
+        new("DJ_QUEUE_CLOCK", false, """
+            CREATE TABLE dj_queue_clock (id NUMBER(10) PRIMARY KEY,value NUMBER(19) NOT NULL) SEGMENT CREATION IMMEDIATE
+            """),
+        new("DJ_PARTITION_LIMITS", false, """
+            CREATE TABLE dj_partition_limits (job_key VARCHAR2(120 CHAR) PRIMARY KEY,maximum NUMBER(10) NOT NULL CHECK(maximum>=0)) SEGMENT CREATION IMMEDIATE
+            """),
+        new("DJ_RATE_LIMITS", false, """
+            CREATE TABLE dj_rate_limits (
+            job_key VARCHAR2(120 CHAR) NOT NULL,per_partition NUMBER(10) NOT NULL,permits NUMBER(10) NOT NULL CHECK(permits>0),
+            window_ms NUMBER(19) NOT NULL CHECK(window_ms>0),PRIMARY KEY(job_key,per_partition)) SEGMENT CREATION IMMEDIATE
+            """),
+        new("IX_DJ_JOBS_PARTITION", true, """
+            CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at)
+            """),
+        new("IX_DJ_ATTEMPTS_STARTED", true, """
+            CREATE INDEX ix_dj_attempts_started ON dj_attempts(started_at,job_id)
+            """),
+    ];
+
+    private static readonly SchemaStep[] OracleSchemaSteps = [.. OracleSchema, .. OracleAdmissionSchema];
+
+    /// <summary>Identifies the installed step list; any edit to a step's SQL changes it.</summary>
+    private static readonly string SchemaFingerprint = Fingerprint(OracleSchemaSteps);
+    private static readonly string PredecessorFingerprint = Fingerprint(OracleSchema);
+
+    private static string Fingerprint(IEnumerable<SchemaStep> steps) => Convert.ToHexString(SHA256.HashData(
+        Encoding.UTF8.GetBytes(string.Join("\n", steps.Select(step => step.Sql.ReplaceLineEndings("\n"))))));
 }

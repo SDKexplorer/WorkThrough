@@ -383,4 +383,43 @@ public sealed partial class SqlServerJobStore
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_terminal' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_terminal ON dj_jobs(status,terminal_at,id);
         IF NOT EXISTS(SELECT 1 FROM dj_event_sequence WHERE id=1) INSERT INTO dj_event_sequence(id,value) SELECT 1,COALESCE(MAX(sequence),0) FROM dj_events;
         """;
+
+    /// <summary>Schema 5 additions (ADR-018), applied by name to fresh and schema-4 stores.</summary>
+    private const string SqlServerAdmissionSchema = """
+        IF COL_LENGTH(N'dj_jobs',N'partition_key') IS NULL
+            ALTER TABLE dj_jobs ADD partition_key nvarchar(256) COLLATE Latin1_General_100_BIN2 NULL
+                CONSTRAINT ck_dj_jobs_partition_key CHECK(DATALENGTH(partition_key)=DATALENGTH(RTRIM(partition_key)));
+        IF COL_LENGTH(N'dj_queue_controls',N'weight') IS NULL
+            ALTER TABLE dj_queue_controls ADD weight int NOT NULL CONSTRAINT df_dj_queue_controls_weight DEFAULT 1;
+        IF OBJECT_ID(N'dj_queue_turns',N'U') IS NULL
+            CREATE TABLE dj_queue_turns (
+                queue nvarchar(512) COLLATE Latin1_General_100_BIN2 PRIMARY KEY NONCLUSTERED,
+                pass bigint NOT NULL,
+                CHECK(DATALENGTH(queue)=DATALENGTH(RTRIM(queue)))
+            );
+        IF OBJECT_ID(N'dj_queue_clock',N'U') IS NULL
+            CREATE TABLE dj_queue_clock (id int PRIMARY KEY, value bigint NOT NULL);
+        IF OBJECT_ID(N'dj_partition_limits',N'U') IS NULL
+            CREATE TABLE dj_partition_limits (
+                job_key nvarchar(120) COLLATE Latin1_General_100_BIN2 PRIMARY KEY,
+                maximum int NOT NULL CHECK(maximum>=0),
+                CHECK(DATALENGTH(job_key)=DATALENGTH(RTRIM(job_key)))
+            );
+        IF OBJECT_ID(N'dj_rate_limits',N'U') IS NULL
+            CREATE TABLE dj_rate_limits (
+                job_key nvarchar(120) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                per_partition int NOT NULL,
+                permits int NOT NULL CHECK(permits>0),
+                window_ms bigint NOT NULL CHECK(window_ms>0),
+                PRIMARY KEY(job_key,per_partition),
+                CHECK(DATALENGTH(job_key)=DATALENGTH(RTRIM(job_key)))
+            );
+        """;
+
+    // A separate batch: SQL Server compiles a batch before its ALTER TABLE adds the indexed columns.
+    private const string SqlServerAdmissionIndexes = """
+        IF NOT EXISTS(SELECT 1 FROM dj_queue_clock WHERE id=1) INSERT INTO dj_queue_clock(id,value) VALUES (1,0);
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_partition' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at);
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_attempts_started' AND object_id=OBJECT_ID(N'dj_attempts')) CREATE INDEX ix_dj_attempts_started ON dj_attempts(started_at,job_id);
+        """;
 }

@@ -8,12 +8,22 @@ public abstract partial class RelationalJobStore : IExecutionOperations
     private const int MaximumControlKeyLength = 256;
     private const string QueueExpiredError = "The queued execution expired before admission";
 
-    public async Task<IReadOnlyList<QueueControl>> QueuesAsync(CancellationToken cancellationToken = default)
-    {
-        var rows = await ReadControlsAsync("SELECT queue,paused,revision FROM dj_queue_controls ORDER BY queue", cancellationToken);
+    public Task<IReadOnlyList<QueueControl>> QueuesAsync(CancellationToken cancellationToken = default) =>
+        ReadAsync<IReadOnlyList<QueueControl>>(async (connection, transaction, ct) =>
+        {
+            await using var command = Command(connection, transaction, $"SELECT queue,paused,revision,weight FROM dj_queue_controls ORDER BY queue {PageSql(MaximumControlRows)}");
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            var queues = new List<QueueControl>();
+            while (await reader.ReadAsync(ct))
+            {
+                queues.Add(new(reader.GetString(0), Convert.ToInt32(reader.GetValue(1)) != 0, Convert.ToInt32(reader.GetValue(2)))
+                {
+                    Weight = Convert.ToInt32(reader.GetValue(3))
+                });
+            }
 
-        return rows.Select(row => new QueueControl(row.Key, row.Enabled, row.Revision)).ToArray();
-    }
+            return queues;
+        }, cancellationToken);
 
     public async Task<IReadOnlyList<WorkerControlState>> WorkerControlsAsync(CancellationToken cancellationToken = default)
     {
@@ -43,6 +53,31 @@ public abstract partial class RelationalJobStore : IExecutionOperations
     public Task<Result<int>> SetWorkerDrainingAsync(string workerId, bool draining, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
         SetControlAsync(new("dj_worker_controls", "worker_id", "draining"), workerId, draining, expectedRevision, command,
             draining ? AuditActions.DrainWorker : AuditActions.ResumeWorker, cancellationToken);
+
+    public Task<Result<int>> SetQueueWeightAsync(string queue, int weight, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.SetQueueWeight, queue, new { weight, expectedRevision }, async (connection, transaction, ct) =>
+        {
+            var previous = await ScalarAsync(connection, transaction, "SELECT revision FROM dj_queue_controls WHERE queue=@key", ct, ("key", queue));
+            if (Convert.ToInt32(previous) != expectedRevision)
+            {
+                throw new StateConflictException("Control revision changed.");
+            }
+
+            var next = checked(expectedRevision + 1);
+            var upsert = UpsertSql("dj_queue_controls", "queue,paused,revision,weight", "@key,0,@revision,@weight", "queue", "revision,weight");
+            await ExecuteAsync(connection, transaction, upsert, ct, ("key", queue), ("revision", next), ("weight", weight));
+
+            return next;
+        }, cancellationToken, validate: () => ValidateQueueWeight(queue, weight, expectedRevision));
+
+    private static void ValidateQueueWeight(string queue, int weight, int expectedRevision)
+    {
+        ValidateControl(queue, expectedRevision);
+        if (weight is < 1 or > QueueControl.MaximumWeight)
+        {
+            throw new ArgumentOutOfRangeException(nameof(weight), $"Queue weights are 1–{QueueControl.MaximumWeight}.");
+        }
+    }
 
     private sealed record ControlTable(string Name, string KeyColumn, string ValueColumn);
 

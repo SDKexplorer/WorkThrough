@@ -218,6 +218,9 @@
                     <p class="eyebrow">EXECUTION INSPECTOR</p>
                     <h2>{{ detail.job.contract.key }}</h2>
                     <code class="muted">{{ detail.job.id }}</code>
+                    @if (detail.job.partitionKey) {
+                    <p class="muted">Partition <code>{{ detail.job.partitionKey }}</code></p>
+                    }
                 </div>
                 <span class="badge" [attr.data-status]="detail.job.status"
                     >{{ detail.job.status }}</span
@@ -674,6 +677,38 @@
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
+                    <h2>Partition and rate limits</h2>
+                    <p class="muted">
+                        Partition limits cap running attempts per partition key. Rate limits cap
+                        starts per window.
+                    </p>
+                </div>
+            </div>
+            <div class="live-limits">
+                @for (limit of admission().partitionLimits; track limit.jobKey) {
+                <article>
+                    <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
+                    ><strong>{{ limit.maximumPerPartition }}</strong
+                    ><small class="muted">Running per partition key</small>
+                </article>
+                } @for (limit of admission().rateLimits; track limit.jobKey + ':' +
+                limit.perPartition) {
+                <article>
+                    <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
+                    ><strong>{{ limit.permits }}</strong
+                    ><small class="muted"
+                        >Starts per {{ limit.window }}{{ limit.perPartition ? ' per partition key' :
+                        '' }}</small
+                    >
+                </article>
+                } @if (!admission().partitionLimits.length && !admission().rateLimits.length) {
+                <p class="muted">No partition or rate limits configured.</p>
+                }
+            </div>
+        </section>
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
                     <h2>Queue admission</h2>
                     <p class="muted">Pausing stops new attempts. Running processors can finish.</p>
                 </div>
@@ -684,6 +719,7 @@
                         <tr>
                             <th>Queue</th>
                             <th>State</th>
+                            <th>Weight</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -692,6 +728,7 @@
                         <tr>
                             <td><code>{{ queue.queue }}</code></td>
                             <td>{{ queue.paused ? 'Paused' : 'Accepting' }}</td>
+                            <td>{{ queue.weight }}</td>
                             <td>
                                 @if (can(permission.ManageQueues)) {
                                 <button class="outline" (click)="queueAction(queue)">
@@ -702,7 +739,7 @@
                         </tr>
                         } @empty {
                         <tr>
-                            <td colspan="3" class="live-empty">No queues observed.</td>
+                            <td colspan="4" class="live-empty">No queues observed.</td>
                         </tr>
                         }
                     </tbody>

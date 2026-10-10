@@ -20,6 +20,7 @@ interface Job {
     workflowRunId: string | null;
     stepId: string | null;
     workerId: string | null;
+    partitionKey: string | null;
 }
 interface Attempt {
     number: number;
@@ -143,6 +144,11 @@ interface QueueControl {
     queue: string;
     paused: boolean;
     revision: number;
+    weight: number;
+}
+interface AdmissionPolicies {
+    partitionLimits: { jobKey: string | null; maximumPerPartition: number }[];
+    rateLimits: { jobKey: string | null; permits: number; window: string; perPartition: boolean }[];
 }
 interface WorkerControl {
     workerId: string;
@@ -250,6 +256,7 @@ export class LiveConsoleComponent {
     readonly deployment = signal<DeploymentReport | null>(null);
     readonly controls = signal<Controls>({ queues: [], workers: [] });
     readonly archives = signal<Archive[]>([]);
+    readonly admission = signal<AdmissionPolicies>({ partitionLimits: [], rateLimits: [] });
     readonly archiveCandidates = signal<Candidate[] | null>(null);
     readonly retention = signal<RetentionStatus | null>(null);
     readonly retentionError = signal('');
@@ -338,6 +345,7 @@ export class LiveConsoleComponent {
                     deployment,
                     controls,
                     archives,
+                    admission,
                 ] = await Promise.all([
                     this.request<Job[]>('/api/jobs?' + filter),
                     this.request<Statistics>('/api/stats'),
@@ -347,9 +355,11 @@ export class LiveConsoleComponent {
                     this.request<DeploymentReport>('/api/deployment'),
                     this.request<Controls>('/api/controls'),
                     this.request<Archive[]>('/api/archives?' + filter),
+                    this.request<AdmissionPolicies>('/api/admission'),
                 ]);
                 this.controls.set(controls);
                 this.archives.set(archives);
+                this.admission.set(admission);
                 this.jobs.set(jobs);
                 this.stats.set(stats);
                 this.definitions.set(definitions);
@@ -463,6 +473,7 @@ export class LiveConsoleComponent {
                     queue,
                     paused: false,
                     revision: 0,
+                    weight: 1,
                 },
         );
     }
@@ -645,6 +656,8 @@ export class LiveConsoleComponent {
                     RetryScheduled: 'Waiting for the next retry',
                     Scheduled: 'Scheduled for later',
                     SharedCapacity: 'Waiting for shared capacity',
+                    PartitionCapacity: 'Waiting for a free slot in its partition',
+                    RateLimited: 'Waiting for the rate limit window',
                     WorkerCapacity: 'Waiting for worker capacity',
                     NoRecentCapableWorker: 'No recent worker supports this processor and queue',
                     LeaseExpired: 'Lease expired · awaiting recovery',

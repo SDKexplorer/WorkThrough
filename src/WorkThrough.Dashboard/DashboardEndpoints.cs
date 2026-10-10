@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -302,6 +303,21 @@ public static partial class DashboardEndpoints
         group.MapPost("/api/limits", async (LimitCommand request, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
             ToHttp(await administration.ChangeLimitAsync(request.Limit, Command(context, options, request.Command), ct)))
             .Mutation(options, OperationPermissions.ManageLimits);
+        group.MapGet("/api/admission", ([FromServices] IAdmissionPolicies? policies, CancellationToken ct) =>
+            ExecutionQueryResultAsync(policies, service => service.AdmissionPoliciesAsync(ct), ct))
+            .WithPermission(options, OperationPermissions.ReadExecutions);
+        group.MapPost("/api/limits/partition", async (PartitionLimitCommand request, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
+            ToHttp(await administration.SetPartitionLimitAsync(request.Limit, Command(context, options, request.Command), ct)))
+            .Mutation(options, OperationPermissions.ManageLimits);
+        group.MapPost("/api/limits/partition/remove", async (PolicyRemovalCommand request, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
+            ToHttp(await administration.RemovePartitionLimitAsync(request.JobKey, Command(context, options, request.Command), ct)))
+            .Mutation(options, OperationPermissions.ManageLimits);
+        group.MapPost("/api/limits/rate", async (RateLimitCommand request, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
+            ToHttp(await administration.SetRateLimitAsync(request.Limit, Command(context, options, request.Command), ct)))
+            .Mutation(options, OperationPermissions.ManageLimits);
+        group.MapPost("/api/limits/rate/remove", async (PolicyRemovalCommand request, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
+            ToHttp(await administration.RemoveRateLimitAsync(request.JobKey, request.PerPartition, Command(context, options, request.Command), ct)))
+            .Mutation(options, OperationPermissions.ManageLimits);
     }
 
     private static object Metadata(JobRecord job) => new
@@ -320,7 +336,8 @@ public static partial class DashboardEndpoints
         job.WorkerId,
         job.LeaseExpiresAt,
         job.ExpiresAt,
-        job.CausationJobId
+        job.CausationJobId,
+        job.PartitionKey
     };
 
     private static object Graph(FlowDefinition definition) => new

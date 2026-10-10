@@ -1,6 +1,4 @@
 using System.Data;
-using System.Security.Cryptography;
-using System.Text;
 using Oracle.ManagedDataAccess.Client;
 using Oracle.ManagedDataAccess.Types;
 
@@ -11,10 +9,7 @@ public sealed partial class OracleJobStore
     private const string MigrationInstalling = "Installing";
     private const string MigrationReady = "Ready";
 
-    private static readonly Lazy<string> MigrationFingerprint = new(ComputeSchemaFingerprint);
-    private static string ComputeSchemaFingerprint() => Convert.ToHexString(SHA256.HashData(
-        Encoding.UTF8.GetBytes(string.Join("\n", OracleSchema.Select(step => step.Sql.ReplaceLineEndings("\n"))))));
-    private static string SchemaFingerprint => MigrationFingerprint.Value;
+    private const int PartitionedSchemaPredecessor = 4;
 
     /// <summary>Resumes an interrupted schema installation under a session lock that survives Oracle DDL commits.</summary>
     /// <remarks>Migration credentials require DDL privileges and EXECUTE on SYS.DBMS_LOCK. Runtime credentials do not.</remarks>
@@ -41,48 +36,42 @@ public sealed partial class OracleJobStore
                 """, cancellationToken);
         }
 
+        var state = await ReadMigrationStateAsync(connection, cancellationToken);
         var checkpoint = 0;
-        var exists = false;
-        await using (var command = Command(connection, null, "SELECT version,status,step,definition_hash FROM dj_schema"))
-        {
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            if (await reader.ReadAsync(cancellationToken))
-            {
-                exists = true;
-                checkpoint = reader.GetInt32(2);
-                if (reader.GetInt32(0) != SchemaVersion || reader.GetString(3) != SchemaFingerprint || checkpoint < 0 || checkpoint > OracleSchema.Length)
-                {
-                    throw new InvalidOperationException("Unsupported Oracle migration version or definition. Use the same compatible migration to resume.");
-                }
-
-                var ready = reader.GetString(1) == MigrationReady;
-                if (reader.GetString(1) is not (MigrationInstalling or MigrationReady) || await reader.ReadAsync(cancellationToken))
-                {
-                    throw new InvalidOperationException("Unrecognized Oracle migration state.");
-                }
-
-                if (ready)
-                {
-                    if (checkpoint != OracleSchema.Length)
-                    {
-                        throw new InvalidOperationException("Oracle migration completion does not match its checkpoint.");
-                    }
-
-                    return;
-                }
-            }
-        }
-
-        if (!exists)
+        if (state is null)
         {
             await MigrationWriteAsync(connection, "INSERT INTO dj_schema(version,status,step,definition_hash) VALUES(@version,@status,0,@hash)", cancellationToken,
                 ("version", SchemaVersion), ("status", MigrationInstalling), ("hash", SchemaFingerprint));
         }
-
-        for (var index = checkpoint; index < OracleSchema.Length; index++)
+        else if (state.IsCompletedPredecessor)
         {
-            var step = OracleSchema[index];
-            if (!await SchemaObjectExistsAsync(connection, step.Name, step.Index, cancellationToken))
+            await StartAdmissionUpgradeAsync(connection, cancellationToken);
+            checkpoint = state.Step;
+        }
+        else
+        {
+            if (state.Version != SchemaVersion || state.Fingerprint != SchemaFingerprint || state.Step < 0 || state.Step > OracleSchemaSteps.Length)
+            {
+                throw new InvalidOperationException("Unsupported Oracle migration version or definition. Use the same compatible migration to resume.");
+            }
+
+            if (state.Status == MigrationReady)
+            {
+                if (state.Step != OracleSchemaSteps.Length)
+                {
+                    throw new InvalidOperationException("Oracle migration completion does not match its checkpoint.");
+                }
+
+                return;
+            }
+
+            checkpoint = state.Step;
+        }
+
+        for (var index = checkpoint; index < OracleSchemaSteps.Length; index++)
+        {
+            var step = OracleSchemaSteps[index];
+            if (!await SchemaStepAppliedAsync(connection, step, cancellationToken))
             {
                 // DDL commits independently. If acknowledgment/checkpointing fails, the next initializer rechecks this object.
                 await ExecuteAsync(connection, null, step.Sql, cancellationToken);
@@ -98,7 +87,8 @@ public sealed partial class OracleJobStore
             "INSERT INTO dj_admission(id) SELECT 1 FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_admission WHERE id=1)",
             "INSERT INTO dj_maintenance(id) SELECT 1 FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_maintenance WHERE id=1)",
             "INSERT INTO dj_registry(id,revision) SELECT 1,0 FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_registry WHERE id=1)",
-            "INSERT INTO dj_event_sequence(id,value) SELECT 1,0 FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_event_sequence WHERE id=1)"
+            "INSERT INTO dj_event_sequence(id,value) SELECT 1,0 FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_event_sequence WHERE id=1)",
+            "INSERT INTO dj_queue_clock(id,value) SELECT 1,0 FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_queue_clock WHERE id=1)"
         })
         {
             await ExecuteAsync(connection, transaction, seed, cancellationToken);
@@ -107,9 +97,46 @@ public sealed partial class OracleJobStore
         await ExecuteAsync(connection, transaction,
             "INSERT INTO dj_store(id) SELECT @id FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_store)", cancellationToken, ("id", Guid.NewGuid().ToString("N")));
         await ExecuteAsync(connection, transaction, "UPDATE dj_schema SET status=@status WHERE version=@version AND step=@step", cancellationToken,
-            ("status", MigrationReady), ("version", SchemaVersion), ("step", OracleSchema.Length));
+            ("status", MigrationReady), ("version", SchemaVersion), ("step", OracleSchemaSteps.Length));
         await transaction.CommitAsync(cancellationToken);
     }
+
+    private sealed record MigrationState(int Version, string Status, int Step, string Fingerprint)
+    {
+        /// <summary>A finished schema-4 installation, which schema 5 extends by resuming after its last step.</summary>
+        public bool IsCompletedPredecessor => Version == PartitionedSchemaPredecessor && Status == MigrationReady
+            && Step == OracleSchema.Length && Fingerprint == PredecessorFingerprint;
+    }
+
+    private async Task<MigrationState?> ReadMigrationStateAsync(OracleConnection connection, CancellationToken ct)
+    {
+        await using var command = Command(connection, null, "SELECT version,status,step,definition_hash FROM dj_schema");
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
+        {
+            return null;
+        }
+
+        var state = new MigrationState(reader.GetInt32(0), reader.GetString(1), reader.GetInt32(2), reader.GetString(3));
+        if (state.Status is not (MigrationInstalling or MigrationReady) || await reader.ReadAsync(ct))
+        {
+            throw new InvalidOperationException("Unrecognized Oracle migration state.");
+        }
+
+        return state;
+    }
+
+    // Stop schema-4 writers first: they would ignore the new admission policies.
+    private Task StartAdmissionUpgradeAsync(OracleConnection connection, CancellationToken ct) => MigrationWriteAsync(connection, """
+        UPDATE dj_schema SET version=@version,status=@status,definition_hash=@hash WHERE version=@previous AND status=@ready
+        """, ct, ("version", SchemaVersion), ("status", MigrationInstalling), ("hash", SchemaFingerprint),
+        ("previous", PartitionedSchemaPredecessor), ("ready", MigrationReady));
+
+    private async Task<bool> SchemaStepAppliedAsync(OracleConnection connection, SchemaStep step, CancellationToken ct) => step.Column is null
+        ? await SchemaObjectExistsAsync(connection, step.Name, step.Index, ct)
+        : Convert.ToInt32(await ScalarAsync(connection, null,
+            "SELECT COUNT(*) FROM all_tab_columns WHERE owner=@owner AND table_name=@name AND column_name=@column", ct,
+            ("owner", schema), ("name", step.Name), ("column", step.Column))) > 0;
 
     private async Task<bool> SchemaObjectExistsAsync(OracleConnection connection, string name, bool index, CancellationToken ct) =>
         Convert.ToInt32(await ScalarAsync(connection, null,

@@ -43,6 +43,10 @@ public static class AuditActions
     public const string PauseFlow = "flows.pause";
     public const string ResumeFlow = "flows.resume";
     public const string ChangeLimit = "limits.manage";
+    public const string SetPartitionLimit = "limits.partition.set";
+    public const string RemovePartitionLimit = "limits.partition.remove";
+    public const string SetRateLimit = "limits.rate.set";
+    public const string RemoveRateLimit = "limits.rate.remove";
     public const string EditDefinition = "definitions.edit";
     public const string PublishDefinition = "definitions.publish";
     public const string RetireDefinition = "definitions.retire";
@@ -52,6 +56,7 @@ public static class AuditActions
     public const string PauseSchedule = "schedules.pause";
     public const string PauseQueue = "queues.pause";
     public const string ResumeQueue = "queues.resume";
+    public const string SetQueueWeight = "queues.weight";
     public const string DrainWorker = "workers.drain";
     public const string ResumeWorker = "workers.resume";
     public const string CreateArchives = "archives.create";

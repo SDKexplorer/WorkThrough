@@ -22,6 +22,10 @@ public interface IJobStore
     /// <summary>Atomically persists the request receipt, run, and steps; rejects conflicting reuse of a key.</summary>
     Task<Guid> StartWorkflowAsync(FlowDefinition definition, System.Text.Json.JsonElement input, string? correlationId, string idempotencyKey, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("This provider does not support idempotent flow starts.");
+
+    /// <summary>Starts a run with optional correlation, idempotency key and admission partition for every step.</summary>
+    Task<Guid> StartWorkflowAsync(FlowDefinition definition, System.Text.Json.JsonElement input, FlowStart start, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This provider does not support flow start options.");
 }
 
 /// <summary>Assembly-independent read models used by the dashboard and diagnostics.</summary>

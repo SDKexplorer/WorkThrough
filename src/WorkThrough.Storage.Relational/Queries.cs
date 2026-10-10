@@ -118,7 +118,10 @@ public abstract partial class RelationalJobStore
                 Date(reader, "created_at")!.Value, Date(reader, "available_at")!.Value,
                 Text(reader, "idempotency_key"), ParseGuid(Text(reader, "workflow_run_id")), Text(reader, "step_id"),
                 Text(reader, "output") is { } output ? Json(output) : null, Text(reader, "error"), Text(reader, "worker_id"),
-                ParseGuid(Text(reader, "lease_token")), Date(reader, "lease_expires_at"), Date(reader, "expires_at"), ParseGuid(Text(reader, "causation_job_id"))));
+                ParseGuid(Text(reader, "lease_token")), Date(reader, "lease_expires_at"), Date(reader, "expires_at"), ParseGuid(Text(reader, "causation_job_id")))
+            {
+                PartitionKey = Text(reader, "partition_key")
+            });
         }
 
         return jobs;
@@ -141,13 +144,14 @@ public abstract partial class RelationalJobStore
     private Task<int> InsertJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) =>
         ExecuteAsync(connection, transaction, """
             INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,correlation_id,status,attempt,max_attempts,
-              created_at,available_at,idempotency_key,workflow_run_id,step_id,expires_at,causation_job_id)
-            VALUES (@id,@key,@version,@payload,@queue,@correlation,@status,@attempt,@maximum,@created,@available,@dedup,@flow,@step,@expiry,@cause)
+              created_at,available_at,idempotency_key,workflow_run_id,step_id,expires_at,causation_job_id,partition_key)
+            VALUES (@id,@key,@version,@payload,@queue,@correlation,@status,@attempt,@maximum,@created,@available,@dedup,@flow,@step,@expiry,@cause,@partition)
             """, ct, ("id", job.Id.ToString()), ("key", job.Contract.Key), ("version", job.Contract.Version),
             ("payload", job.Payload.GetRawText()), ("queue", job.Queue), ("correlation", job.CorrelationId),
             ("status", job.Status.ToString()), ("attempt", job.Attempt), ("maximum", job.MaxAttempts),
             ("created", job.CreatedAt.ToUnixTimeMilliseconds()), ("available", EligibilityMilliseconds(job.AvailableAt)),
-            ("dedup", job.IdempotencyKey), ("flow", job.WorkflowRunId?.ToString()), ("step", job.StepId), ("expiry", job.ExpiresAt?.ToUnixTimeMilliseconds()), ("cause", job.CausationJobId?.ToString()));
+            ("dedup", job.IdempotencyKey), ("flow", job.WorkflowRunId?.ToString()), ("step", job.StepId), ("expiry", job.ExpiresAt?.ToUnixTimeMilliseconds()), ("cause", job.CausationJobId?.ToString()),
+            ("partition", job.PartitionKey));
 
     private static long EligibilityMilliseconds(DateTimeOffset instant)
     {
