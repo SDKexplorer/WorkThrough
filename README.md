@@ -6,9 +6,9 @@
 
 A .NET 8 library for durable jobs, persisted flows, and recurring schedules, verified on .NET 8 and .NET 10. **Move a processor between classes, namespaces, projects, and assemblies without rewriting queued job metadata.**
 
-WorkThrough is an alpha. SQLite, PostgreSQL, SQL Server and Oracle are implemented; SQL Server qualification is tracked in [provider verification](docs/verification.md); packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
+WorkThrough is an alpha. SQLite, PostgreSQL, SQL Server and Oracle are implemented and pass their documented [provider verification](docs/verification.md); packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
 
-The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/attempt investigation, protected failure details, saved-flow inspection, audit/archive metadata, waiting/capacity explanations, windowed attempt metrics and retention status/preview. Opt-in [automatic retention](docs/operations-and-retention.md#opt-in-automatic-maintenance) includes holds and verified-copy purge. Controlled MCP actions, Oracle release qualification and large load/restore qualification remain in the [plan](specs/storage-evolution.spec.md). The [remaining delivery order](docs/plan.md#remaining-delivery-order) makes those gaps explicit. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
+The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/attempt investigation, protected failure details, saved-flow inspection, audit/archive metadata, waiting/capacity explanations, windowed attempt metrics and retention status/preview. Opt-in [automatic retention](docs/operations-and-retention.md#opt-in-automatic-maintenance) includes holds and verified-copy purge. Controlled MCP actions and large load/restore qualification remain in the [plan](specs/storage-evolution.spec.md). The [remaining delivery order](docs/plan.md#remaining-delivery-order) makes those gaps explicit. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
 
 ## Repository map
 
@@ -150,7 +150,7 @@ Run `scripts/format.sh` for braces, statement spacing, and the requested blank l
 
 ## Release boundaries
 
-Execution is at least once. Arbitrary side effects cannot be undone by rewinding engine state. Compensation/checkpoint forks, child flows, Oracle and further providers, optional interoperability/upcasting, partition/rate limits, and deployment-specific production soak/partition campaigns remain in the [plan](docs/plan.md). External OIDC login requires a configured identity provider and has not been verified against a real account. There is no production certification or Native AOT claim.
+Execution is at least once. Arbitrary side effects cannot be undone by rewinding engine state. Compensation/checkpoint forks, child flows, further providers, optional interoperability/upcasting, partition/rate limits, and deployment-specific production soak/partition campaigns remain in the [plan](docs/plan.md). External OIDC login requires a configured identity provider and has not been verified against a real account. There is no production certification or Native AOT claim.
 
 The [typed processor and lifecycle exploration](docs/processor-lifecycle-and-extensibility.md) distinguishes existing APIs from implemented middleware, retry policies, and durable subscriptions.
 The [identity evolution design](docs/identity-evolution.md) covers defining a processor before assigning its key and coordinated old-ID aliases, including shared concurrency and rollout requirements.

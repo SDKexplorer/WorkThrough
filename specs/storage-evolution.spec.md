@@ -1,6 +1,6 @@
 # Retention automation and additional providers
 
-Status: retention implemented on SQLite/PostgreSQL, 2026-10-10; SQL Server implemented and native CI verified; expanded load/restore qualification and Oracle remain pending. The maintainer requested cleanup/archiving and additional providers. This plan complements [MCP operations](mcp-operations.spec.md) and [current retention semantics](../docs/operations-and-retention.md).
+Status: retention and all four providers implemented, 2026-10-10; SQL Server and Oracle passed native CI qualification on their documented initial matrix; expanded load/restore qualification remains pending. The maintainer requested cleanup/archiving and additional providers. This plan complements [MCP operations](mcp-operations.spec.md) and [current retention semantics](../docs/operations-and-retention.md).
 
 ## Current capability and intended result
 
@@ -11,7 +11,7 @@ Status: retention implemented on SQLite/PostgreSQL, 2026-10-10; SQL Server imple
 | Archive storage | Same-database packages/summaries, verified directory export and opt-in body purge | Original-outcome and individual archived-step lookup index |
 | Evidence protection | Active/Paused/Incident flows remain live; receipts survive archival/purge | Explicit policy for other growing tables without weakening deduplication |
 | Event cleanup | Opt-in bounded trimming respects subscribers, live work and holds; positions are visible | Production subscriber/backlog qualification |
-| Database providers | SQLite, PostgreSQL; SQL Server verified on the initial Linux x64 matrix | Oracle after portability and migration proofs |
+| Database providers | SQLite, PostgreSQL, SQL Server and Oracle; documented real-provider/runtime matrix verified | Sustained contention and provider restore campaigns |
 
 Archive location is independent of execution outcome. A successful archived job is still successful. Archiving is neither a backup nor a way to resume an old run. Live flow dependencies stay in one store.
 

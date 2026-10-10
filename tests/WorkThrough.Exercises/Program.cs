@@ -9,7 +9,8 @@ if (args.FirstOrDefault() == "worker")
 
 if (args.Length < 2 || args[1] is not ("sqlite" or "postgres" or "sqlserver" or "oracle"))
 {
-    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance> <sqlite|postgres|sqlserver|oracle> [output.json] [--full]");
+    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance|investigation> <sqlite|postgres|sqlserver|oracle> [output.json] [--full]");
+    Console.Error.WriteLine("Investigation arguments: [output.json] [retainedJobs=100000] [baselineSeconds=60] [investigativeSeconds=120]");
     Environment.ExitCode = 2;
 
     return;
@@ -22,6 +23,12 @@ if (args[0] == "relocation" && args.Length == 4)
 else if (args[0] == "reliability")
 {
     await ReliabilitySuite.RunAsync(args[1]);
+}
+else if (args[0] == "investigation")
+{
+    await InvestigationSuite.RunAsync(args[1], args.ElementAtOrDefault(2) ?? "investigation.json",
+        int.Parse(args.ElementAtOrDefault(3) ?? "100000"), int.Parse(args.ElementAtOrDefault(4) ?? "60"),
+        int.Parse(args.ElementAtOrDefault(5) ?? "120"));
 }
 else if (args[0] == "performance")
 {

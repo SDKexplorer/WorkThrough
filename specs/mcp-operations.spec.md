@@ -24,7 +24,7 @@ Stable processor identities remain the reference throughout. A namespace or asse
 
 ## Proposed first tool set
 
-The ten implemented tool names/schemas are documented in the hosting guide; names below for future tools remain proposals. Every implemented tool has typed input/output schemas. `workthrough_get_attempts` was split from lookup to keep attempt paging explicit; `workthrough_get_archive` permits archive-ID lookup outside the search window. Search supplies correlation, run and causation metadata; flow inspection supplies dependencies without condition expressions. It does not claim a complete cross-run correlation trace.
+The thirteen implemented tool names/schemas are documented in the hosting guide; names below for future tools remain proposals. Every implemented tool has typed input/output schemas. `workthrough_get_attempts` was split from lookup to keep attempt paging explicit; `workthrough_get_archive` permits archive-ID lookup outside the search window. Search supplies correlation, run and causation metadata; flow inspection supplies dependencies without condition expressions. It does not claim a complete cross-run correlation trace.
 
 | Tool | Result | Permission |
 |---|---|---|
@@ -37,9 +37,9 @@ The ten implemented tool names/schemas are documented in the hosting guide; name
 | `workthrough_get_capacity` | Queue controls, limits, worker heartbeat age, processor/queue coverage and observation timestamps | `executions.read` |
 | `workthrough_get_audit` | Paged attributed operation metadata; reasons and change contents excluded | `executions.read` + `audit.read` |
 | `workthrough_search_archives` | Paged archive summaries, original IDs where indexed and body availability | `executions.read` |
-| `workthrough_preview_retention` | Supplied manual policy, bounded candidates and excluded categories; effective automatic policy remains future work | `executions.read` + `retention.read` |
+| `workthrough_preview_retention` | Supplied manual policy, bounded candidates and excluded categories; automatic policy/status is a separate `workthrough_get_retention` tool | `executions.read` + `retention.read` |
 
-Archive search/lookup and supplied-policy preview are implemented read-only. Automatic-policy/hold/status and original archived-outcome/step-ID indexes remain storage work. Dashboard preview still requires `archives.manage`; MCP preview's `retention.read` is an explicit new permission, not an implicit grant from `executions.read` or `archives.manage`.
+Archive search/lookup, supplied-policy preview and automatic-policy/hold/status reads are implemented. Original archived-outcome/step-ID indexes remain storage work. Dashboard preview still requires `archives.manage`; MCP preview's `retention.read` is an explicit new permission, not an implicit grant from `executions.read` or `archives.manage`.
 
 Default responses contain neither raw `JobRecord` nor archive JSON. Those contain payloads, output, errors and internal fields unsuitable for general metadata access. Never return lease tokens, connection strings, authentication tokens or effect/idempotency keys. Host-defined redaction also covers business identifiers and labels where necessary.
 
@@ -152,7 +152,7 @@ Before release, benchmark 100,000 retained executions with varied attempt histor
 - [x] Add a standalone authenticated sample and composable endpoint for an API/web worker; no processor or Angular dependency.
 - [x] Exercise the official C# 2.2.0 client and an independent HTTP JSON-RPC client over Streamable HTTP; document their protocol coverage. These are not two third-party AI applications.
 - [x] Test .NET 8/10 NuGet consumers, permission/resource bypass attempts, metadata projections, paging, cancellation, limits and access-sink failure for the shipped tools.
-- [ ] Run contention/performance gates with real providers; update verification evidence and setup documentation.
+- [ ] Finish contention/performance qualification with real providers. The initial 100,000-retained-job/20-client campaign passed on SQLite, PostgreSQL, SQL Server and Oracle; raw reports and repeatable smoke/full/soak profiles are in [performance](../docs/performance.md). Repetitions, SQL-plan/allocation analysis and the two-hour soak remain.
 
 ### M1 follow-up — richer investigation
 

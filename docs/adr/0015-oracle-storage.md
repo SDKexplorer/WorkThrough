@@ -1,6 +1,6 @@
 # ADR-015: Oracle storage and resumable DDL initialization
 
-Status: implemented; qualification in progress, 2026-10-10. See `verification.md` for completed evidence. The initial target is Oracle Database Free 26ai, release 23.26.3.0, with ODP.NET Core 23.26.301 on .NET 8 and 10. Other editions/releases require separate qualification.
+Status: implemented; initial native CI qualification passed, 2026-10-10. See [verification](../verification.md) for completed evidence. The initial target is Oracle Database Free 26ai, release 23.26.3.0, with ODP.NET Core 23.26.301 on .NET 8 and 10. Other editions/releases require separate qualification.
 
 ## Transactions and inspection
 

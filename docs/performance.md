@@ -52,3 +52,40 @@ macOS ARM64, .NET 8.0.31, two worker processes; PostgreSQL 17 in Docker. Each pr
 Flow throughput counts completed steps; each measured flow contains two steps. End-to-end latency includes queue backlog from the burst. PostgreSQL showed more consistent results; SQLite was substantially slower for flows and more variable for mixed jobs. Retain this limitation when planning deployment capacity.
 
 Raw reports: [SQLite](performance-results/2026-10-08-sqlite.json), [PostgreSQL](performance-results/2026-10-08-postgres.json). They record the pre-commit Git base and a modified working tree because measurements were run before committing the implementation. Later changes were formatting, archive read-method extraction, sample/docs, reserved-address validation, and administrative audit labels; the measured claim/settlement path is unchanged.
+
+## Investigative contention
+
+`scripts/investigation.sh --smoke` runs a short correctness check on SQLite and each configured server provider. An optional second argument selects one provider; a missing connection for an explicitly selected server is an error. Use only disposable databases. The script creates isolated stores, starts two real worker processes and hosts the actual MCP endpoint on a temporary loopback port. The official C# MCP client uses Streamable HTTP and a separate signed subject for each investigator.
+
+Each repetition compares a fresh store without investigators against a fresh store with 20 clients. Both stores begin with the same synthetic terminal fixture: one to three attempts per job, 20% terminal failures and 16 correlation groups. These inserted rows represent retained history, not 100,000 jobs delivered by the engine. Metrics queries explicitly include the entire retained attempt history and assert its count; searches must find fixture records. This prevents measuring an accidentally empty time window.
+
+Four producers submit batches of 24 real jobs while two processes execute them under a shared limit of six. Every live job must succeed once with the expected output. Completion polling and per-job attempt verification are included in measured job throughput. This is a closed-loop diagnostic workload, not a peak engine throughput or open-loop arrival-rate test. Baseline and investigation use identical producer/verification logic.
+
+Clients rotate through execution search, lookup, attempts, metrics, capacity and retention status, pausing 250 ms after each response. The qualification host explicitly permits 32 concurrent HTTP requests and 10,000 requests/minute per subject, so this measures query contention without intentionally throttling the clients; these are not the product defaults. They have no payload permission; a secret marker in fixture input/errors must never appear in any result. Failures, redaction violations, incorrect outputs or duplicate attempts fail the run. Other tools, denied credentials, cancellation, throttling and fail-closed sinks are covered by the integration suite; this workload does not replace those tests.
+
+Profiles:
+
+| Profile | Retained jobs per store | Baseline | 20-client phase | Repetitions |
+|---|---:|---:|---:|---:|
+| `--smoke` | 1,000 | 5 s | 10 s | 1 |
+| `--full` | 100,000 | 60 s | 120 s | 3 |
+| `--soak` | 100,000 | 120 s | 2 h | 1 |
+
+Reports under `artifacts/performance/*-investigation-*.json` record provider/runtime/revision, exact workload, worker/harness CPU, memory samples, response sizes, request errors, redaction violations and latency distributions. Histograms use fixed memory with 1 ms buckets through 10 seconds; overflow count and exact maximum are explicit. A capped quantile with overflow is not evidence that the latency was below 10 seconds. Each phase also reports acceptance, queue and end-to-end latency. A negative throughput-degradation percentage indicates run variation or higher observed throughput; it does not prove that MCP makes workers faster.
+
+This host uses locally signed JWTs and an in-memory access sink. It does not qualify external IdP discovery, token refresh, a desktop AI application, external audit durability, automatic retention or database restoration. Execute the soak and inspect memory/connection growth and queue behavior on the intended deployment before marking those gates complete. Shared workstation/CI runs do not enforce the proposed latency/degradation budgets as a production SLA.
+
+## Initial retained-history campaign — 2026-10-10
+
+Each provider used 100,000 synthetic retained jobs (200,000 attempts) in each phase, a 30-second baseline and a 60-second investigative phase. On macOS ARM64/.NET 8.0.31, SQLite ran locally; PostgreSQL 17.11 and Oracle Free 26ai ran in Docker, and SQL Server 2022 CU27 ran under x64 emulation. Server providers ran sequentially; Oracle and SQL Server were not running together. These are one-pass local observations, not the repeated `--full` profile or a native SQL Server capacity result.
+
+| Provider | Baseline jobs/s | 20-client jobs/s | Throughput degradation | Jobs under investigation | MCP requests | Largest per-tool p95 / p99 (ms) |
+|---|---:|---:|---:|---:|---:|---:|
+| sqlite | 27.7 | 31.9 | -15.2% | 1,920 | 4,616 | 68 / 71 |
+| postgres | 80.3 | 79.0 | 1.6% | 4,752 | 4,711 | 26 / 34 |
+| sqlserver | 37.8 | 35.3 | 6.7% | 2,136 | 4,632 | 59 / 68 |
+| oracle | 61.4 | 57.5 | 6.5% | 3,456 | 4,600 | 47 / 55 |
+
+All 18,528 live jobs across baseline and investigative phases completed once with matching outputs. All 18,559 measured requests succeeded, with zero fixture-secret leaks. The proposed p95/p99 and degradation targets were met in these short runs, but the SQLite variation demonstrates why one comparison cannot establish a stable overhead budget. Archive maintenance was disabled. The reports retain the actual Git base plus modified working-tree status; subsequent harness edits extracted the same request loop, added explicit configuration metadata and applied formatting.
+
+Raw reports: [SQLite](performance-results/2026-10-10-sqlite-investigation.json), [PostgreSQL](performance-results/2026-10-10-postgres-investigation.json), [SQL Server](performance-results/2026-10-10-sqlserver-investigation.json), [Oracle](performance-results/2026-10-10-oracle-investigation.json). Earlier exploratory runs accidentally used a default metrics window that excluded the older fixture. They are excluded from this table and retained evidence; the included runs assert complete fixture coverage before and during measurement. Repetition, SQL-plan/allocation analysis, a two-hour soak, connection-growth tracking and production restore/partition campaigns remain uncompleted qualification work.

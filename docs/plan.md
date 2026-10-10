@@ -10,11 +10,11 @@ The core engine and processor relocation guarantee are implemented. Completing a
 |---|---|---|
 | 1 | Finish read-only MCP: external client/load verification; bounded wait/capacity explanations, attempt metrics, audit/archive metadata and manual retention preview are implemented | Permission/resource tests, explicit coverage, real-provider query bounds and client/package verification for every tool |
 | 2 | Automatic retention implemented: opt-in maintenance, holds, fenced batches, verified file exports and separate purge/event policies; large contention/restore qualification remains | Crash/race tests proving active work, receipts and held evidence survive; restart-safe progress |
-| 3 | SQL Server implemented and native CI verified; Oracle implemented and locally qualified; native CI pending | Provider dialect/transaction implementation and the complete conformance suite against each actual database |
+| 3 | SQL Server and Oracle implemented and native CI verified | Provider dialect/transaction implementation, real-database conformance, package consumers, relocation and process-kill recovery on .NET 8/10 |
 | 4 | Implemented operational UX: windowed metrics, step display labels, worker acquisition health and retention status | Real measurements and saved-data inspection in the Angular console; no invented counts or missing-history claims |
 | 5 | Partition-key concurrency, rate limits, queue fairness and tenant isolation | Separate lock/tenant identities, resource-policy tests and multi-host admission/fairness evidence |
 | 6 | Controlled MCP actions, after the read-only release | Trusted approval, exact target/parameters, revocation/state preconditions and existing atomic command/audit reconciliation |
-| 7 | Production/public release readiness | External IdP/AI-client checks, 100k-job investigative contention and two-hour soak, multi-host/PITR evidence, license/package/visibility decisions and enforced branch policies |
+| 7 | Production/public release readiness; initial 100k-job/20-client contention passed on all four providers | Repeated contention and two-hour soak, external IdP/AI-client checks, multi-host/PITR evidence, license/package/visibility decisions and enforced branch policies |
 
 Branch protection remains blocked by GitHub's current private-repository plan. Changing account plan or repository visibility is a maintainer decision. Public visibility, package publication and a project license are not authorized by completing implementation. Advanced architecture items remain design-and-implementation work, not hidden completed features.
 
@@ -71,7 +71,7 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [ ] Add contract upcasters and rolling-deployment capability checks. Preserve pending old versions until compatible consumers exist.
 - [ ] Evaluate automatic canonical flow revisions with optional human labels; pin executions to the chosen revision and make activation/migration explicit. Mandatory integer versions remain the current API.
 - [ ] Add partition-key concurrency and rate limits. Correlation must remain independent from lock identity.
-- [ ] Add SQL Server, then Oracle, following the portability refactor and real-provider gates in [storage evolution](../specs/storage-evolution.spec.md) and [ADR-012](adr/0012-retention-and-provider-expansion.md). SQL Server is implemented and verified on its initial Linux x64 matrix; Oracle is implemented with the full local gate passing; native CI is pending. SQLite/PostgreSQL retain their existing verification.
+- [x] Add SQL Server, then Oracle, following the portability refactor and real-provider gates in [storage evolution](../specs/storage-evolution.spec.md) and [ADR-012](adr/0012-retention-and-provider-expansion.md). Both pass native Linux x64 qualification on their documented initial server matrix. SQLite/PostgreSQL retain their existing verification. Sustained contention and provider restore campaigns remain release-readiness work.
 - [x] Add durable signals with deduplication, storage of signals arriving before their wait step, and race-tested timeout behavior; never park a worker thread while waiting.
 - [x] Define cron time zones, daylight-saving transitions, and missed-schedule policy alongside overlap controls.
 - [ ] Add bounded fan-out, queue fairness, per-tenant quotas where applicable, and load tests that measure both database contention and memory growth.
