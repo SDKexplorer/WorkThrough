@@ -189,28 +189,30 @@ public abstract partial class RelationalJobStore
         ExecuteAsync(connection, transaction, "UPDATE dj_flows SET status=@status,error=@error WHERE id=@id", ct,
             ("status", status.ToString()), ("error", error), ("id", runId.ToString()));
 
-    public async Task<IReadOnlyList<AuditEntry>> AuditAsync(int limit = 100, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<AuditEntry>> AuditAsync(int limit = 100, CancellationToken cancellationToken = default)
     {
         if (limit is < 1 or > MaximumAuditPage)
         {
             throw new ArgumentOutOfRangeException(nameof(limit));
         }
 
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var query = Command(connection, null, $"""
-            SELECT a.command_id,a.at,a.actor,a.action,a.target,a.reason,a.outcome,c.changes
-            FROM dj_audit a LEFT JOIN dj_audit_changes c ON a.command_id=c.command_id
-            ORDER BY a.at DESC,a.command_id {PageSql("@limit")}
-            """, ("limit", limit));
-        await using var reader = await query.ExecuteReaderAsync(cancellationToken);
-        var entries = new List<AuditEntry>();
-        while (await reader.ReadAsync(cancellationToken))
+        return ReadAsync<IReadOnlyList<AuditEntry>>(async (connection, transaction, ct) =>
         {
-            var actor = JsonSerializer.Deserialize<OperationActor>(reader.GetString(2), JobJson.Options)!;
-            entries.Add(new(Guid.Parse(reader.GetString(0)), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)), actor,
-                reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.GetString(6), Text(reader, "changes")));
-        }
+            await using var query = Command(connection, transaction, $"""
+                SELECT a.command_id,a.at,a.actor,a.action,a.target,a.reason,a.outcome,c.changes
+                FROM dj_audit a LEFT JOIN dj_audit_changes c ON a.command_id=c.command_id
+                ORDER BY a.at DESC,a.command_id {PageSql("@limit")}
+                """, ("limit", limit));
+            await using var reader = await query.ExecuteReaderAsync(ct);
+            var entries = new List<AuditEntry>();
+            while (await reader.ReadAsync(ct))
+            {
+                var actor = JsonSerializer.Deserialize<OperationActor>(reader.GetString(2), JobJson.Options)!;
+                entries.Add(new(Guid.Parse(reader.GetString(0)), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)), actor,
+                    reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.GetString(6), Text(reader, "changes")));
+            }
 
-        return entries;
+            return entries;
+        }, cancellationToken);
     }
 }

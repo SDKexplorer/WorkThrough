@@ -169,12 +169,14 @@ public abstract partial class RelationalJobStore : IJobOutbox
         }
     }
 
-    public async Task<OutboxDelivery?> OutboxDeliveryAsync(Guid id, CancellationToken cancellationToken = default)
+    public Task<OutboxDelivery?> OutboxDeliveryAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT status,delivered_job_id FROM dj_outbox WHERE id=@id", ("id", id.ToString()));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return ReadAsync<OutboxDelivery?>(async (connection, transaction, ct) =>
+        {
+            await using var command = Command(connection, transaction, "SELECT status,delivered_job_id FROM dj_outbox WHERE id=@id", ("id", id.ToString()));
+            await using var reader = await command.ExecuteReaderAsync(ct);
 
-        return await reader.ReadAsync(cancellationToken) ? new(id, reader.GetString(0), reader.IsDBNull(1) ? null : Guid.Parse(reader.GetString(1))) : null;
+            return await reader.ReadAsync(ct) ? new(id, reader.GetString(0), reader.IsDBNull(1) ? null : Guid.Parse(reader.GetString(1))) : null;
+        }, cancellationToken);
     }
 }

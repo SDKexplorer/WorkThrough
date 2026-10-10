@@ -7,6 +7,9 @@ namespace WorkThrough.Exercises;
 
 internal static class PerformanceSuite
 {
+    /// <summary>Destination stores assign immediate creation time on delivery, so outbox latency starts at the source commit instead.</summary>
+    private const string LatencyOrigin = "stored creation time; outbox uses the source commit observed by the harness clock";
+
     public static async Task RunAsync(string provider, string output, bool full)
     {
         var runs = new List<RunResult>();
@@ -43,6 +46,7 @@ internal static class PerformanceSuite
                 pollMs = 10,
                 leaseSeconds = 30,
                 load = "finite concurrent burst",
+                latencyOrigin = LatencyOrigin,
                 repetitions,
                 measuredOperations = count
             },
@@ -75,6 +79,7 @@ internal static class PerformanceSuite
 
         await WaitForSuccessAsync(database, "warmup", warmup, workers);
         var acceptance = new ConcurrentBag<double>();
+        var sourceCommits = new ConcurrentDictionary<int, DateTimeOffset>();
         var correlation = Guid.NewGuid().ToString("N");
         var flow = new FlowBuilder("exercises.sequence", 1)
             .Step("first", Workload.Fast, new WorkItem(0), Workload.Queue)
@@ -95,6 +100,7 @@ internal static class PerformanceSuite
             {
                 await source.Store.InTransactionAsync((_, _, jobs, token) =>
                 jobs.SendAsync(Workload.Fast, new WorkItem(index), new(Queue: Workload.Queue, CorrelationId: correlation, IdempotencyKey: $"item:{index}"), token), ct);
+                sourceCommits[index] = DateTimeOffset.UtcNow;
             }
             else
             {
@@ -130,8 +136,9 @@ internal static class PerformanceSuite
         var globalPeak = Peak(attempts.Select(x => x.Attempt));
         var limitedPeak = Peak(attempts.Where(x => x.Job.Contract == Workload.Limited.Identity).Select(x => x.Attempt));
         Ensure(globalPeak <= 6 && limitedPeak <= 2, "Shared admission limit exceeded across independent processes.");
-        var queue = attempts.Select(x => (x.Attempt.StartedAt - x.Job.CreatedAt).TotalMilliseconds);
-        var endToEnd = attempts.Select(x => (x.Attempt.FinishedAt!.Value - x.Job.CreatedAt).TotalMilliseconds);
+        DateTimeOffset Origin(JobRecord job) => scenario == "outbox" ? sourceCommits[job.Payload.GetProperty("index").GetInt32()] : job.CreatedAt;
+        var queue = attempts.Select(x => (x.Attempt.StartedAt - Origin(x.Job)).TotalMilliseconds);
+        var endToEnd = attempts.Select(x => (x.Attempt.FinishedAt!.Value - Origin(x.Job)).TotalMilliseconds);
         var execution = attempts.Select(x => (x.Attempt.FinishedAt!.Value - x.Attempt.StartedAt).TotalMilliseconds);
 
         return new(scenario, repeat, await database.VersionAsync(), expected, count, expected / elapsed, count / producerSeconds,

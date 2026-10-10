@@ -8,11 +8,12 @@ public abstract partial class RelationalJobStore : IExecutionEvents
     private const int MaximumEventPage = 500;
     private const int MaximumSubscriberLength = 200;
 
-    public async Task<EventPosition> EventPositionAsync(CancellationToken cancellationToken = default)
+    public Task<EventPosition> EventPositionAsync(CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-
-        return await ReadEventPositionAsync(connection, null, cancellationToken);
+        return ReadAsync<EventPosition>(async (connection, transaction, ct) =>
+        {
+            return await ReadEventPositionAsync(connection, transaction, ct);
+        }, cancellationToken);
     }
 
     private async Task<EventPosition> ReadEventPositionAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)

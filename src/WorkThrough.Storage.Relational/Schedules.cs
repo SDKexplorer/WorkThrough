@@ -84,11 +84,12 @@ public abstract partial class RelationalJobStore
         return schedule;
     }
 
-    public async Task<IReadOnlyList<StoredSchedule>> SchedulesAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<StoredSchedule>> SchedulesAsync(CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-
-        return await ReadSchedulesAsync(connection, null, $"ORDER BY schedule_key,version DESC {PageSql(MaximumSchedules)}", cancellationToken);
+        return ReadAsync<IReadOnlyList<StoredSchedule>>(async (connection, transaction, ct) =>
+        {
+            return await ReadSchedulesAsync(connection, transaction, $"ORDER BY schedule_key,version DESC {PageSql(MaximumSchedules)}", ct);
+        }, cancellationToken);
     }
 
     private async Task<List<StoredSchedule>> ReadSchedulesAsync(DbConnection connection, DbTransaction? transaction, string suffix, CancellationToken ct, params (string, object?)[] values)
@@ -177,17 +178,19 @@ public abstract partial class RelationalJobStore
         return job is not null;
     }
 
-    public async Task<IReadOnlyList<ScheduleOccurrence>> OccurrencesAsync(string key, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ScheduleOccurrence>> OccurrencesAsync(string key, CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var query = Command(connection, null, $"SELECT version,due,outcome,job_id FROM dj_schedule_occurrences WHERE schedule_key=@key ORDER BY due DESC {PageSql(MaximumOccurrences)}", ("key", key));
-        await using var reader = await query.ExecuteReaderAsync(cancellationToken);
-        var occurrences = new List<ScheduleOccurrence>();
-        while (await reader.ReadAsync(cancellationToken))
+        return ReadAsync<IReadOnlyList<ScheduleOccurrence>>(async (connection, transaction, ct) =>
         {
-            occurrences.Add(new(key, reader.GetInt32(0), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)), reader.GetString(2), ParseGuid(Text(reader, "job_id"))));
-        }
+            await using var query = Command(connection, transaction, $"SELECT version,due,outcome,job_id FROM dj_schedule_occurrences WHERE schedule_key=@key ORDER BY due DESC {PageSql(MaximumOccurrences)}", ("key", key));
+            await using var reader = await query.ExecuteReaderAsync(ct);
+            var occurrences = new List<ScheduleOccurrence>();
+            while (await reader.ReadAsync(ct))
+            {
+                occurrences.Add(new(key, reader.GetInt32(0), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)), reader.GetString(2), ParseGuid(Text(reader, "job_id"))));
+            }
 
-        return occurrences;
+            return occurrences;
+        }, cancellationToken);
     }
 }

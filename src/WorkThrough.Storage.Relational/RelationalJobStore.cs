@@ -528,6 +528,18 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         return result;
     }
 
+    /// <summary>Runs a read in the provider's read snapshot.</summary>
+    /// <remarks>Auto-commit reads take shared locks on SQL Server and can be chosen as deadlock victims by concurrent settlement.</remarks>
+    protected async Task<T> ReadAsync<T>(Func<DbConnection, DbTransaction, CancellationToken, Task<T>> read, CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct).ConfigureAwait(false);
+        await using var transaction = await BeginReadAsync(connection, ct).ConfigureAwait(false);
+        var result = await read(connection, transaction, ct).ConfigureAwait(false);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+
+        return result;
+    }
+
     private async Task<long> NowAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct) =>
         Convert.ToInt64(await ScalarAsync(connection, transaction, ClockSql, ct).ConfigureAwait(false));
 

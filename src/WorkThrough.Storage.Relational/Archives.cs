@@ -33,12 +33,14 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         }
     }
 
-    public async Task<IReadOnlyList<ArchiveCandidate>> ArchiveCandidatesAsync(ArchivePolicy policy, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ArchiveCandidate>> ArchiveCandidatesAsync(ArchivePolicy policy, CancellationToken cancellationToken = default)
     {
         ValidateArchivePolicy(policy);
-        await using var connection = await OpenAsync(cancellationToken);
 
-        return await ReadCandidatesAsync(connection, null, policy, cancellationToken);
+        return ReadAsync<IReadOnlyList<ArchiveCandidate>>(async (connection, transaction, ct) =>
+        {
+            return await ReadCandidatesAsync(connection, transaction, policy, ct);
+        }, cancellationToken);
     }
 
     private async Task<IReadOnlyList<ArchiveCandidate>> ReadCandidatesAsync(DbConnection connection, DbTransaction? transaction, ArchivePolicy policy, CancellationToken ct, bool maintenance = false)
@@ -127,39 +129,43 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         await ExecuteAsync(connection, transaction, "DELETE FROM dj_jobs WHERE id=@id", ct, ("id", job.Id.ToString()));
     }
 
-    public async Task<IReadOnlyList<ArchiveSummary>> ArchivesAsync(string? correlationId = null, int limit = 100, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ArchiveSummary>> ArchivesAsync(string? correlationId = null, int limit = 100, CancellationToken cancellationToken = default)
     {
         if (limit is < 1 or > MaximumArchivePage)
         {
             throw new ArgumentOutOfRangeException(nameof(limit));
         }
 
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, $"""
-            SELECT id,kind,correlation_id,archived_at,jobs,sha256,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives
-            WHERE (CAST(@correlation AS {TextType}) IS NULL OR correlation_id=@correlation) ORDER BY archived_at DESC,id {PageSql("@limit")}
-            """, ("correlation", correlationId), ("limit", limit));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        var result = new List<ArchiveSummary>();
-        while (await reader.ReadAsync(cancellationToken))
+        return ReadAsync<IReadOnlyList<ArchiveSummary>>(async (connection, transaction, ct) =>
         {
-            result.Add(ReadArchiveSummary(reader));
-        }
+            await using var command = Command(connection, transaction, $"""
+                SELECT id,kind,correlation_id,archived_at,jobs,sha256,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives
+                WHERE (CAST(@correlation AS {TextType}) IS NULL OR correlation_id=@correlation) ORDER BY archived_at DESC,id {PageSql("@limit")}
+                """, ("correlation", correlationId), ("limit", limit));
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            var result = new List<ArchiveSummary>();
+            while (await reader.ReadAsync(ct))
+            {
+                result.Add(ReadArchiveSummary(reader));
+            }
 
-        return result;
+            return result;
+        }, cancellationToken);
     }
 
-    public async Task<ArchiveExport?> ExportArchiveAsync(Guid id, CancellationToken cancellationToken = default)
+    public Task<ArchiveExport?> ExportArchiveAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT a.*,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives a WHERE id=@id", ("id", id.ToString()));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken) || reader.IsDBNull(reader.GetOrdinal("body")))
+        return ReadAsync<ArchiveExport?>(async (connection, transaction, ct) =>
         {
-            return null;
-        }
+            await using var command = Command(connection, transaction, "SELECT a.*,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives a WHERE id=@id", ("id", id.ToString()));
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct) || reader.IsDBNull(reader.GetOrdinal("body")))
+            {
+                return null;
+            }
 
-        return new(ReadArchiveSummary(reader), reader.GetString(reader.GetOrdinal("body")));
+            return new(ReadArchiveSummary(reader), reader.GetString(reader.GetOrdinal("body")));
+        }, cancellationToken);
     }
 
     private static ArchiveSummary ReadArchiveSummary(DbDataReader reader) => new(Guid.Parse(reader.GetString(reader.GetOrdinal("id"))),

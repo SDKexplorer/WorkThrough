@@ -76,11 +76,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
     public async Task<MaintenanceResult> RunMaintenanceBatchAsync(MaintenanceLease lease, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lease);
-        MaintenanceBatch batch;
-        await using (var connection = await OpenAsync(cancellationToken))
-        {
-            batch = await ReadMaintenanceBatchAsync(connection, null, lease.BatchId, cancellationToken);
-        }
+        var batch = await ReadAsync((connection, transaction, ct) => ReadMaintenanceBatchAsync(connection, transaction, lease.BatchId, ct), cancellationToken);
 
         var command = new AdministrativeCommand(batch.Id, batch.Actor, "Apply the persisted retention policy in one bounded maintenance batch.");
 

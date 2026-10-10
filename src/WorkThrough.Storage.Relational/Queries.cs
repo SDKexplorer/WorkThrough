@@ -8,21 +8,14 @@ public abstract partial class RelationalJobStore
     private const int MaximumListPage = 500;
     private const string EventColumns = "sequence,job_id,run_id,at,kind,attempt";
 
-    public async Task<IReadOnlyList<JobRecord>> ListFlowJobsAsync(Guid runId, CancellationToken cancellationToken = default)
-    {
-        await using var connection = await OpenAsync(cancellationToken);
+    public Task<IReadOnlyList<JobRecord>> ListFlowJobsAsync(Guid runId, CancellationToken cancellationToken = default) =>
+        ReadAsync<IReadOnlyList<JobRecord>>(async (connection, transaction, ct) => await ReadJobsAsync(connection, transaction,
+            "SELECT * FROM dj_jobs WHERE workflow_run_id=@run ORDER BY step_id", ct, ("run", runId.ToString())), cancellationToken);
 
-        return await ReadJobsAsync(connection, null, "SELECT * FROM dj_jobs WHERE workflow_run_id=@run ORDER BY step_id", cancellationToken, ("run", runId.ToString()));
-    }
+    public Task<JobRecord?> GetAsync(Guid jobId, CancellationToken cancellationToken = default) =>
+        ReadAsync((connection, transaction, ct) => ReadJobAsync(connection, transaction, jobId, ct), cancellationToken);
 
-    public async Task<JobRecord?> GetAsync(Guid jobId, CancellationToken cancellationToken = default)
-    {
-        await using var connection = await OpenAsync(cancellationToken);
-
-        return await ReadJobAsync(connection, null, jobId, cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<JobRecord>> ListAsync(JobFilter filter, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<JobRecord>> ListAsync(JobFilter filter, CancellationToken cancellationToken = default)
     {
         if (filter.Limit is < 1 or > MaximumListPage || filter.Offset < 0)
         {
@@ -44,17 +37,15 @@ public abstract partial class RelationalJobStore
         }
 
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
-        await using var connection = await OpenAsync(cancellationToken);
+        var sql = $"SELECT * FROM dj_jobs {where} ORDER BY created_at DESC,id {PageSql("@limit", "@offset")}";
 
-        return await ReadJobsAsync(connection, null, $"SELECT * FROM dj_jobs {where} ORDER BY created_at DESC,id {PageSql("@limit", "@offset")}", cancellationToken, values.ToArray());
+        return ReadAsync<IReadOnlyList<JobRecord>>(async (connection, transaction, ct) =>
+            await ReadJobsAsync(connection, transaction, sql, ct, values.ToArray()), cancellationToken);
     }
 
-    public async Task<IReadOnlyList<JobAttempt>> AttemptsAsync(Guid jobId, CancellationToken cancellationToken = default)
-    {
-        await using var connection = await OpenAsync(cancellationToken);
-
-        return await ReadAttemptsAsync(connection, null, jobId, cancellationToken);
-    }
+    public Task<IReadOnlyList<JobAttempt>> AttemptsAsync(Guid jobId, CancellationToken cancellationToken = default) =>
+        ReadAsync<IReadOnlyList<JobAttempt>>(async (connection, transaction, ct) =>
+            await ReadAttemptsAsync(connection, transaction, jobId, ct), cancellationToken);
 
     private async Task<List<JobAttempt>> ReadAttemptsAsync(DbConnection connection, DbTransaction? transaction, Guid jobId, CancellationToken ct)
     {
@@ -71,41 +62,39 @@ public abstract partial class RelationalJobStore
         return attempts;
     }
 
-    public async Task<JobStatistics> StatisticsAsync(CancellationToken cancellationToken = default)
+    public Task<JobStatistics> StatisticsAsync(CancellationToken cancellationToken = default) => ReadAsync(async (connection, transaction, ct) =>
     {
-        await using var connection = await OpenAsync(cancellationToken);
         var counts = new Dictionary<JobStatus, long>();
-        await using (var command = Command(connection, null, "SELECT status,COUNT(*) FROM dj_jobs GROUP BY status"))
+        await using (var command = Command(connection, transaction, "SELECT status,COUNT(*) FROM dj_jobs GROUP BY status"))
         {
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
             {
                 counts.Add(Enum.Parse<JobStatus>(reader.GetString(0)), Convert.ToInt64(reader.GetValue(1)));
             }
         }
 
         var limits = new List<ConcurrencyLimit>();
-        await using (var command = Command(connection, null, "SELECT job_key,maximum FROM dj_limits ORDER BY job_key"))
+        await using (var command = Command(connection, transaction, "SELECT job_key,maximum FROM dj_limits ORDER BY job_key"))
         {
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
             {
                 var key = reader.GetString(0);
                 limits.Add(new(key == AllJobsLimitKey ? null : key, reader.GetInt32(1)));
             }
         }
 
-        return new(counts, limits);
-    }
+        return new JobStatistics(counts, limits);
+    }, cancellationToken);
 
-    public async Task<WorkflowRun?> GetWorkflowAsync(Guid runId, CancellationToken cancellationToken = default)
+    public Task<WorkflowRun?> GetWorkflowAsync(Guid runId, CancellationToken cancellationToken = default) => ReadAsync(async (connection, transaction, ct) =>
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT flow_key,version,correlation_id,status,error FROM dj_flows WHERE id=@id", ("id", runId.ToString()));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await using var command = Command(connection, transaction, "SELECT flow_key,version,correlation_id,status,error FROM dj_flows WHERE id=@id", ("id", runId.ToString()));
+        await using var reader = await command.ExecuteReaderAsync(ct);
 
-        return await reader.ReadAsync(cancellationToken) ? ReadWorkflowRun(reader, runId) : null;
-    }
+        return await reader.ReadAsync(ct) ? ReadWorkflowRun(reader, runId) : null;
+    }, cancellationToken);
 
     private static WorkflowRun ReadWorkflowRun(DbDataReader reader, Guid runId) => new(runId, reader.GetString(reader.GetOrdinal("flow_key")),
         reader.GetInt32(reader.GetOrdinal("version")), Text(reader, "correlation_id"), Enum.Parse<FlowStatus>(reader.GetString(reader.GetOrdinal("status"))),
