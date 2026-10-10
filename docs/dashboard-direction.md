@@ -1,6 +1,6 @@
 # Dashboard and product direction
 
-Status: evolving product direction, 7 October 2026. The live Angular console is embedded in the Dashboard NuGet and reads real engine APIs. Saved diagrams, incidents, audited recovery, drafts, schedules, workers, and permission-aware inspection are implemented. Windowed metrics, deployment preflight, and richer authoring remain planned. The old fictional concept files are unreachable from the live entry point.
+Status: evolving product direction, updated 10 October 2026. The live Angular console is embedded in the Dashboard NuGet and reads real engine APIs. Saved diagrams, incidents, audited recovery, drafts, schedules, workers, permission-aware inspection, windowed attempt metrics and deployment coverage are implemented. The separate deployment-preflight API/CLI is implemented; richer graph authoring remains planned. The old fictional concept files are unreachable from the live entry point.
 
 ## Brand
 

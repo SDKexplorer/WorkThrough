@@ -12,6 +12,11 @@ internal sealed class LatencyHistogram
 
     internal void Record(double milliseconds)
     {
+        if (!double.IsFinite(milliseconds) || milliseconds < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(milliseconds), "Latency must be finite and non-negative.");
+        }
+
         lock (gate)
         {
             count++;
@@ -22,7 +27,7 @@ internal sealed class LatencyHistogram
                 overflow++;
             }
 
-            buckets[Math.Clamp((int)Math.Ceiling(milliseconds), 0, 10000)]++;
+            buckets[(int)Math.Ceiling(Math.Min(milliseconds, 10000))]++;
         }
     }
 

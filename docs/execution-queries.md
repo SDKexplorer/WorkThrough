@@ -1,6 +1,6 @@
 # Bounded execution queries
 
-`IExecutionQueries` supplies metadata-only investigation for operational clients. SQLite and PostgreSQL implement it, and their `UseSqlite` / `UsePostgreSql` registrations expose it through dependency injection. These reads back the optional [authenticated MCP endpoint](mcp.md) and additive dashboard routes. The separate `IExecutionInspectionQueries` supplies protected, selected-attempt text and paged pinned-flow node/dependency/event reads; see the MCP guide for its bounds and coverage. Capacity, audit and archive queries remain planned.
+`IExecutionQueries` supplies metadata-only investigation for operational clients. All four providers implement it and expose it through their storage registrations. These reads back the optional [authenticated MCP endpoint](mcp.md) and additive dashboard routes. The separate `IExecutionInspectionQueries` supplies protected, selected-attempt text and paged pinned-flow node/dependency/event reads; see the MCP guide for its bounds and coverage. `IRuntimeQueries` supplies capacity and metrics, `IOperationHistoryQueries` supplies audit/archive metadata, and `IRetentionQueries` supplies automatic-policy status.
 
 ```csharp
 var queries = services.GetRequiredService<IExecutionQueries>();
@@ -34,7 +34,7 @@ if (page.NextCursor is { } cursor)
 - Pages contain 25 items by default, at most 100. There is no total-count scan. Queue/correlation/step strings are capped at 512 characters in SQL and clipping is explicit through `MetadataTruncated`. This is a row/text bound; MCP separately enforces a serialized-byte budget.
 - Cursors preserve the original window and position and reject accidental reuse with a different store, filter or page size. URL-encode a cursor when using HTTP. Cursors are opaque to consumers but **not signed credentials**; hosts must reauthorize every request, and must not use their contents to grant access.
 - Each page has its own short read snapshot. Concurrent status changes, archive operations or backdated inserts can change membership across pages. A cursor does not preserve a historical snapshot.
-- Coverage is explicitly `live`. Search omits archived executions; a null `FindExecutionAsync` result means absent from active tables, not proof that the ID never existed. Archive lookup/indexing remains separate planned work.
+- Coverage is explicitly `live`. Search omits archived executions; a null `FindExecutionAsync` result means absent from active tables, not proof that the ID never existed. Use `IOperationHistoryQueries` for archive summaries by standalone job or whole-flow run ID. Individual archived-step/outcome indexing remains planned.
 
 `FindExecutionAsync` reads a single ID without a time restriction. `ReadAttemptsAsync` returns at most 100 timing/outcome summaries in ascending attempt order. Continue using `NextAfterAttempt`; `ExecutionExists` distinguishes a live job with no attempts from a job absent from active tables. Attempts and execution existence are observed in the same read transaction.
 
@@ -60,8 +60,8 @@ All routes require `executions.read`, use the existing host resource-policy hook
 
 ## Storage and verification boundaries
 
-Queries use SQLite deferred read transactions and PostgreSQL Repeatable Read. They do not acquire the write admission lock or mutate engine state. Connection initialization is separate from read access. Each operation has a five-second cancellation budget and five-second command timeout; synchronous SQLite internals and connection setup mean this is not a hard wall-clock SLA.
+Queries use SQLite deferred read transactions, PostgreSQL Repeatable Read, SQL Server Snapshot and Oracle Serializable. They do not acquire the write admission lock or mutate engine state. Connection initialization is separate from read access. Each operation has a five-second cancellation budget and five-second command timeout; synchronous SQLite internals and connection setup mean this is not a hard wall-clock SLA.
 
 Initialization adds compatible indexes for creation ordering, filtered history and failed-attempt time. No persisted job identity, payload or schema-version meaning changes. Existing schema-3 stores acquire the indexes on initialization; index creation on a large store needs an appropriate deployment window. Existing schema-1 upgrade coverage still applies.
 
-Provider regressions cover recovered failures, duplicate attempt matches, time boundaries, same-time pagination, changed query/store cursors, clipping, cancellation, archive coverage and unreadable payload JSON. HTTP tests cover permission checks, metadata projection and input validation on both providers. Package consumers exercise the interface on .NET 8 and 10. See [verification](verification.md) for actual completed runs. The dedicated 100,000-execution MCP contention/soak campaign remains a later release gate; existing performance smoke is not that measurement.
+Provider regressions cover recovered failures, duplicate attempt matches, time boundaries, same-time pagination, changed query/store cursors, clipping, cancellation, archive coverage and unreadable payload JSON. HTTP tests cover permission checks, metadata projection and input validation on each configured provider. Package consumers exercise the interface on .NET 8 and 10. See [verification](verification.md) for actual completed runs. The initial 100,000-job MCP contention campaign passed on all four providers; the extended repeated/soak campaign remains a release gate.

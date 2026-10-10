@@ -1,6 +1,6 @@
 # ADR-011: optional MCP operations adapter
 
-Status: accepted and partially implemented, 2026-10-08. Read-only first and administrative actions later are maintainer-selected scope. Execution metadata, protected diagnostics, saved-flow inspection, audit/archive metadata and manual retention preview are implemented; capacity explanations and large-scale performance gates remain planned. See [current behavior](../mcp.md).
+Status: read-only adapter implemented, updated 2026-10-10. Read-only first and administrative actions later are maintainer-selected scope. Execution metadata, protected diagnostics, saved-flow inspection, audit/archive metadata, manual retention preview, capacity explanations, attempt metrics and automatic-retention status are implemented. Initial large-history contention passed; extended qualification and controlled actions remain planned. See [current behavior](../mcp.md).
 
 ## Context
 

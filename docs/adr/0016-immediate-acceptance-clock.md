@@ -1,6 +1,6 @@
 # ADR-016: Immediate jobs use the acceptance database clock
 
-Status: implemented, qualification in progress, 2026-10-10.
+Status: implemented and verified on all four providers through native CI, 2026-10-10. See [verification](../verification.md#oracle-and-immediate-acceptance-qualification-2026-10-10).
 
 An immediate JobClient request previously used the producer's UTC clock for `CreatedAt` and `AvailableAt`. A producer a few milliseconds ahead of the database could commit work that the next claim treated as future work. This was reproduced on the .NET 8/PostgreSQL local gate; explicit scheduling was not involved.
 

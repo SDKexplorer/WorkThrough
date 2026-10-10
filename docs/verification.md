@@ -1,5 +1,7 @@
 # Verification record
 
+This is a chronological evidence log. Earlier package counts and pending states describe their recorded revision; current provider qualification and investigative contention results are in the 2026-10-10 sections below.
+
 Date: 2026-10-08. Local macOS ARM64. Repository SDK 10.0.400; runtime packages target net8.0 and the Roslyn generator targets netstandard2.0. The compatibility gate also uses SDK 8.0.425 / runtime 8.0.31; the replacement worker runs on runtime 10.0.11.
 
 ## Completed
@@ -130,7 +132,7 @@ The Angular production build and formatting gate pass. An isolated local sample 
 These checks are not the proposed large maintenance-versus-worker performance gate. The 100k retained-execution investigative campaign, two-hour soak, real external IdP/desktop AI-client integration, destination durability/restore checks, PostgreSQL PITR and multi-machine partitions remain pending. SQL Server and Oracle remain unimplemented.
 
 
-## SQL Server implementation campaign — 2026-10-10 (in progress)
+## SQL Server implementation campaign — 2026-10-10
 
 The SQL Server provider uses Microsoft.Data.SqlClient 7.1.0 and a pinned SQL Server 2022 CU27 Developer image (16.0.4295.3, Ubuntu 22.04 x64). Local Docker is ARM64 and runs that image through emulation; these local results are debugging evidence, not a supported platform claim. Native Linux x64 CI is being added before qualification.
 
@@ -158,6 +160,8 @@ SQL Server 2022 CU27 and Oracle Free 26ai 23.26.3.0 on Linux x64 are the verifie
 
 ## Retained-history investigative contention, 2026-10-10
 
-The corrected 100,000-retained-job campaign passed on SQLite, PostgreSQL, SQL Server and Oracle using .NET 8.0.31, two independent workers and 20 official MCP clients. All 18,528 live jobs completed once with matching outputs; 18,559 measured requests had zero failures or fixture-secret leaks. Full-window metrics explicitly assert coverage of all 200,000 synthetic retained attempts. [Raw reports and methodology](performance.md#initial-retained-history-campaign--2026-10-10) include the 30-second baseline, 60-second investigative phase, provider/runtime versions, workload, distributions and resource observations. The local SQL Server run uses x64 emulation and is not a native capacity claim. Formatting and the harness build passed with zero warnings/errors.
+The corrected version-2 campaign completed six comparisons across SQLite, PostgreSQL (three repetitions), SQL Server and Oracle using .NET 8.0.31, two independent workers and 20 official MCP clients. All 33,720 live jobs completed once with matching outputs; 27,978 measured requests had zero failures or fixture-secret leaks. Full-window metrics explicitly assert coverage of all 200,000 synthetic retained attempts. Queue measurements use stored creation time for this immediate, first-attempt workload; settled AvailableAt is mutable and must not be used. Six timing/overflow regressions passed on both .NET 8 and 10, and the build/readability gates passed with zero warnings/errors.
 
-`scripts/investigation.sh` supplies smoke, repeated full and two-hour soak profiles. `scripts/verify.sh` now runs the bounded smoke after engine correctness/performance checks, with artifacts uploaded by both native provider CI jobs. The initial local campaign does not complete repeated measurements, SQL-plan/allocation analysis, the two-hour soak, external IdP/desktop AI-client setup, maintenance contention or restore/PITR qualification.
+[Raw reports and methodology](performance.md#initial-retained-history-campaign--2026-10-10) include the 30-second baseline, 60-second investigative phase, provider/runtime versions, workload, distributions and resource observations. Query latency targets were met, but the proposed maximum 10% throughput degradation was not consistent: PostgreSQL varied from 3.3% to 11.7%, Oracle measured 10.8% and emulated SQL Server 16.7%. These results leave the performance-budget gate open. Local SQL Server uses x64 emulation and is not a native capacity claim. Superseded version-1 queue measurements are explicitly excluded from evidence; unavailable memory counters are now null rather than zero.
+
+`scripts/investigation.sh` supplies smoke, repeated full and two-hour soak profiles. `scripts/verify.sh` runs the bounded smoke after engine correctness/performance checks, with artifacts uploaded by both native provider CI jobs. Native [run 38040714240](https://github.com/SDKexplorer/WorkThrough/actions/runs/38040714240) passed all provider/package/relocation/recovery gates and the first investigative smoke at `fab54e2`; its version-1 queue fields are superseded by the correction above. The corrected harness must pass the next native run. Longer repetitions, SQL-plan/server-allocation analysis, two-hour soak, external IdP/desktop AI-client setup, maintenance contention and restore/PITR qualification remain open.

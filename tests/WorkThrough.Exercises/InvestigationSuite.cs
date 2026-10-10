@@ -27,6 +27,7 @@ internal static class InvestigationSuite
 
         var report = new
         {
+            formatVersion = 2,
             recordedAt = DateTimeOffset.UtcNow,
             gitRevision = Environment.GetEnvironmentVariable("WT_GIT_REVISION") ?? "unrecorded",
             workingTree = Environment.GetEnvironmentVariable("WT_GIT_STATE") ?? "unrecorded",
@@ -39,6 +40,7 @@ internal static class InvestigationSuite
             authentication = "locally signed per-client JWTs over loopback HTTP; not external identity-provider qualification",
             client = "official C# MCP client over Streamable HTTP",
             accessSink = "in-memory count, no external audit I/O",
+            queueWaitDefinition = "database acceptance to first attempt start for immediate jobs; settlement can change AvailableAt",
             workload = new
             {
                 workerProcesses = 2,
@@ -96,6 +98,8 @@ internal static class InvestigationSuite
             var startCpu = first.Cpu + second.Cpu;
             using var process = Process.GetCurrentProcess();
             var parentCpu = process.TotalProcessorTime;
+            var allocationStart = GC.GetTotalAllocatedBytes(false);
+            var generationTwoStart = GC.CollectionCount(2);
             var clock = Stopwatch.StartNew();
             readers = clients.Select((client, index) => inspection.ReadAsync(client, index, stopInvestigation.Token)).ToArray();
             var client = new JobClient(database.Store);
@@ -128,7 +132,9 @@ internal static class InvestigationSuite
                 {
                     PerformanceSuite.Ensure(job.Attempt == 1 && job.Output?.GetInt32() == job.Payload.GetProperty("index").GetInt32(), "Measured work had duplicate attempts or incorrect output.");
                     var attempt = (await database.Store.AttemptsAsync(job.Id, lifetime.Token)).Single();
-                    queueWait.Record((attempt.StartedAt - job.AvailableAt).TotalMilliseconds);
+                    // This workload accepts immediate jobs and forbids retries. CreatedAt is the
+                    // persisted eligibility instant; AvailableAt is mutable during settlement.
+                    queueWait.Record((attempt.StartedAt - job.CreatedAt).TotalMilliseconds);
                     endToEnd.Record((attempt.FinishedAt!.Value - job.CreatedAt).TotalMilliseconds);
                 }
 
@@ -136,7 +142,16 @@ internal static class InvestigationSuite
                 if (clock.Elapsed >= sampleAt)
                 {
                     process.Refresh();
-                    resources.Add(new { elapsedSeconds = clock.Elapsed.TotalSeconds, managedBytes = GC.GetTotalMemory(false), harnessRssBytes = process.WorkingSet64, workerPeakRssBytes = first.PeakBytes + second.PeakBytes });
+                    resources.Add(new
+                    {
+                        elapsedSeconds = clock.Elapsed.TotalSeconds,
+                        managedBytes = GC.GetTotalMemory(false),
+                        managedAllocatedBytes = GC.GetTotalAllocatedBytes(false) - allocationStart,
+                        generationTwoCollections = GC.CollectionCount(2) - generationTwoStart,
+                        harnessRssBytes = process.WorkingSet64,
+                        workerRssBytes = PositiveSumOrUnknown(first.ResidentBytes, second.ResidentBytes),
+                        workerPeakRssBytes = PositiveSumOrUnknown(first.PeakBytes, second.PeakBytes)
+                    });
                     Console.WriteLine($"{provider}/{investigators} clients: {clock.Elapsed.TotalSeconds:F0}s, {completed} verified jobs, {inspection.Failures} request failures.");
                     sampleAt = clock.Elapsed.Add(TimeSpan.FromSeconds(10));
                 }
@@ -164,6 +179,8 @@ internal static class InvestigationSuite
             }
         }
     }
+
+    private static long? PositiveSumOrUnknown(long first, long second) => first > 0 && second > 0 ? first + second : null;
 }
 
 internal sealed record InvestigationPhase(int Investigators, int RequestedSeconds, double MeasuredSeconds, int VerifiedJobs,

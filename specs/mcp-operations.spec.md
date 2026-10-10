@@ -152,7 +152,7 @@ Before release, benchmark 100,000 retained executions with varied attempt histor
 - [x] Add a standalone authenticated sample and composable endpoint for an API/web worker; no processor or Angular dependency.
 - [x] Exercise the official C# 2.2.0 client and an independent HTTP JSON-RPC client over Streamable HTTP; document their protocol coverage. These are not two third-party AI applications.
 - [x] Test .NET 8/10 NuGet consumers, permission/resource bypass attempts, metadata projections, paging, cancellation, limits and access-sink failure for the shipped tools.
-- [ ] Finish contention/performance qualification with real providers. The initial 100,000-retained-job/20-client campaign passed on SQLite, PostgreSQL, SQL Server and Oracle; raw reports and repeatable smoke/full/soak profiles are in [performance](../docs/performance.md). Repetitions, SQL-plan/allocation analysis and the two-hour soak remain.
+- [ ] Finish contention/performance qualification with real providers. The initial 100,000-retained-job/20-client campaign passed correctness checks on SQLite, PostgreSQL, SQL Server and Oracle, but missed the proposed throughput budget in some runs; raw reports and repeatable smoke/full/soak profiles are in [performance](../docs/performance.md). Repetitions, SQL-plan/allocation analysis and the two-hour soak remain.
 
 ### M1 follow-up — richer investigation
 

@@ -14,7 +14,7 @@ The core engine and processor relocation guarantee are implemented. Completing a
 | 4 | Implemented operational UX: windowed metrics, step display labels, worker acquisition health and retention status | Real measurements and saved-data inspection in the Angular console; no invented counts or missing-history claims |
 | 5 | Partition-key concurrency, rate limits, queue fairness and tenant isolation | Separate lock/tenant identities, resource-policy tests and multi-host admission/fairness evidence |
 | 6 | Controlled MCP actions, after the read-only release | Trusted approval, exact target/parameters, revocation/state preconditions and existing atomic command/audit reconciliation |
-| 7 | Production/public release readiness; initial 100k-job/20-client contention passed on all four providers | Repeated contention and two-hour soak, external IdP/AI-client checks, multi-host/PITR evidence, license/package/visibility decisions and enforced branch policies |
+| 7 | Production/public release readiness; 100k-job/20-client correctness passed on all four providers; proposed throughput budget missed in some runs | Repeated contention and two-hour soak, external IdP/AI-client checks, multi-host/PITR evidence, license/package/visibility decisions and enforced branch policies |
 
 Branch protection remains blocked by GitHub's current private-repository plan. Changing account plan or repository visibility is a maintainer decision. Public visibility, package publication and a project license are not authorized by completing implementation. Advanced architecture items remain design-and-implementation work, not hidden completed features.
 
