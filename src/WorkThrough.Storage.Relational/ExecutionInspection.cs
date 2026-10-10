@@ -6,14 +6,18 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
 {
     // Bound the JSON parsed inside the database; templates and condition values never leave the database.
     private const int MaximumInspectionDefinitionCharacters = 262144;
+    private const int MaximumDependencyOffset = 250000;
+
     protected virtual string FlowDependencySql => throw new NotSupportedException("This provider does not project flow dependencies.");
 
-    public async Task<ExecutionDiagnostic> ReadDiagnosticAsync(Guid id, int attempt, int maximumCharacters = 2048,
+    public async Task<ExecutionDiagnostic> ReadDiagnosticAsync(Guid id, int attempt, int maximumCharacters = OperationQueryLimits.DefaultDiagnosticCharacters,
         CancellationToken cancellationToken = default)
     {
-        if (attempt < 1 || maximumCharacters is < 1 or > 4096)
+        ArgumentOutOfRangeException.ThrowIfLessThan(attempt, 1);
+        if (maximumCharacters is < 1 or > OperationQueryLimits.MaximumDiagnosticCharacters)
         {
-            throw new ArgumentOutOfRangeException(nameof(attempt), "Use a positive attempt and a text limit of 1–4096 characters.");
+            throw new ArgumentOutOfRangeException(nameof(maximumCharacters),
+                $"Use a text limit of 1–{OperationQueryLimits.MaximumDiagnosticCharacters} characters.");
         }
 
         using var timeout = OperationQueryTimeout(cancellationToken);
@@ -55,10 +59,10 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
     }
 
     public async Task<FlowInspection> ReadFlowAsync(Guid runId, int nodeOffset = 0, int dependencyOffset = 0,
-        long afterEvent = 0, int limit = 25, CancellationToken cancellationToken = default)
+        long afterEvent = 0, int limit = OperationQueryLimits.DefaultPageSize, CancellationToken cancellationToken = default)
     {
         ValidateOperationLimit(limit);
-        if (nodeOffset is < 0 or > 500 || dependencyOffset is < 0 or > 250000 || afterEvent < 0)
+        if (nodeOffset is < 0 or > FlowValidator.MaximumSteps || dependencyOffset is < 0 or > MaximumDependencyOffset || afterEvent < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(nodeOffset), "Invalid flow page position.");
         }
@@ -74,10 +78,15 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
             ("run", runId.ToString()), ("limit", limit + 1), ("offset", nodeOffset));
         var nodes = await ReadExecutionMetadataAsync(nodesCommand, ct);
         var nextNode = TrimPage(nodes, limit) ? nodeOffset + limit : (int?)null;
-        var dependencies = graphStatus == "available"
+        var dependencies = graphStatus == FlowGraphStatuses.Available
             ? await ReadDependenciesAsync(connection, transaction, runId, dependencyOffset, limit, ct) : [];
         var nextDependency = TrimPage(dependencies, limit) ? dependencyOffset + limit : (int?)null;
-        var position = await ReadInspectionEventPositionAsync(connection, transaction, ct);
+        EventPosition position;
+        await using (var command = OperationCommand(connection, transaction, EventPositionSql))
+        {
+            position = await ReadEventPositionAsync(command, ct);
+        }
+
         if (afterEvent > position.LastSequence)
         {
             throw new ArgumentOutOfRangeException(nameof(afterEvent), "The requested event position is beyond this store's journal.");
@@ -95,19 +104,23 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
         DbConnection connection, DbTransaction transaction, Guid runId, CancellationToken ct)
     {
         await using var command = OperationCommand(connection, transaction, $"""
-            SELECT f.flow_key,f.version,{SubstringFunction}(f.correlation_id,1,512) AS correlation_id,f.status,
-              CASE WHEN {LengthSql("f.correlation_id")}>512 THEN 1 ELSE 0 END AS clipped,{LengthSql("d.definition")} AS characters
+            SELECT f.flow_key,f.version,{ClippedLabelSql("f.correlation_id")} AS correlation_id,f.status,
+              CASE WHEN {LabelTooLongSql("f.correlation_id")} THEN 1 ELSE 0 END AS clipped,{LengthSql("d.definition")} AS characters
             FROM dj_flows f LEFT JOIN dj_definitions d ON d.flow_key=f.flow_key AND d.version=f.version WHERE f.id=@run
             """, ("run", runId.ToString()));
         await using var reader = await command.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct))
         {
-            return (null, "not_live");
+            return (null, FlowGraphStatuses.NotLive);
         }
 
-        var status = reader.IsDBNull(5) ? "definition_missing" : Convert.ToInt64(reader.GetValue(5)) > MaximumInspectionDefinitionCharacters ? "definition_too_large" : "available";
+        var graphStatus = reader.IsDBNull(5) ? FlowGraphStatuses.DefinitionMissing
+            : Convert.ToInt64(reader.GetValue(5)) > MaximumInspectionDefinitionCharacters ? FlowGraphStatuses.DefinitionTooLarge
+            : FlowGraphStatuses.Available;
+        var flow = new FlowMetadata(runId, reader.GetString(0), reader.GetInt32(1), Text(reader, "correlation_id"),
+            Enum.Parse<FlowStatus>(reader.GetString(3)), reader.GetInt32(4) != 0);
 
-        return (new(runId, reader.GetString(0), reader.GetInt32(1), Text(reader, "correlation_id"), reader.GetString(3), reader.GetInt32(4) != 0), status);
+        return (flow, graphStatus);
     }
 
     private async Task<List<FlowDependency>> ReadDependenciesAsync(DbConnection connection, DbTransaction transaction,
@@ -125,30 +138,14 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
         return dependencies;
     }
 
-    private async Task<EventPosition> ReadInspectionEventPositionAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
-    {
-        await using var command = OperationCommand(connection, transaction, "SELECT value,floor FROM dj_event_sequence WHERE id=1");
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        await reader.ReadAsync(ct);
-
-        return new(reader.GetInt64(0), reader.GetInt64(1));
-    }
-
     private async Task<List<ExecutionEvent>> ReadFlowEventsAsync(DbConnection connection, DbTransaction transaction,
         Guid runId, long after, int limit, CancellationToken ct)
     {
-        await using var command = OperationCommand(connection, transaction, $"""
-            SELECT sequence,job_id,at,kind,attempt FROM dj_events WHERE run_id=@run AND sequence>@after ORDER BY sequence {PageSql("@limit")}
-            """, ("run", runId.ToString()), ("after", after), ("limit", limit + 1));
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        var events = new List<ExecutionEvent>();
-        while (await reader.ReadAsync(ct))
-        {
-            events.Add(new(reader.GetInt64(0), Guid.Parse(reader.GetString(1)), runId,
-                DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)), reader.GetString(3), reader.GetInt32(4)));
-        }
+        await using var command = OperationCommand(connection, transaction,
+            $"SELECT {EventColumns} FROM dj_events WHERE run_id=@run AND sequence>@after ORDER BY sequence {PageSql("@limit")}",
+            ("run", runId.ToString()), ("after", after), ("limit", limit + 1));
 
-        return events;
+        return await ReadEventsAsync(command, ct);
     }
 
     private static bool TrimPage<T>(List<T> items, int limit)

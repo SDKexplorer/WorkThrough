@@ -22,7 +22,7 @@ public sealed class OperationHistoryTests
         {
             var command = Command();
             commands.Add(command.Id);
-            await harness.Store.SetQueuePausedAsync($"queue-{i}", true, 0, command);
+            await harness.Store.SetQueuePausedAsync($"queue-{i}", true, 0, command).SucceedsAsync();
         }
 
         var boundary = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds());
@@ -32,7 +32,7 @@ public sealed class OperationHistoryTests
         var first = await harness.Store.SearchAuditAsync(query);
         var items = first.Items.ToList();
         var cursor = first.NextCursor;
-        await harness.Store.SetQueuePausedAsync("newer", true, 0, Command());
+        await harness.Store.SetQueuePausedAsync("newer", true, 0, Command()).SucceedsAsync();
         while (cursor is not null)
         {
             var page = await harness.NewStore().SearchAuditAsync(query with { Cursor = cursor });
@@ -60,11 +60,11 @@ public sealed class OperationHistoryTests
     public async Task Actor_bounds_report_unavailable_attribution_without_loading_huge_actor_json(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await harness.Store.SetQueuePausedAsync("long-issuer", true, 0, Command() with { Actor = new(new string('i', 600), "operator") });
+        await harness.Store.SetQueuePausedAsync("long-issuer", true, 0, Command() with { Actor = new(new string('i', 600), "operator") }).SucceedsAsync();
         var clipped = Assert.Single((await harness.Store.SearchAuditAsync(new())).Items);
         Assert.Equal(512, clipped.Issuer!.Length);
         Assert.True(clipped.MetadataTruncated);
-        await harness.Store.SetQueuePausedAsync("large-actor", true, 0, Command() with { Actor = new("issuer", "operator", new string('d', 17000)) });
+        await harness.Store.SetQueuePausedAsync("large-actor", true, 0, Command() with { Actor = new("issuer", "operator", new string('d', 17000)) }).SucceedsAsync();
         var unavailable = Assert.Single((await harness.Store.SearchAuditAsync(new(Target: "large-actor"))).Items);
         Assert.False(unavailable.ActorAvailable);
         Assert.True(unavailable.MetadataTruncated);
@@ -82,13 +82,13 @@ public sealed class OperationHistoryTests
             ids.Add(await CompleteAsync(harness, "same"));
         }
 
-        await harness.Store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command());
+        await harness.Store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command()).SucceedsAsync();
         var summaries = await harness.Store.ArchivesAsync();
-        await harness.Store.PurgeArchiveAsync(ids[0], summaries.Single(item => item.Id == ids[0]).Sha256, Command());
+        await harness.Store.PurgeArchiveAsync(ids[0], summaries.Single(item => item.Id == ids[0]).Sha256, Command()).SucceedsAsync();
         await ExecuteAsync(harness, "UPDATE dj_archives SET body='SECRET-INVALID-JSON' WHERE body IS NOT NULL");
         var boundary = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds());
         await ExecuteAsync(harness, "UPDATE dj_archives SET archived_at=@at", ("at", boundary.ToUnixTimeMilliseconds()));
-        var query = new ArchiveQuery(CorrelationId: "same", Kind: "Job", Limit: 1);
+        var query = new ArchiveQuery(CorrelationId: "same", Kind: ArchiveKind.Job, Limit: 1);
         var page = await harness.Store.SearchArchivesAsync(query);
         var items = page.Items.ToList();
         var cursor = page.NextCursor;
@@ -105,7 +105,7 @@ public sealed class OperationHistoryTests
         Assert.False(items.Single(item => item.Id == ids[0]).BodyAvailable);
         Assert.DoesNotContain("SECRET", JsonSerializer.Serialize(items));
         Assert.Equal("archive-summary", page.Coverage);
-        Assert.Empty((await harness.Store.SearchArchivesAsync(new(Kind: "Flow"))).Items);
+        Assert.Empty((await harness.Store.SearchArchivesAsync(new(Kind: ArchiveKind.Flow))).Items);
         Assert.Empty((await harness.Store.SearchArchivesAsync(new(From: boundary.AddTicks(1), Until: boundary.AddMilliseconds(2)))).Items);
         await ExecuteAsync(harness, "UPDATE dj_archives SET archived_at=@at", ("at", boundary.AddDays(-30).ToUnixTimeMilliseconds()));
         Assert.Empty((await harness.Store.SearchArchivesAsync(new())).Items);
@@ -155,8 +155,8 @@ public sealed class OperationHistoryTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         await using var other = await StoreHarness.CreateAsync(provider);
-        await harness.Store.SetQueuePausedAsync("one", true, 0, Command());
-        await harness.Store.SetQueuePausedAsync("two", true, 0, Command());
+        await harness.Store.SetQueuePausedAsync("one", true, 0, Command()).SucceedsAsync();
+        await harness.Store.SetQueuePausedAsync("two", true, 0, Command()).SucceedsAsync();
         var query = new AuditQuery(Limit: 1);
         var cursor = (await harness.Store.SearchAuditAsync(query)).NextCursor!;
         Assert.NotNull(cursor);
@@ -165,7 +165,7 @@ public sealed class OperationHistoryTests
         await Assert.ThrowsAsync<ArgumentException>(() => harness.Store.SearchArchivesAsync(new(Limit: 1, Cursor: cursor)));
         await Assert.ThrowsAsync<ArgumentException>(() => harness.Store.SearchAuditAsync(new(Cursor: "invalid!")));
         await Assert.ThrowsAsync<ArgumentException>(() => harness.Store.SearchAuditAsync(new(From: DateTimeOffset.UtcNow.AddDays(-8))));
-        await Assert.ThrowsAsync<ArgumentException>(() => harness.Store.SearchArchivesAsync(new(Kind: "invalid")));
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Store.SearchArchivesAsync(new(Kind: (ArchiveKind)99)));
         await Assert.ThrowsAnyAsync<ArgumentException>(() => harness.Store.SearchAuditAsync(new(Limit: 101)));
         await Assert.ThrowsAnyAsync<ArgumentException>(() => harness.Store.PreviewRetentionAsync(new(DateTimeOffset.UtcNow, BatchSize: 11)));
         using var cancelled = new CancellationTokenSource();

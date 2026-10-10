@@ -20,12 +20,12 @@ public sealed class EventTests
         Assert.True(await store.AcknowledgeAsync("billing", 0, last));
         Assert.False(await store.AcknowledgeAsync("billing", 0, last));
         Assert.Equal(last, await database.NewStore().SubscribeAsync("billing"));
-        await Assert.ThrowsAsync<StateConflictException>(() => store.TrimEventsAsync(last, Command()));
+        await store.TrimEventsAsync(last, Command()).FailsAsync(ErrorType.Conflict);
         await store.SubscribeAsync("slow-exporter");
-        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddMinutes(1)), Command());
-        await Assert.ThrowsAsync<StateConflictException>(() => store.TrimEventsAsync(last, Command()));
+        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddMinutes(1)), Command()).SucceedsAsync();
+        await store.TrimEventsAsync(last, Command()).FailsAsync(ErrorType.Conflict);
         Assert.True(await store.AcknowledgeAsync("slow-exporter", 0, last));
-        Assert.Equal(events.Count, await store.TrimEventsAsync(last, Command()));
+        Assert.Equal(events.Count, await store.TrimEventsAsync(last, Command()).SucceedsAsync());
         await Assert.ThrowsAsync<StateConflictException>(() => store.ReadEventsAsync(0));
         await Assert.ThrowsAsync<StateConflictException>(() => store.SubscribeAsync("new-reader"));
         Assert.Equal(last, await store.SubscribeAsync("new-reader", last));

@@ -2,6 +2,31 @@ using Microsoft.Extensions.Logging;
 
 namespace WorkThrough;
 
+/// <summary>Values of <see cref="McpAccessEvent.Outcome"/>; failed calls also return the outcome as their error code.</summary>
+public static class McpAccessOutcomes
+{
+    public const string Succeeded = "succeeded";
+    public const string UnsupportedTool = "unsupported_tool";
+    public const string InvalidArguments = "invalid_arguments";
+    public const string Forbidden = "forbidden";
+    public const string CapabilityUnavailable = "capability_unavailable";
+    public const string InvalidOrUnavailable = "invalid_or_unavailable";
+    public const string ResponseTooLarge = "response_too_large";
+    public const string Cancelled = "cancelled";
+    public const string DeadlineExceeded = "deadline_exceeded";
+    public const string Unavailable = "unavailable";
+    public const string AccessAuditUnavailable = "access_audit_unavailable";
+}
+
+/// <summary>Token claims the MCP endpoint relies on. Inbound claim mapping is disabled, so these are JWT names.</summary>
+internal static class McpClaims
+{
+    public const string Issuer = "iss";
+    public const string Subject = "sub";
+    public const string ClientId = "client_id";
+    public const string AuthorizedParty = "azp";
+}
+
 /// <summary>Metadata-only access event. No tool arguments, business labels, tokens or job contents are recorded.</summary>
 public sealed record McpAccessEvent(
     string RequestId, string Issuer, string Subject, string? ClientId, string Tool,

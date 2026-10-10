@@ -5,15 +5,21 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IRetentionMaintenance
 {
+    private const int MaximumOwnerLength = 200;
+    private const int MaximumEventTrimScan = 1000;
+    private static readonly TimeSpan MinimumMaintenanceLease = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan MaximumMaintenanceLease = TimeSpan.FromMinutes(5);
+
     private sealed record MaintenanceBatch(Guid Id, OperationActor Actor, int PolicyRevision, ArchivePolicy ArchivePolicy,
         string? Destination, DateTimeOffset? PurgeBefore, DateTimeOffset? EventsBefore);
 
     public Task<MaintenanceLease?> AcquireMaintenanceAsync(string owner, OperationActor actor, TimeSpan leaseDuration, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(owner) || owner.Length > 200 || actor is null
-            || string.IsNullOrWhiteSpace(actor.Issuer) || actor.Issuer.Length > 512
-            || string.IsNullOrWhiteSpace(actor.Subject) || actor.Subject.Length > 512 || actor.DisplayName?.Length > 512
-            || leaseDuration < TimeSpan.FromSeconds(10) || leaseDuration > TimeSpan.FromMinutes(5))
+        const int label = OperationQueryLimits.MaximumLabelLength;
+        if (string.IsNullOrWhiteSpace(owner) || owner.Length > MaximumOwnerLength || actor is null
+            || string.IsNullOrWhiteSpace(actor.Issuer) || actor.Issuer.Length > label
+            || string.IsNullOrWhiteSpace(actor.Subject) || actor.Subject.Length > label || actor.DisplayName?.Length > label
+            || leaseDuration < MinimumMaintenanceLease || leaseDuration > MaximumMaintenanceLease)
         {
             throw new ArgumentException("Maintenance needs a bounded owner/actor and a lease of 10 seconds to 5 minutes.");
         }
@@ -79,7 +85,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
         var command = new AdministrativeCommand(batch.Id, batch.Actor, "Apply the persisted retention policy in one bounded maintenance batch.");
 
         // The token is deliberately excluded from the command fingerprint: a replacement host reconciles the same batch.
-        return await AdminAsync(command, "retention.batch", batch.Id.ToString(), batch, async (connection, transaction, ct) =>
+        return await AuditedAsync(command, AuditActions.RunRetentionBatch, batch.Id.ToString(), batch, async (connection, transaction, ct) =>
         {
             await RequireMaintenanceLeaseAsync(connection, transaction, lease, ct);
             var current = await ReadRetentionPolicyAsync(connection, transaction, ct);
@@ -101,7 +107,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
                     catch (StateConflictException)
                     {
                         // Archive size checks happen before the first write. Provider failures are never swallowed.
-                        await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_incidents", "unit_id,code,at", "@id,'ArchiveEvidenceLimit',@at", "unit_id", "code,at"), ct, ("id", candidate.Id.ToString()), ("at", await NowAsync(connection, transaction, ct)));
+                        await RecordRetentionIncidentAsync(connection, transaction, candidate.Id, RetentionIncidentCodes.ArchiveEvidenceLimit, ct);
                         blocked.Add(candidate.Id);
                     }
                 }
@@ -114,7 +120,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
             }
 
             await RequireMaintenanceLeaseAsync(connection, transaction, lease, ct);
-            var result = new MaintenanceResult(batch.Id, applicable ? "Completed" : "PolicySuperseded",
+            var result = new MaintenanceResult(batch.Id, applicable ? MaintenanceOutcomes.Completed : MaintenanceOutcomes.PolicySuperseded,
                 DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct)), archived, purged, blocked, trimmed);
             await ExecuteAsync(connection, transaction, "UPDATE dj_maintenance_batches SET result=@result WHERE id=@id", ct,
                 ("result", JsonSerializer.Serialize(result, JobJson.Options)), ("id", batch.Id.ToString()));
@@ -131,7 +137,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
         {
             await RequireMaintenanceLeaseAsync(connection, transaction, lease, ct);
             await ExecuteAsync(connection, transaction, "UPDATE dj_maintenance SET failure_code=@code,failed_at=@at WHERE id=1", ct,
-                ("code", budgetExceeded ? "BatchBudgetExceeded" : "BatchFailed"), ("at", await NowAsync(connection, transaction, ct)));
+                ("code", budgetExceeded ? MaintenanceFailureCodes.BatchBudgetExceeded : MaintenanceFailureCodes.BatchFailed), ("at", await NowAsync(connection, transaction, ct)));
 
             return true;
         }, cancellationToken);
@@ -158,14 +164,13 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
     private async Task<int> TrimMaintenanceEventsAsync(DbConnection connection, DbTransaction transaction, DateTimeOffset before, CancellationToken ct)
     {
         var position = await ReadEventPositionAsync(connection, transaction, ct);
-        var slowest = await ScalarAsync(connection, transaction, "SELECT MIN(sequence) FROM dj_subscriptions", ct);
-        var maximum = slowest is null or DBNull ? position.LastSequence : Convert.ToInt64(slowest);
+        var maximum = await ReadSlowestSubscriberAsync(connection, transaction, ct) ?? position.LastSequence;
         var through = position.RetainedAfter;
         await using (var command = Command(connection, transaction, $"""
             SELECT e.sequence,e.at,CASE WHEN EXISTS (SELECT 1 FROM dj_jobs j WHERE j.id=e.job_id)
               OR EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=COALESCE(e.run_id,e.job_id) AND h.held=1)
               THEN 1 ELSE 0 END AS protected
-            FROM dj_events e WHERE e.sequence>@floor AND e.sequence<=@maximum ORDER BY e.sequence {PageSql("1000")}
+            FROM dj_events e WHERE e.sequence>@floor AND e.sequence<=@maximum ORDER BY e.sequence {PageSql(MaximumEventTrimScan)}
             """, ("floor", position.RetainedAfter), ("maximum", maximum)))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);
@@ -180,14 +185,10 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
             }
         }
 
-        if (through == position.RetainedAfter)
-        {
-            return 0;
-        }
-
-        var deleted = await ExecuteAsync(connection, transaction, "DELETE FROM dj_events WHERE sequence<=@through", ct, ("through", through));
-        await ExecuteAsync(connection, transaction, "UPDATE dj_event_sequence SET floor=@through WHERE id=1", ct, ("through", through));
-
-        return deleted;
+        return through == position.RetainedAfter ? 0 : await DeleteEventsThroughAsync(connection, transaction, through, ct);
     }
+
+    private async Task RecordRetentionIncidentAsync(DbConnection connection, DbTransaction transaction, Guid unitId, string code, CancellationToken ct) =>
+        await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_incidents", "unit_id,code,at", "@id,@code,@at", "unit_id", "code,at"), ct,
+            ("id", unitId.ToString()), ("code", code), ("at", await NowAsync(connection, transaction, ct)));
 }

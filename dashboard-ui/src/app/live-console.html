@@ -11,8 +11,8 @@
         </div>
         <p class="nav-label">WORKSPACE</p>
         <nav aria-label="Console sections">
-            @if (can('executions.read')) { @for (item of ['executions', 'definitions', 'schedules',
-            'workers', 'archives']; track item) {
+            @if (can(permission.ReadExecutions)) { @for (item of ['executions', 'definitions',
+            'schedules', 'workers', 'archives']; track item) {
             <button
                 type="button"
                 [attr.aria-current]="section() === item ? 'page' : null"
@@ -22,7 +22,7 @@
                 : item === 'workers' ? 'Workers & capacity' : item === 'archives' ? 'Archives' :
                 'Executions' }}
             </button>
-            } } @if (can('audit.read')) {
+            } } @if (can(permission.ReadAudit)) {
             <button
                 type="button"
                 [attr.aria-current]="section() === 'audit' ? 'page' : null"
@@ -65,7 +65,7 @@
         </header>
         @if (error()) {
         <p class="live-alert" role="alert">{{ error() }} Displayed data may be stale.</p>
-        } @if (can('executions.read')) {
+        } @if (can(permission.ReadExecutions)) {
         <section class="live-metrics" aria-label="Stored job totals">
             @for (state of ['Queued', 'Running', 'Succeeded', 'Failed']; track state) {
             <article>
@@ -117,7 +117,7 @@
         </section>
         } @else if (metricsError()) {
         <p class="muted" role="status">{{ metricsError() }}</p>
-        } } @if (section() === 'executions' && can('executions.read')) {
+        } } @if (section() === 'executions' && can(permission.ReadExecutions)) {
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
@@ -231,8 +231,8 @@
             @if (flow(); as flow) {
             <div class="live-graph-header">
                 <strong>{{ flow.flow.flowKey }} · v{{ flow.flow.version }}</strong
-                ><span class="badge">{{ flow.flow.status }}</span>@if (can('flows.recover') &&
-                ['Running', 'Paused'].includes(flow.flow.status)) {
+                ><span class="badge">{{ flow.flow.status }}</span>@if (can(permission.RecoverFlows)
+                && ['Running', 'Paused'].includes(flow.flow.status)) {
                 <button
                     class="outline"
                     (click)="flowAction(flow.flow.status === 'Paused' ? 'resume' : 'pause')"
@@ -294,20 +294,21 @@
                 </section>
             </div>
             <div class="live-actions">
-                @if (can('jobs.retry') && !detail.job.workflowRunId &&
+                @if (can(permission.RetryJobs) && !detail.job.workflowRunId &&
                 ['Failed','Cancelled'].includes(detail.job.status)) {
                 <button class="primary" (click)="openAction('retry', detail.job)">Retry job</button>
-                } @if (can('flows.recover') && flow()?.flow?.status === 'Incident' &&
+                } @if (can(permission.RecoverFlows) && flow()?.flow?.status === 'Incident' &&
                 ['Failed','Cancelled','Rejected','Expired'].includes(detail.job.status)) {
                 <button class="primary" (click)="openAction('recover', detail.job)">
                     Recover failed step
                 </button>
-                } @if (can('jobs.cancel') &&
+                } @if (can(permission.CancelJobs) &&
                 ['Waiting','Queued','Running','AwaitingSignal'].includes(detail.job.status)) {
                 <button class="outline" (click)="openAction('cancel', detail.job)">
                     Cancel job
                 </button>
-                } @if (can('jobs.replay') && detail.job.contract.key !== 'workthrough.signal' &&
+                } @if (can(permission.ReplayJobs) && detail.job.contract.key !== signalProcessorKey
+                &&
                 ['Succeeded','Failed','Cancelled','Rejected','Expired','Skipped'].includes(detail.job.status))
                 {
                 <button class="outline" (click)="openAction('replay', detail.job)">
@@ -339,7 +340,7 @@
                     <h2>Flow definitions</h2>
                     <p class="muted">Drafts cannot run. Published versions stay immutable.</p>
                 </div>
-                @if (can('definitions.edit')) {
+                @if (can(permission.EditDefinitions)) {
                 <button class="primary" (click)="openFlowEditor()">
                     {{ draftEditor() ? 'Close editor' : 'Draft editor' }}
                 </button>
@@ -389,7 +390,8 @@
                             <td>{{ definition.revision }}</td>
                             <td>{{ definition.graph.steps.length }}</td>
                             <td>
-                                @if (definition.status === 'Draft' && can('definitions.publish')) {
+                                @if (definition.status === 'Draft' &&
+                                can(permission.PublishDefinitions)) {
                                 <button
                                     class="outline"
                                     (click)="definitionAction('publish', definition)"
@@ -397,7 +399,7 @@
                                     Publish
                                 </button>
                                 } @if (definition.status === 'Published' &&
-                                can('definitions.retire')) {
+                                can(permission.RetireDefinitions)) {
                                 <button
                                     class="outline"
                                     (click)="definitionAction('retire', definition)"
@@ -426,7 +428,7 @@
                         intact.
                     </p>
                 </div>
-                @if (can('schedules.manage')) {
+                @if (can(permission.ManageSchedules)) {
                 <button class="primary" (click)="openScheduleEditor()">
                     {{ draftEditor() ? 'Close editor' : 'New schedule draft' }}
                 </button>
@@ -484,7 +486,8 @@
                                 date:'medium') : '—' }}
                             </td>
                             <td>
-                                @if (can('schedules.manage')) { @if (schedule.status === 'Draft') {
+                                @if (can(permission.ManageSchedules)) { @if (schedule.status ===
+                                'Draft') {
                                 <button
                                     class="outline"
                                     (click)="scheduleAction('publish',schedule)"
@@ -628,7 +631,7 @@
                                     >{{ workerControl(worker.workerId).draining ? 'Draining' :
                                     'Accepting' }}</span
                                 >
-                                @if (can('workers.manage')) {
+                                @if (can(permission.ManageWorkers)) {
                                 <button class="outline" (click)="workerAction(worker.workerId)">
                                     {{ workerControl(worker.workerId).draining ? 'Resume' : 'Drain'
                                     }}
@@ -690,7 +693,7 @@
                             <td><code>{{ queue.queue }}</code></td>
                             <td>{{ queue.paused ? 'Paused' : 'Accepting' }}</td>
                             <td>
-                                @if (can('queues.manage')) {
+                                @if (can(permission.ManageQueues)) {
                                 <button class="outline" (click)="queueAction(queue)">
                                     {{ queue.paused ? 'Resume' : 'Pause' }}
                                 </button>
@@ -808,7 +811,7 @@
                         placeholder="All correlations" /></label
                 ><button class="outline" (click)="applyFilters()">Filter</button>
             </div>
-            @if (can('archives.manage')) {
+            @if (can(permission.ManageArchives)) {
             <div class="live-filters">
                 <label
                     >Succeeded before (UTC)<input
@@ -855,7 +858,7 @@
                             <td>{{ archive.archivedAt | date:'medium' }}</td>
                             <td>{{ archive.jobs }}</td>
                             <td>
-                                @if (can('payloads.read') && archive.bodyAvailable) {
+                                @if (can(permission.ReadPayloads) && archive.bodyAvailable) {
                                 <a
                                     class="outline"
                                     [href]="base + '/api/archives/' + archive.id + '/export'"

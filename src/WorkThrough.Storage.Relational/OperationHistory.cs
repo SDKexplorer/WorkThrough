@@ -6,17 +6,22 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IOperationHistoryQueries
 {
+    // Actor JSON larger than this is not parsed inside the database.
+    private const int MaximumParsedActorLength = 16384;
+
     protected virtual string AuditActorValueSql(string field) => throw new NotSupportedException("This provider does not project audit actors.");
+
     private string ArchiveMetadataColumns => $"""
-        id,kind,{SubstringFunction}(correlation_id,1,512) AS correlation_id,archived_at,jobs,
+        id,kind,{ClippedLabelSql("correlation_id")} AS correlation_id,archived_at,jobs,
         CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body,
-        CASE WHEN {LengthSql("correlation_id")}>512 THEN 1 ELSE 0 END AS clipped
+        CASE WHEN {LabelTooLongSql("correlation_id")} THEN 1 ELSE 0 END AS clipped
         """;
 
     public async Task<AuditPage> SearchAuditAsync(AuditQuery query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
-        ValidateHistoryFilters(query.Limit, query.Cursor, query.Action, query.Target);
+        ValidateOperationLimit(query.Limit);
+        ValidateFilterLengths(query.Cursor, query.Action, query.Target);
         using var timeout = OperationQueryTimeout(cancellationToken);
         var ct = timeout.Token;
         await using var connection = await OpenAsync(ct);
@@ -32,10 +37,10 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         var subject = AuditActorValueSql("subject");
         var entries = new List<AuditMetadata>();
         await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT a.command_id,a.at,{SubstringFunction}({issuer},1,512) AS issuer,{SubstringFunction}({subject},1,512) AS subject,
-              {SubstringFunction}(a.action,1,512) AS action,{SubstringFunction}(a.target,1,512) AS target,{SubstringFunction}(a.outcome,1,512) AS outcome,
-              CASE WHEN {LengthSql("a.actor")}>16384 OR {LengthSql(issuer)}>512 OR {LengthSql(subject)}>512
-                OR {LengthSql("a.action")}>512 OR {LengthSql("a.target")}>512 OR {LengthSql("a.outcome")}>512 THEN 1 ELSE 0 END AS clipped
+            SELECT a.command_id,a.at,{ClippedLabelSql(issuer)} AS issuer,{ClippedLabelSql(subject)} AS subject,
+              {ClippedLabelSql("a.action")} AS action,{ClippedLabelSql("a.target")} AS target,{ClippedLabelSql("a.outcome")} AS outcome,
+              CASE WHEN {LengthSql("a.actor")}>{MaximumParsedActorLength} OR {LabelTooLongSql(issuer)} OR {LabelTooLongSql(subject)}
+                OR {LabelTooLongSql("a.action")} OR {LabelTooLongSql("a.target")} OR {LabelTooLongSql("a.outcome")} THEN 1 ELSE 0 END AS clipped
             FROM dj_audit a WHERE {string.Join(" AND ", conditions)} ORDER BY a.at DESC,a.command_id {PageSql("@limit")}
             """, values.ToArray()))
         {
@@ -59,8 +64,9 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
     public async Task<ArchivePage> SearchArchivesAsync(ArchiveQuery query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
-        ValidateHistoryFilters(query.Limit, query.Cursor, query.CorrelationId);
-        if (query.Kind is not null and not "Job" and not "Flow")
+        ValidateOperationLimit(query.Limit);
+        ValidateFilterLengths(query.Cursor, query.CorrelationId);
+        if (query.Kind is { } kind && !Enum.IsDefined(kind))
         {
             throw new ArgumentException("Archive kind must be Job or Flow.", nameof(query));
         }
@@ -74,7 +80,7 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         var conditions = new List<string> { "archived_at>=@from AND archived_at<@until" };
         var values = HistoryParameters(page, query.Limit);
         AddHistoryFilter("correlation_id", "correlation", query.CorrelationId, conditions, values);
-        AddHistoryFilter("kind", "kind", query.Kind, conditions, values);
+        AddHistoryFilter("kind", "kind", query.Kind?.ToString(), conditions, values);
         AddHistoryPosition("archived_at", "id", query.Cursor is not null, conditions);
         await using var command = OperationCommand(connection, transaction,
             $"SELECT {ArchiveMetadataColumns} FROM dj_archives WHERE {string.Join(" AND ", conditions)} ORDER BY archived_at DESC,id {PageSql("@limit")}", values.ToArray());
@@ -111,8 +117,8 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
         var candidates = new List<RetentionCandidate>();
         await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT id,kind,{SubstringFunction}(correlation_id,1,512) AS correlation_id,completed,jobs,
-              CASE WHEN {LengthSql("correlation_id")}>512 THEN 1 ELSE 0 END AS clipped
+            SELECT id,kind,{ClippedLabelSql("correlation_id")} AS correlation_id,completed,jobs,
+              CASE WHEN {LabelTooLongSql("correlation_id")} THEN 1 ELSE 0 END AS clipped
             FROM ({EligibleArchiveUnitsSql}) candidates ORDER BY completed,id {PageSql("@limit")}
             """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()),
             ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()), ("limit", policy.BatchSize + 1)))
@@ -120,7 +126,7 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                candidates.Add(new(Guid.Parse(reader.GetString(0)), reader.GetString(1), Text(reader, "correlation_id"),
+                candidates.Add(new(Guid.Parse(reader.GetString(0)), Enum.Parse<ArchiveKind>(reader.GetString(1)), Text(reader, "correlation_id"),
                     Date(reader, "completed")!.Value, Convert.ToInt32(reader.GetValue(4)), reader.GetInt32(5) != 0));
             }
         }
@@ -137,20 +143,11 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         var items = new List<ArchiveMetadata>();
         while (await reader.ReadAsync(ct))
         {
-            items.Add(new(Guid.Parse(reader.GetString(0)), reader.GetString(1), Text(reader, "correlation_id"),
+            items.Add(new(Guid.Parse(reader.GetString(0)), Enum.Parse<ArchiveKind>(reader.GetString(1)), Text(reader, "correlation_id"),
                 Date(reader, "archived_at")!.Value, reader.GetInt32(4), reader.GetInt32(5) != 0, reader.GetInt32(6) != 0));
         }
 
         return items;
-    }
-
-    private static void ValidateHistoryFilters(int limit, string? cursor, params string?[] filters)
-    {
-        ValidateOperationLimit(limit);
-        if (cursor is { Length: > 2048 } || filters.Any(value => value is { Length: > 512 }))
-        {
-            throw new ArgumentException("Filters allow 512 characters; cursors allow 2048 characters.");
-        }
     }
 
     private static ExecutionCursor HistoryWindow<T>(string kind, T query, string? cursor, DateTimeOffset? from,
@@ -159,18 +156,18 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { kind, query })));
         var previous = cursor is null ? null : ReadExecutionCursor(cursor);
         var upper = previous?.Until ?? CeilingMilliseconds(until ?? observed.AddMilliseconds(1));
-        var lower = previous?.From ?? CeilingMilliseconds(from ?? DateTimeOffset.FromUnixTimeMilliseconds(upper).AddDays(-1));
+        var lower = previous?.From ?? CeilingMilliseconds(from ?? DateTimeOffset.FromUnixTimeMilliseconds(upper) - OperationQueryLimits.DefaultWindow);
         ValidateWindow(lower, upper);
         if (previous is not null && (previous.StoreId != storeId || previous.Fingerprint != fingerprint))
         {
             throw new ArgumentException("The cursor belongs to a different store or query.");
         }
 
-        return previous ?? new(1, storeId, fingerprint, lower, upper, upper, Guid.Empty);
+        return previous ?? new(CursorVersion, storeId, fingerprint, lower, upper, upper, Guid.Empty);
     }
 
     private static List<(string, object?)> HistoryParameters(ExecutionCursor page, int limit) =>
-        [("from", page.From), ("until", page.Until), ("limit", limit + 1), ("position", page.CreatedAt), ("id", page.Id.ToString())];
+        [("from", page.From), ("until", page.Until), ("limit", limit + 1), ("position", page.Position), ("id", page.Id.ToString())];
 
     private static void AddHistoryPosition(string timestamp, string id, bool continuing, List<string> conditions)
     {
@@ -190,5 +187,5 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
     }
 
     private static string HistoryContinuation(ExecutionCursor page, DateTimeOffset at, Guid id) =>
-        Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(page with { CreatedAt = at.ToUnixTimeMilliseconds(), Id = id }));
+        EncodeCursor(page with { Position = at.ToUnixTimeMilliseconds(), Id = id });
 }

@@ -9,11 +9,11 @@ public static partial class DashboardEndpoints
 {
     private static void MapExecutionQueries(RouteGroupBuilder group, JobDashboardOptions options)
     {
-        group.MapGet("/api/executions", SearchExecutionMetadataAsync).WithPermission(options, "executions.read");
-        group.MapGet("/api/executions/{id:guid}", FindExecutionMetadataAsync).WithPermission(options, "executions.read");
-        group.MapGet("/api/executions/{id:guid}/attempts", ReadExecutionAttemptsAsync).WithPermission(options, "executions.read");
-        group.MapGet("/api/metrics", ReadRuntimeMetricsAsync).WithPermission(options, "executions.read");
-        group.MapGet("/api/executions/{id:guid}/readiness", ReadExecutionReadinessAsync).WithPermission(options, "executions.read");
+        group.MapGet("/api/executions", SearchExecutionMetadataAsync).WithPermission(options, OperationPermissions.ReadExecutions);
+        group.MapGet("/api/executions/{id:guid}", FindExecutionMetadataAsync).WithPermission(options, OperationPermissions.ReadExecutions);
+        group.MapGet("/api/executions/{id:guid}/attempts", ReadExecutionAttemptsAsync).WithPermission(options, OperationPermissions.ReadExecutions);
+        group.MapGet("/api/metrics", ReadRuntimeMetricsAsync).WithPermission(options, OperationPermissions.ReadExecutions);
+        group.MapGet("/api/executions/{id:guid}/readiness", ReadExecutionReadinessAsync).WithPermission(options, OperationPermissions.ReadExecutions);
     }
 
     private static Task<IResult> SearchExecutionMetadataAsync([AsParameters] ExecutionQuery query,
@@ -25,7 +25,7 @@ public static partial class DashboardEndpoints
 
     private static Task<IResult> ReadExecutionAttemptsAsync(Guid id, int? afterAttempt, int? limit,
         [FromServices] IExecutionQueries? queries, CancellationToken ct) =>
-        ExecutionQueryResultAsync(queries, service => service.ReadAttemptsAsync(id, afterAttempt ?? 0, limit ?? 25, ct), ct);
+        ExecutionQueryResultAsync(queries, service => service.ReadAttemptsAsync(id, afterAttempt ?? 0, limit ?? OperationQueryLimits.DefaultPageSize, ct), ct);
 
     private static Task<IResult> ReadRuntimeMetricsAsync([AsParameters] RuntimeMetricsQuery query,
         [FromServices] IRuntimeQueries? queries, CancellationToken ct) =>
@@ -39,7 +39,7 @@ public static partial class DashboardEndpoints
     {
         if (queries is null)
         {
-            return Results.Problem("This store does not provide bounded execution queries.", statusCode: StatusCodes.Status503ServiceUnavailable);
+            return Unavailable("This store does not provide bounded execution queries.");
         }
 
         try
@@ -52,7 +52,7 @@ public static partial class DashboardEndpoints
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return Results.Problem("The execution query exceeded its time budget.", statusCode: StatusCodes.Status503ServiceUnavailable);
+            return Unavailable("The execution query exceeded its time budget.");
         }
     }
 }

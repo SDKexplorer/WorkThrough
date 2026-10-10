@@ -1,7 +1,12 @@
+using System.Text.Json;
+
 namespace WorkThrough;
 
 public static class FlowValidator
 {
+    public const int MaximumSteps = 500;
+    public const int MaximumDisplayNameLength = 200;
+
     public static void Validate(FlowDefinition definition)
     {
         ValidateDraftShape(definition);
@@ -29,7 +34,7 @@ public static class FlowValidator
             if (step.Signal is { } signal)
             {
                 _ = new JobContractId(signal.Name, 1);
-                if (step.Contract != SignalWait.Processor || signal.Timeout < TimeSpan.FromMilliseconds(1) || signal.Timeout > TimeSpan.FromDays(365))
+                if (step.Contract != SignalWait.Processor || !JobLimits.IsSupportedDelay(signal.Timeout))
                 {
                     throw new ArgumentException("A signal wait requires a timeout of one millisecond to 365 days and the built-in signal address.");
                 }
@@ -44,12 +49,12 @@ public static class FlowValidator
                 throw new ArgumentException("Steps require an ID, queue, and positive retry count.");
             }
 
-            if (step.Input.ValueKind is System.Text.Json.JsonValueKind.Undefined or System.Text.Json.JsonValueKind.Null)
+            if (step.Input.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
             {
                 throw new ArgumentException($"Input for {step.Id} must not be null.");
             }
 
-            if (step.Bindings.Length > 0 && step.Input.ValueKind != System.Text.Json.JsonValueKind.Object)
+            if (step.Bindings.Length > 0 && step.Input.ValueKind != JsonValueKind.Object)
             {
                 throw new ArgumentException($"Input bindings for {step.Id} require a JSON object.");
             }
@@ -117,16 +122,16 @@ public static class FlowValidator
             throw new ArgumentException("Unknown flow failure policy.");
         }
 
-        if (definition.Steps is null || definition.Steps.Length > 500)
+        if (definition.Steps is null || definition.Steps.Length > MaximumSteps)
         {
-            throw new ArgumentException("A definition requires a steps array of at most 500 nodes.");
+            throw new ArgumentException($"A definition requires a steps array of at most {MaximumSteps} nodes.");
         }
 
         foreach (var step in definition.Steps)
         {
-            if (step?.DisplayName is { } label && (string.IsNullOrWhiteSpace(label) || label.Length > 200))
+            if (step?.DisplayName is { } label && (string.IsNullOrWhiteSpace(label) || label.Length > MaximumDisplayNameLength))
             {
-                throw new ArgumentException("Step display names must contain 1–200 characters.");
+                throw new ArgumentException($"Step display names must contain 1–{MaximumDisplayNameLength} characters.");
             }
 
             if (step is null || step.Contract is null || step.After is null || step.Bindings is null

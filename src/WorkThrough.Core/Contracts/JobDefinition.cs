@@ -13,9 +13,9 @@ public sealed record JobDefinition<TInput>
     public JobDefinition(JobContractId identity, string? displayName = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        if (displayName is { Length: > 200 })
+        if (displayName is { Length: > FlowValidator.MaximumDisplayNameLength })
         {
-            throw new ArgumentException("Display names are limited to 200 characters.", nameof(displayName));
+            throw new ArgumentException($"Display names are limited to {FlowValidator.MaximumDisplayNameLength} characters.", nameof(displayName));
         }
 
         Identity = identity;

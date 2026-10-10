@@ -1,6 +1,5 @@
 using System.Data.Common;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace WorkThrough.Storage;
 
@@ -114,30 +113,6 @@ public static class SqliteRegistration
     public static WorkThroughBuilder UseSqlite(this WorkThroughBuilder builder, string connectionString) =>
         UseSqlite(builder, connectionString, new SqliteStorageOptions());
 
-    public static WorkThroughBuilder UseSqlite(this WorkThroughBuilder builder, string connectionString, SqliteStorageOptions options)
-    {
-        builder.Services.AddSingleton(new SqliteJobStore(connectionString, options));
-        builder.Services.AddSingleton<IJobStore>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IJobQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IExecutionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IExecutionInspectionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IOperationHistoryQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IRuntimeQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IRetentionQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IRetentionAdministration>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IRetentionMaintenance>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IJobAdministration>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IJobSchedules>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IDeploymentQueries>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IProcessorRegistry>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IExecutionOperations>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IExecutionArchives>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IWorkflowSignals>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IJobOutbox>(sp => sp.GetRequiredService<SqliteJobStore>());
-        builder.Services.AddSingleton<IExecutionEvents>(sp => sp.GetRequiredService<SqliteJobStore>());
-
-        return builder;
-    }
+    public static WorkThroughBuilder UseSqlite(this WorkThroughBuilder builder, string connectionString, SqliteStorageOptions options) =>
+        builder.UseStore(new SqliteJobStore(connectionString, options));
 }

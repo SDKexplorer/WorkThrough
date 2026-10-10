@@ -33,23 +33,23 @@ public sealed class RetentionTests
         var preview = await store.ArchiveCandidatesAsync(new(DateTimeOffset.UtcNow.AddDays(1)));
         Assert.Contains(preview, unit => unit.Id == id);
         var holdCommand = Command();
-        var hold = await store.SetRetentionHoldAsync(id, true, 0, holdCommand);
-        Assert.Equal(hold, await harness.NewStore().SetRetentionHoldAsync(id, true, 0, holdCommand));
+        var hold = await store.SetRetentionHoldAsync(id, true, 0, holdCommand).SucceedsAsync();
+        Assert.Equal(hold, await harness.NewStore().SetRetentionHoldAsync(id, true, 0, holdCommand).SucceedsAsync());
         Assert.Equal(1, (await store.ReadRetentionStatusAsync()).HeldUnits);
-        Assert.Empty(await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command()));
+        Assert.Empty(await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command()).SucceedsAsync());
         var policyCommand = Command();
-        Assert.Equal(1, await store.ConfigureRetentionAsync(Policy(), 0, policyCommand));
-        Assert.Equal(1, await store.ConfigureRetentionAsync(Policy(), 0, policyCommand));
-        await Assert.ThrowsAsync<StateConflictException>(() => store.ConfigureRetentionAsync(Policy(), 0, Command()));
+        Assert.Equal(1, await store.ConfigureRetentionAsync(Policy(), 0, policyCommand).SucceedsAsync());
+        Assert.Equal(1, await store.ConfigureRetentionAsync(Policy(), 0, policyCommand).SucceedsAsync());
+        await store.ConfigureRetentionAsync(Policy(), 0, Command()).FailsAsync(ErrorType.Conflict);
         Assert.Empty((await store.RunMaintenanceBatchAsync(await Lease(store))).Archived);
         Assert.NotNull(await store.GetAsync(id));
-        await Assert.ThrowsAsync<StateConflictException>(() => store.SetRetentionHoldAsync(id, false, 0, Command()));
-        await store.SetRetentionHoldAsync(id, false, 1, Command());
+        await store.SetRetentionHoldAsync(id, false, 0, Command()).FailsAsync(ErrorType.Conflict);
+        await store.SetRetentionHoldAsync(id, false, 1, Command()).SucceedsAsync();
         var result = await store.RunMaintenanceBatchAsync(await Lease(store));
         Assert.Equal(new[] { id }, result.Archived);
         Assert.Null(await store.GetAsync(id));
         Assert.True((await store.ArchivesAsync()).Single().BodyAvailable);
-        await Assert.ThrowsAsync<ArgumentException>(() => store.ConfigureRetentionAsync(Policy() with { PurgeAfter = TimeSpan.FromDays(7) }, 1, Command()));
+        await store.ConfigureRetentionAsync(Policy() with { PurgeAfter = TimeSpan.FromDays(7) }, 1, Command()).FailsAsync(ErrorType.Validation);
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -58,7 +58,7 @@ public sealed class RetentionTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var store = harness.Store;
         var id = await CompletedAsync(harness);
-        await store.ConfigureRetentionAsync(Policy(), 0, Command());
+        await store.ConfigureRetentionAsync(Policy(), 0, Command()).SucceedsAsync();
         var leases = await Task.WhenAll(Enumerable.Range(0, 4).Select(index => Task.Run(() => harness.NewStore().AcquireMaintenanceAsync($"host:{index}", Actor, TimeSpan.FromMinutes(1)))));
         var first = Assert.Single(leases, value => value is not null)!;
         await store.RecordMaintenanceFailureAsync(first, budgetExceeded: true);
@@ -88,9 +88,9 @@ public sealed class RetentionTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var id = await CompletedAsync(harness);
-        await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command());
+        await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command()).SucceedsAsync();
         var lease = await Lease(harness.Store);
-        await harness.Store.ConfigureRetentionAsync(Policy() with { Enabled = false }, 1, Command());
+        await harness.Store.ConfigureRetentionAsync(Policy() with { Enabled = false }, 1, Command()).SucceedsAsync();
         var result = await harness.Store.RunMaintenanceBatchAsync(lease);
         Assert.Equal("PolicySuperseded", result.Outcome);
         Assert.Empty(result.Archived);
@@ -103,7 +103,7 @@ public sealed class RetentionTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var id = await CompletedAsync(harness, "rollback-receipt");
-        await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command());
+        await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command()).SucceedsAsync();
         var lease = await Lease(harness.Store);
         await ExecuteAsync(harness, provider == "oracle" ? "CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN UPDATE dj_maintenance SET lease_expires_at=0; END;" : provider == "sqlserver" ? "CREATE TRIGGER expire_batch ON dj_archives AFTER INSERT AS UPDATE dj_maintenance SET lease_expires_at=0;" : provider == "sqlite" ? """
             CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN
@@ -153,7 +153,7 @@ public sealed class RetentionTests
         var flow = new FlowBuilder("retention.flow", 1).Step("first", Invoice, "one").Step("second", Invoice, "two").After("first").Build();
         var run = await new WorkflowClient(store).StartAsync(flow, "input");
         var first = (await store.ClaimAsync(Claim()))!;
-        var hold = await store.SetRetentionHoldAsync(first.Id, true, 0, Command());
+        var hold = await store.SetRetentionHoldAsync(first.Id, true, 0, Command()).SucceedsAsync();
         Assert.Equal(run, hold.UnitId);
         await store.CompleteAsync(first.Id, first.LeaseToken!.Value, JobResult.Done());
         var second = (await store.ClaimAsync(Claim()))!;
@@ -162,11 +162,11 @@ public sealed class RetentionTests
         var failed = (await store.ClaimAsync(Claim()))!;
         await store.RejectAsync(failed.Id, failed.LeaseToken!.Value, new("Failure", "SECRET", null));
         await ExecuteAsync(harness, "UPDATE dj_jobs SET terminal_at=0 WHERE terminal_at IS NOT NULL");
-        await store.ConfigureRetentionAsync(Policy() with { FailedAfter = TimeSpan.FromMilliseconds(1) }, 0, Command());
+        await store.ConfigureRetentionAsync(Policy() with { FailedAfter = TimeSpan.FromMilliseconds(1) }, 0, Command()).SucceedsAsync();
         Assert.Empty((await store.RunMaintenanceBatchAsync(await Lease(store))).Archived);
-        await store.SetRetentionHoldAsync(run, false, 1, Command());
+        await store.SetRetentionHoldAsync(run, false, 1, Command()).SucceedsAsync();
         Assert.Equal(new[] { run }, (await store.RunMaintenanceBatchAsync(await Lease(store))).Archived);
-        Assert.Equal("Incident", (await store.GetWorkflowAsync(incidentRun))!.Status);
+        Assert.Equal(FlowStatus.Incident, (await store.GetWorkflowAsync(incidentRun))!.Status);
         Assert.Equal(2, (await store.SearchExecutionsAsync(new(WorkflowRunId: incidentRun))).Items.Count);
         var package = JsonSerializer.Deserialize<ExecutionArchive>((await store.ExportArchiveAsync(run))!.Json, JobJson.Options)!;
         Assert.Equal(2, package.Jobs.Count);
@@ -180,7 +180,7 @@ public sealed class RetentionTests
         var store = harness.Store;
         var id = await CompletedAsync(harness, "once");
         var policy = Policy() with { PurgeAfter = TimeSpan.FromMilliseconds(1), ExportDestination = "test-vault-v1" };
-        await store.ConfigureRetentionAsync(policy, 0, Command());
+        await store.ConfigureRetentionAsync(policy, 0, Command()).SucceedsAsync();
         await store.RunMaintenanceBatchAsync(await Lease(store));
         await ExecuteAsync(harness, "UPDATE dj_archives SET archived_at=0");
         var noProof = await store.RunMaintenanceBatchAsync(await Lease(store));
@@ -192,10 +192,10 @@ public sealed class RetentionTests
         await Assert.ThrowsAsync<StateConflictException>(() => store.RecordVerifiedExportAsync(lease, receipt with { Sha256 = "invalid" }));
         await Assert.ThrowsAsync<StateConflictException>(() => store.RecordVerifiedExportAsync(lease, receipt with { Destination = "another-vault" }));
         await store.RecordVerifiedExportAsync(lease, receipt);
-        await store.SetRetentionHoldAsync(id, true, 0, Command());
+        await store.SetRetentionHoldAsync(id, true, 0, Command()).SucceedsAsync();
         Assert.Empty((await store.RunMaintenanceBatchAsync(lease)).Purged);
-        await Assert.ThrowsAsync<StateConflictException>(() => store.PurgeArchiveAsync(id, receipt.Sha256, Command()));
-        await store.SetRetentionHoldAsync(id, false, 1, Command());
+        await store.PurgeArchiveAsync(id, receipt.Sha256, Command()).FailsAsync(ErrorType.Conflict);
+        await store.SetRetentionHoldAsync(id, false, 1, Command()).SucceedsAsync();
         var next = await Lease(store);
         // A previous batch's proof is not reused automatically.
         Assert.Empty((await store.RunMaintenanceBatchAsync(next)).Purged);
@@ -217,7 +217,7 @@ public sealed class RetentionTests
         var oversized = await CompletedAsync(harness);
         var normal = await CompletedAsync(harness);
         await ExecuteAsync(harness, "UPDATE dj_jobs SET payload=@payload,terminal_at=-1 WHERE id=@id", ("payload", JsonSerializer.Serialize(new string('x', 8_000_001))), ("id", oversized.ToString()));
-        await harness.Store.ConfigureRetentionAsync(Policy(batchSize: 1), 0, Command());
+        await harness.Store.ConfigureRetentionAsync(Policy(batchSize: 1), 0, Command()).SucceedsAsync();
         var first = await harness.Store.RunMaintenanceBatchAsync(await Lease(harness.Store));
         Assert.Equal(new[] { oversized }, first.Blocked);
         Assert.Equal(new[] { normal }, (await harness.Store.RunMaintenanceBatchAsync(await Lease(harness.Store))).Archived);
@@ -226,7 +226,7 @@ public sealed class RetentionTests
         Assert.Equal("ArchiveEvidenceLimit", Assert.Single(status.IncidentExamples).Code);
         Assert.NotNull(await harness.Store.GetAsync(oversized));
         await ExecuteAsync(harness, "UPDATE dj_jobs SET payload='\"repaired\"' WHERE id=@id", ("id", oversized.ToString()));
-        await harness.Store.RetryRetentionIncidentAsync(oversized, Command());
+        await harness.Store.RetryRetentionIncidentAsync(oversized, Command()).SucceedsAsync();
         Assert.Equal(new[] { oversized }, (await harness.Store.RunMaintenanceBatchAsync(await Lease(harness.Store))).Archived);
     }
 
@@ -237,15 +237,15 @@ public sealed class RetentionTests
         var store = harness.Store;
         var id = await CompletedAsync(harness);
         await store.SubscribeAsync("required-audit", 0);
-        await store.ConfigureRetentionAsync(Policy() with { EventsAfter = TimeSpan.FromMilliseconds(1) }, 0, Command());
+        await store.ConfigureRetentionAsync(Policy() with { EventsAfter = TimeSpan.FromMilliseconds(1) }, 0, Command()).SucceedsAsync();
         await ExecuteAsync(harness, "UPDATE dj_events SET at=0");
         Assert.Equal(0, (await store.RunMaintenanceBatchAsync(await Lease(store))).EventsTrimmed);
         var end = (await store.EventPositionAsync()).LastSequence;
         await store.AcknowledgeAsync("required-audit", 0, end);
-        await store.SetRetentionHoldAsync(id, true, 0, Command());
-        await Assert.ThrowsAsync<StateConflictException>(() => store.TrimEventsAsync(end, Command()));
+        await store.SetRetentionHoldAsync(id, true, 0, Command()).SucceedsAsync();
+        await store.TrimEventsAsync(end, Command()).FailsAsync(ErrorType.Conflict);
         Assert.Equal(0, (await store.RunMaintenanceBatchAsync(await Lease(store))).EventsTrimmed);
-        await store.SetRetentionHoldAsync(id, false, 1, Command());
+        await store.SetRetentionHoldAsync(id, false, 1, Command()).SucceedsAsync();
         Assert.Equal(2, (await store.RunMaintenanceBatchAsync(await Lease(store))).EventsTrimmed);
         Assert.Equal(end, (await store.EventPositionAsync()).RetainedAfter);
         var active = await new JobClient(store).EnqueueAsync(Invoice, "active");
@@ -262,9 +262,9 @@ public sealed class RetentionTests
         var store = harness.Store;
         var first = await CompletedAsync(harness);
         var second = await CompletedAsync(harness);
-        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command());
+        await store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command()).SucceedsAsync();
         await ExecuteAsync(harness, "UPDATE dj_archives SET archived_at=0");
-        await store.ConfigureRetentionAsync(Policy(1) with { PurgeAfter = TimeSpan.FromMilliseconds(1), ExportDestination = "vault" }, 0, Command());
+        await store.ConfigureRetentionAsync(Policy(1) with { PurgeAfter = TimeSpan.FromMilliseconds(1), ExportDestination = "vault" }, 0, Command()).SucceedsAsync();
         var lease = await Lease(store);
         var selected = Assert.Single(await store.ReadExportCandidatesAsync(lease));
         await store.RecordExportIncidentAsync(lease, selected.Id);
@@ -280,7 +280,7 @@ public sealed class RetentionTests
     {
         await using var harness = await StoreHarness.CreateAsync("sqlite");
         var id = await CompletedAsync(harness);
-        await harness.Store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command());
+        await harness.Store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command()).SucceedsAsync();
         var archive = (await harness.Store.ExportArchiveAsync(id))!;
         var storeId = (await harness.Store.GetExecutionContextAsync()).StoreId;
         var directory = Path.Combine(Path.GetTempPath(), "workthrough-export-tests", Guid.NewGuid().ToString("N"));
@@ -310,7 +310,7 @@ public sealed class RetentionTests
     {
         await using var harness = await StoreHarness.CreateAsync("sqlite");
         var id = await CompletedAsync(harness);
-        await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command());
+        await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command()).SucceedsAsync();
         using var host = Host.CreateDefaultBuilder().ConfigureLogging(logging => logging.ClearProviders())
             .ConfigureServices(services => services.AddWorkThrough().UseSqlite(harness.ConnectionString)
                 .InitializeStorageOnStart(false).AddRetentionMaintenance(options => options.PollInterval = TimeSpan.FromSeconds(1))).Build();

@@ -1,10 +1,11 @@
 using System.Data.Common;
-using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace WorkThrough.Storage;
 
-/// <summary>PostgreSQL provider with a transaction-scoped admission lock for this table set.</summary>
+/// <summary>PostgreSQL provider with a transaction-scoped admission lock.</summary>
+/// <remarks>The advisory lock is database-wide: WorkThrough stores in different schemas of one database share it.
+/// Its key is part of the cross-version admission contract and must not change.</remarks>
 public sealed class PostgresJobStore(string connectionString) : RelationalJobStore
 {
     protected override string ReadinessWorkersSql => """
@@ -39,13 +40,15 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
     protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
 
+    private const long AdmissionLockKey = 68491730251;
+
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {
         var transaction = await connection.BeginTransactionAsync(cancellationToken);
         try
         {
-            // One short write boundary per store. Handlers never run while this lock is held.
-            await ExecuteAsync(connection, transaction, "SELECT pg_advisory_xact_lock(68491730251)", cancellationToken);
+            // One short write boundary per database. Handlers never run while this lock is held.
+            await ExecuteAsync(connection, transaction, "SELECT pg_advisory_xact_lock(@key)", cancellationToken, ("key", AdmissionLockKey));
 
             return transaction;
         }
@@ -59,30 +62,6 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
 
 public static class PostgresRegistration
 {
-    public static WorkThroughBuilder UsePostgreSql(this WorkThroughBuilder builder, string connectionString)
-    {
-        builder.Services.AddSingleton(new PostgresJobStore(connectionString));
-        builder.Services.AddSingleton<IJobStore>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IJobQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IExecutionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IExecutionInspectionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IOperationHistoryQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IRuntimeQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IRetentionQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IRetentionAdministration>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IRetentionMaintenance>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IJobAdministration>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IWorkflowDefinitions>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IJobDiagnostics>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IJobSchedules>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IDeploymentQueries>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IProcessorRegistry>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IExecutionOperations>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IExecutionArchives>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IWorkflowSignals>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IJobOutbox>(sp => sp.GetRequiredService<PostgresJobStore>());
-        builder.Services.AddSingleton<IExecutionEvents>(sp => sp.GetRequiredService<PostgresJobStore>());
-
-        return builder;
-    }
+    public static WorkThroughBuilder UsePostgreSql(this WorkThroughBuilder builder, string connectionString) =>
+        builder.UseStore(new PostgresJobStore(connectionString));
 }

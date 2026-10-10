@@ -49,7 +49,7 @@ public sealed class DeploymentTests
             Assert.Equal(0, x.ReadyJobs);
             Assert.Null(x.OldestReadyAt);
         });
-        await harness.Store.RecoverStepAsync(first.Id, 1, Command());
+        await harness.Store.RecoverStepAsync(first.Id, 1, Command()).SucceedsAsync();
         var retry = (await harness.Store.ClaimAsync(new("w", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1))))!;
         var before = (await harness.Store.DeploymentRequirementsAsync()).ObservedAt;
         await Task.Delay(30);
@@ -58,7 +58,7 @@ public sealed class DeploymentTests
         Assert.Equal(JobContractId.For<Beta>(), successor.Processor);
         Assert.Equal(1, successor.ReadyJobs);
         Assert.True(successor.OldestReadyAt > before);
-        await harness.Store.SetFlowPausedAsync(run, true, Command());
+        await harness.Store.SetFlowPausedAsync(run, true, Command()).SucceedsAsync();
         Assert.Equal(0, Assert.Single((await harness.Store.DeploymentRequirementsAsync()).Items).ReadyJobs);
     }
 
@@ -69,11 +69,11 @@ public sealed class DeploymentTests
         var store = harness.Store;
         await new JobClient(store).EnqueueAsync(new Alpha("future"), new(NotBefore: DateTimeOffset.UtcNow.AddDays(1)));
         var schedule = new ScheduleDefinition("tests.nightly", 1, "0 0 * * *", "UTC", JobContractId.For<Beta>(), JsonSerializer.SerializeToElement("secret"));
-        await store.SaveScheduleDraftAsync(schedule, 0, Command());
+        await store.SaveScheduleDraftAsync(schedule, 0, Command()).SucceedsAsync();
         Assert.Single((await store.DeploymentRequirementsAsync()).Items);
-        await store.PublishScheduleAsync(schedule.Key, 1, 1, Command());
+        await store.PublishScheduleAsync(schedule.Key, 1, 1, Command()).SucceedsAsync();
         Assert.Single((await store.DeploymentRequirementsAsync()).Items);
-        await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command());
+        await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command()).SucceedsAsync();
         var report = await store.DeploymentRequirementsAsync();
         Assert.Equal(2, report.Items.Count);
         Assert.All(report.Items, x =>

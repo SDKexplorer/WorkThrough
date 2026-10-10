@@ -4,6 +4,13 @@ public abstract partial class RelationalJobStore
 {
     // These fragments receive library-owned SQL only, never caller-supplied identifiers or expressions.
     protected virtual string PageSql(string limit, string offset = "0") => $"LIMIT {limit} OFFSET {offset}";
+
+    protected string PageSql(int limit) => PageSql(limit.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>Bounds operator-visible labels to <see cref="OperationQueryLimits.MaximumLabelLength"/> characters.</summary>
+    private string ClippedLabelSql(string expression) => $"{SubstringFunction}({expression},1,{OperationQueryLimits.MaximumLabelLength})";
+
+    private string LabelTooLongSql(string expression) => $"{LengthSql(expression)}>{OperationQueryLimits.MaximumLabelLength}";
     protected virtual string LengthSql(string expression) => $"LENGTH({expression})";
     protected virtual string SubstringFunction => "SUBSTR";
     protected virtual string TextType => "TEXT";

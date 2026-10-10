@@ -46,19 +46,19 @@ public sealed class IdentityTests
         await store.SeedLimitsAsync([new(Old.Key, 1)]);
         var command = Command();
         var aliases = new[] { new ProcessorAliasMapping(Old, Definition.Identity) };
-        var revision = await store.SetProcessorAliasesAsync(aliases, 0, command);
-        Assert.Equal(revision, await store.SetProcessorAliasesAsync(aliases, 0, command));
-        await Assert.ThrowsAsync<StateConflictException>(() => store.ClaimAsync(new("stale", [Old], ["default"], TimeSpan.FromSeconds(30))));
+        var revision = await store.SetProcessorAliasesAsync(aliases, 0, command).SucceedsAsync();
+        Assert.Equal(revision, await store.SetProcessorAliasesAsync(aliases, 0, command).SucceedsAsync());
+        await Assert.ThrowsAsync<ProcessorRegistryChangedException>(() => store.ClaimAsync(new("stale", [Old], ["default"], TimeSpan.FromSeconds(30))));
         var claim = new ClaimRequest("current", [Old, Definition.Identity], ["default"], TimeSpan.FromSeconds(30), revision);
         var first = (await store.ClaimAsync(claim))!;
         Assert.Null(await harness.NewStore().ClaimAsync(claim));
-        await Assert.ThrowsAsync<StateConflictException>(() => store.SetProcessorAliasesAsync(aliases, revision, Command()));
+        await store.SetProcessorAliasesAsync(aliases, revision, Command()).FailsAsync(ErrorType.Conflict);
         Assert.True(await store.CompleteAsync(first.Id, first.LeaseToken!.Value, JobResult.Done()));
         Assert.NotNull(await store.ClaimAsync(claim));
         Assert.Equal(Old, (await store.GetAsync(oldJob))!.Contract);
         Assert.Equal(Definition.Identity, (await store.GetAsync(newJob))!.Contract);
         Assert.Equal(oldJob, await client.EnqueueAsync(Old, new Input("one"), new(IdempotencyKey: "order-one")));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.EnqueueAsync(Definition, new Input("one"), new(IdempotencyKey: "order-one")));
+        await Assert.ThrowsAsync<StateConflictException>(() => client.EnqueueAsync(Definition, new Input("one"), new(IdempotencyKey: "order-one")));
         Assert.Single(await store.AuditAsync());
     }
 }

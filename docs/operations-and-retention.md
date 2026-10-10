@@ -70,9 +70,16 @@ var policy = new RetentionPolicy(
     PurgeAfter: TimeSpan.FromDays(90),
     ExportDestination: "operations-vault-v1");
 
-await retention.ConfigureRetentionAsync(policy, expectedRevision,
+var result = await retention.ConfigureRetentionAsync(policy, expectedRevision,
     new AdministrativeCommand(commandId, operatorActor, "Apply the approved retention policy"), ct);
+if (!result.IsSuccess)
+{
+    // Validation, NotFound or Conflict. Nothing was committed; refresh the revision before retrying a conflict.
+    throw new InvalidOperationException(result.Error.Message);
+}
 ```
+
+Administrative commands return `Result`/`Result<T>` instead of throwing for expected failures (ADR 009).
 
 These durations are an example, not defaults. Omit `FailedAfter` to retain unsuccessful executions indefinitely. Omit both `PurgeAfter` and `ExportDestination` to keep archive bodies. `EventsAfter` is a separate opt-in age for journal cleanup, additionally bounded by every subscriber and live/held evidence. Maintenance does not expire acceptance receipts or audit records. Policy revisions survive deployments; do not overwrite them on every application startup.
 

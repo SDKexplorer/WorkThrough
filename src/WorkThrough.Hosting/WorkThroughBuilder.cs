@@ -2,12 +2,20 @@ using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace WorkThrough;
 
 /// <summary>Composes storage, contract registration, and optional execution independently.</summary>
 public sealed class WorkThroughBuilder
 {
+    /// <summary>Polling interval of the schedule, signal, outbox and event-subscription services.</summary>
+    internal static readonly TimeSpan DispatchInterval = TimeSpan.FromSeconds(1);
+
+    private const int MaximumSubscriberLength = 200;
+    private static readonly TimeSpan MinimumPollInterval = TimeSpan.FromMilliseconds(10);
+    private static readonly TimeSpan MinimumLease = TimeSpan.FromSeconds(1);
+
     internal WorkThroughBuilder(IServiceCollection services, JobCatalog catalog, StorageInitialization initialization)
     {
         Services = services;
@@ -18,6 +26,31 @@ public sealed class WorkThroughBuilder
     public IServiceCollection Services { get; }
     internal JobCatalog Catalog { get; }
     internal StorageInitialization Initialization { get; }
+
+    /// <summary>Registers one store instance as every storage and operations port it implements.</summary>
+    public WorkThroughBuilder UseStore<TStore>(TStore store)
+        where TStore : class, IJobStore, IJobQueries, IExecutionQueries, IExecutionInspectionQueries, IOperationHistoryQueries,
+        IRuntimeQueries, IRetentionQueries, IRetentionAdministration, IRetentionMaintenance, IJobAdministration, IWorkflowDefinitions,
+        IJobDiagnostics, IJobSchedules, IDeploymentQueries, IProcessorRegistry, IExecutionOperations, IExecutionArchives,
+        IWorkflowSignals, IJobOutbox, IExecutionEvents
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        Services.AddSingleton(store);
+        Type[] ports =
+        [
+            typeof(IJobStore), typeof(IJobQueries), typeof(IExecutionQueries), typeof(IExecutionInspectionQueries), typeof(IOperationHistoryQueries),
+            typeof(IRuntimeQueries), typeof(IRetentionQueries), typeof(IRetentionAdministration), typeof(IRetentionMaintenance),
+            typeof(IJobAdministration), typeof(IWorkflowDefinitions), typeof(IJobDiagnostics), typeof(IJobSchedules), typeof(IDeploymentQueries),
+            typeof(IProcessorRegistry), typeof(IExecutionOperations), typeof(IExecutionArchives), typeof(IWorkflowSignals), typeof(IJobOutbox),
+            typeof(IExecutionEvents)
+        ];
+        foreach (var port in ports)
+        {
+            Services.AddSingleton(port, provider => provider.GetRequiredService<TStore>());
+        }
+
+        return this;
+    }
 
     public WorkThroughBuilder AddJob<TJob, THandler>() where THandler : class, IJobHandler<TJob>
     {
@@ -72,8 +105,8 @@ public sealed class WorkThroughBuilder
             options.Configure(configure);
         }
 
-        options.Validate(x => x.MaxConcurrentJobs > 0 && x.PollInterval >= TimeSpan.FromMilliseconds(10)
-            && x.LeaseDuration >= TimeSpan.FromSeconds(1) && x.Queues.Length > 0
+        options.Validate(x => x.MaxConcurrentJobs > 0 && x.PollInterval >= MinimumPollInterval
+            && x.LeaseDuration >= MinimumLease && x.Queues.Length > 0
             && !(x.ExecutionTimeout <= TimeSpan.Zero) && !(x.ProgressTimeout <= TimeSpan.Zero)
             && x.PerJobLimits.All(y => y.Value >= 0), "Invalid worker concurrency, lease, or queue configuration.").ValidateOnStart();
         Services.AddHostedService<JobWorker>();
@@ -121,7 +154,7 @@ public sealed class WorkThroughBuilder
 
     public WorkThroughBuilder AddEventSubscriber<THandler>(string name, long startAfter = 0) where THandler : class, IExecutionEventHandler
     {
-        if (string.IsNullOrWhiteSpace(name) || name.Length > 200 || startAfter < 0)
+        if (string.IsNullOrWhiteSpace(name) || name.Length > MaximumSubscriberLength || startAfter < 0)
         {
             throw new ArgumentException("A subscriber needs a stable name and non-negative initial position.");
         }
@@ -129,7 +162,7 @@ public sealed class WorkThroughBuilder
         Services.TryAddScoped<THandler>();
         Services.AddSingleton<IHostedService>(sp => new ExecutionEventSubscriber<THandler>(name, startAfter,
             sp.GetRequiredService<IExecutionEvents>(), sp.GetRequiredService<IServiceScopeFactory>(),
-            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ExecutionEventSubscriber<THandler>>>()));
+            sp.GetRequiredService<ILogger<ExecutionEventSubscriber<THandler>>>()));
 
         return this;
     }

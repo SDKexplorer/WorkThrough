@@ -7,7 +7,7 @@ internal sealed class JobOutboxDispatcher(IJobOutbox source, IJobStore destinati
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        using var timer = new PeriodicTimer(WorkThroughBuilder.DispatchInterval);
         do
         {
             try

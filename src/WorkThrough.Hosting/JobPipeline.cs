@@ -81,9 +81,22 @@ internal sealed class ValidationMiddleware<TInput>(IEnumerable<IJobValidator<TIn
     }
 }
 
+/// <summary>Exponential backoff capped at one minute, with jitter. Invalid input and explicit rejection are not retried.</summary>
 internal sealed class DefaultRetryPolicy : IJobRetryPolicy
 {
-    public RetryDecision Decide(JobRecord job, Exception exception) => exception is JsonException or JobRejectedException
-        ? RetryDecision.Stop
-        : RetryDecision.After(TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, Math.Min(job.Attempt, 6)))) + TimeSpan.FromMilliseconds(Random.Shared.Next(250)));
+    private const int MaximumBackoffSeconds = 60;
+    private const int MaximumBackoffExponent = 6;
+    private const int MaximumJitterMilliseconds = 250;
+
+    public RetryDecision Decide(JobRecord job, Exception exception)
+    {
+        if (exception is JsonException or JobRejectedException)
+        {
+            return RetryDecision.Stop;
+        }
+
+        var backoff = Math.Min(MaximumBackoffSeconds, Math.Pow(2, Math.Min(job.Attempt, MaximumBackoffExponent)));
+
+        return RetryDecision.After(TimeSpan.FromSeconds(backoff) + TimeSpan.FromMilliseconds(Random.Shared.Next(MaximumJitterMilliseconds)));
+    }
 }

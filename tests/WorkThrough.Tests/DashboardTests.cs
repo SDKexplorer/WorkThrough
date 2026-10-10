@@ -147,6 +147,18 @@ public sealed class DashboardTests
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/jobs/api/retention/policy", retentionCommand)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/jobs/api/retention/policy", retentionCommand with { Command = new(Guid.NewGuid(), "Stale revision") })).StatusCode);
         Assert.Contains("\"enabled\":false", await client.GetStringAsync("/jobs/api/retention"));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync($"/jobs/api/jobs/{Guid.NewGuid()}/retry",
+            new DashboardCommand(Guid.NewGuid(), "Retry an execution that was never accepted"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/jobs/api/limits",
+            new LimitCommand(new(null, -1), new(Guid.NewGuid(), "Negative limit")))).StatusCode);
+        client.DefaultRequestHeaders.Remove("X-Test-User");
+        client.DefaultRequestHeaders.Add("X-Test-User", "unidentified");
+
+        // Anti-forgery tokens are bound to the signed-in identity.
+        using var unidentifiedToken = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync("/jobs/api/csrf"));
+        client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", unidentifiedToken.RootElement.GetProperty("token").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/retry", new DashboardCommand(Guid.NewGuid(), "No subject", 1))).StatusCode);
         Assert.Equal("operator", Assert.Single(await harness.Store.AuditAsync()).Actor.Subject);
     }
 
@@ -161,8 +173,14 @@ public sealed class DashboardTests
                 return Task.FromResult(AuthenticateResult.NoResult());
             }
 
-            var claims = new List<Claim> { new(ClaimTypes.Name, "operator"), new(ClaimTypes.NameIdentifier, "operator", ClaimValueTypes.String, "test-issuer") };
-            IReadOnlyList<string> permissions = Request.Headers["X-Test-User"].ToString() switch
+            var user = Request.Headers["X-Test-User"].ToString();
+            var claims = new List<Claim> { new(ClaimTypes.Name, "operator") };
+            if (user != "unidentified")
+            {
+                claims.Add(new(ClaimTypes.NameIdentifier, "operator", ClaimValueTypes.String, "test-issuer"));
+            }
+
+            IReadOnlyList<string> permissions = user switch
             {
                 "viewer" => ["executions.read"],
                 "outsider" => [],

@@ -15,9 +15,11 @@ internal static class InvoiceSchedule
         var definition = new ScheduleDefinition(InvoiceJobs.HourlySchedule, 1, settings.Cron, settings.TimeZone,
             InvoiceJobs.Generate.Identity, JsonSerializer.SerializeToElement(new InvoiceInput(settings.InvoiceId), JobJson.Options),
             Overlap: ScheduleOverlap.Coalesce);
-        await schedules.SaveScheduleDraftAsync(definition, 0, Command("Create sample recurring schedule"), ct);
-        await schedules.PublishScheduleAsync(definition.Key, definition.Version, 1, Command("Publish validated sample schedule"), ct);
-        await schedules.SetScheduleEnabledAsync(definition.Key, definition.Version, 2, true, Command("Enable sample schedule"), ct);
+
+        // Value throws with the operator-facing message when a command is rejected.
+        var draft = (await schedules.SaveScheduleDraftAsync(definition, 0, Command("Create sample recurring schedule"), ct)).Value;
+        var published = (await schedules.PublishScheduleAsync(definition.Key, definition.Version, draft, Command("Publish validated sample schedule"), ct)).Value;
+        _ = (await schedules.SetScheduleEnabledAsync(definition.Key, definition.Version, published, true, Command("Enable sample schedule"), ct)).Value;
     }
 
     private static AdministrativeCommand Command(string reason) =>

@@ -1,24 +1,37 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WorkThrough;
 
 public sealed record InputBinding(string TargetProperty, string? SourceStep, string SourceProperty);
+
 public sealed record FlowCondition(string SourceStep, string Property, JsonElement Expected);
+
 public sealed record FlowStep(
     string Id, JobContractId Contract, JsonElement Input, string Queue,
     string[] After, InputBinding[] Bindings, FlowCondition? Condition, int MaxAttempts,
-    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] SignalWait? Signal = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalWait? Signal = null)
 {
     /// <summary>Optional saved display label. Dependencies and dispatch continue to use permanent identities.</summary>
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DisplayName { get; init; }
 }
+
 public enum FlowFailurePolicy
 {
     Stop, Suspend
 }
+
+/// <summary>Run lifecycle. Persisted and archived by name.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<FlowStatus>))]
+public enum FlowStatus
+{
+    Running, Paused, Incident, Succeeded, Failed
+}
+
 public sealed record FlowDefinition(string Key, int Version, FlowStep[] Steps, FlowFailurePolicy FailurePolicy = FlowFailurePolicy.Stop);
-public sealed record WorkflowRun(Guid Id, string FlowKey, int Version, string? CorrelationId, string Status, string? Error);
+
+public sealed record WorkflowRun(Guid Id, string FlowKey, int Version, string? CorrelationId, FlowStatus Status, string? Error);
 
 /// <summary>Creates a data-only acyclic workflow. Step IDs are stable within a definition.</summary>
 public sealed class FlowBuilder
@@ -28,6 +41,13 @@ public sealed class FlowBuilder
     private readonly List<FlowStep> steps = [];
     private FlowFailurePolicy failurePolicy = FlowFailurePolicy.Suspend;
 
+    public FlowBuilder(string key, int version)
+    {
+        _ = new JobContractId(key, version);
+        this.key = key;
+        this.version = version;
+    }
+
     /// <summary>Suspend retains dependent work for recovery; Stop permanently skips remaining work.</summary>
     public FlowBuilder OnFailure(FlowFailurePolicy policy)
     {
@@ -36,22 +56,15 @@ public sealed class FlowBuilder
         return this;
     }
 
-    public FlowBuilder(string key, int version)
-    {
-        _ = new JobContractId(key, version);
-        this.key = key;
-        this.version = version;
-    }
-
-    public FlowBuilder Step<TJob>(string id, object? input = null, string queue = "default", int maxAttempts = 3)
+    public FlowBuilder Step<TJob>(string id, object? input = null, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
         => Step(id, JobContractId.For<TJob>(), input, queue, maxAttempts);
 
     /// <summary>Adds an invocation using a shared typed definition.</summary>
-    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition, TInput input, string queue = "default", int maxAttempts = 3)
+    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition, TInput input, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
         => Step(id, definition.Identity, input, queue, maxAttempts);
 
     /// <summary>Adds a processor invocation without a dependency on its implementation assembly.</summary>
-    public FlowBuilder Step(string id, JobContractId processor, object? input = null, string queue = "default", int maxAttempts = 3)
+    public FlowBuilder Step(string id, JobContractId processor, object? input = null, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
     {
         ArgumentNullException.ThrowIfNull(processor);
         if (string.IsNullOrWhiteSpace(id) || steps.Any(x => x.Id == id))
@@ -64,10 +77,8 @@ public sealed class FlowBuilder
             throw new ArgumentException("Invalid queue or retry policy.");
         }
 
-        steps.Add(new(id, processor, JsonSerializer.SerializeToElement(input ?? new
-        {
-        }, JobJson.Options),
-            queue, [], [], null, maxAttempts));
+        var payload = JsonSerializer.SerializeToElement(input ?? new { }, JobJson.Options);
+        steps.Add(new(id, processor, payload, queue, [], [], null, maxAttempts));
 
         return this;
     }
