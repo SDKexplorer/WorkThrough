@@ -23,6 +23,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     private const int MaximumStackTraceLength = 32000;
     private const string LeaseExpiredError = "Worker lease expired";
     private const string CancellationError = "Cancellation requested";
+    private const int MaximumReadAttempts = 3;
+    private static readonly TimeSpan ReadRetryDelay = TimeSpan.FromMilliseconds(25);
 
     protected abstract DbConnection CreateConnection();
     protected abstract string ClockSql { get; }
@@ -528,9 +530,28 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         return result;
     }
 
-    /// <summary>Runs a read in the provider's read snapshot.</summary>
-    /// <remarks>Auto-commit reads take shared locks on SQL Server and can be chosen as deadlock victims by concurrent settlement.</remarks>
+    /// <summary>Runs a read in the provider's read snapshot, retrying with a fresh snapshot after a transient snapshot conflict.</summary>
+    /// <remarks>Auto-commit reads take shared locks on SQL Server and can be chosen as deadlock victims by concurrent settlement.
+    /// Reads change nothing, so repeating one is safe. Writes are never retried.</remarks>
     protected async Task<T> ReadAsync<T>(Func<DbConnection, DbTransaction, CancellationToken, Task<T>> read, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await ReadSnapshotAsync(read, ct).ConfigureAwait(false);
+            }
+            catch (DbException error) when (attempt < MaximumReadAttempts && IsReadSnapshotConflict(error))
+            {
+                await Task.Delay(ReadRetryDelay * attempt, ct).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>A read failure that a new snapshot can resolve, such as Oracle's ORA-08177 after concurrent dictionary DDL.</summary>
+    protected virtual bool IsReadSnapshotConflict(DbException error) => false;
+
+    private async Task<T> ReadSnapshotAsync<T>(Func<DbConnection, DbTransaction, CancellationToken, Task<T>> read, CancellationToken ct)
     {
         await using var connection = await OpenAsync(ct).ConfigureAwait(false);
         await using var transaction = await BeginReadAsync(connection, ct).ConfigureAwait(false);

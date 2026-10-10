@@ -22,43 +22,42 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
         ArgumentNullException.ThrowIfNull(query);
         ValidateOperationLimit(query.Limit);
         ValidateFilterLengths(query.Cursor, query.Action, query.Target);
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        var page = HistoryWindow("audit", query with { Cursor = null }, query.Cursor, query.From, query.Until, storeId, observed);
-        var conditions = new List<string> { "a.at>=@from AND a.at<@until" };
-        var values = HistoryParameters(page, query.Limit);
-        AddHistoryFilter("a.action", "action", query.Action, conditions, values);
-        AddHistoryFilter("a.target", "target", query.Target, conditions, values);
-        AddHistoryPosition("a.at", "a.command_id", query.Cursor is not null, conditions);
-        var issuer = AuditActorValueSql("issuer");
-        var subject = AuditActorValueSql("subject");
-        var entries = new List<AuditMetadata>();
-        await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT a.command_id,a.at,{ClippedLabelSql(issuer)} AS issuer,{ClippedLabelSql(subject)} AS subject,
-              {ClippedLabelSql("a.action")} AS action,{ClippedLabelSql("a.target")} AS target,{ClippedLabelSql("a.outcome")} AS outcome,
-              CASE WHEN {LengthSql("a.actor")}>{MaximumParsedActorLength} OR {LabelTooLongSql(issuer)} OR {LabelTooLongSql(subject)}
-                OR {LabelTooLongSql("a.action")} OR {LabelTooLongSql("a.target")} OR {LabelTooLongSql("a.outcome")} THEN 1 ELSE 0 END AS clipped
-            FROM dj_audit a WHERE {string.Join(" AND ", conditions)} ORDER BY a.at DESC,a.command_id {PageSql("@limit")}
-            """, values.ToArray()))
+
+        return await ReadOperationAsync<AuditPage>(async (connection, transaction, ct) =>
         {
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            var page = HistoryWindow("audit", query with { Cursor = null }, query.Cursor, query.From, query.Until, storeId, observed);
+            var conditions = new List<string> { "a.at>=@from AND a.at<@until" };
+            var values = HistoryParameters(page, query.Limit);
+            AddHistoryFilter("a.action", "action", query.Action, conditions, values);
+            AddHistoryFilter("a.target", "target", query.Target, conditions, values);
+            AddHistoryPosition("a.at", "a.command_id", query.Cursor is not null, conditions);
+            var issuer = AuditActorValueSql("issuer");
+            var subject = AuditActorValueSql("subject");
+            var entries = new List<AuditMetadata>();
+            await using (var command = OperationCommand(connection, transaction, $"""
+                SELECT a.command_id,a.at,{ClippedLabelSql(issuer)} AS issuer,{ClippedLabelSql(subject)} AS subject,
+                  {ClippedLabelSql("a.action")} AS action,{ClippedLabelSql("a.target")} AS target,{ClippedLabelSql("a.outcome")} AS outcome,
+                  CASE WHEN {LengthSql("a.actor")}>{MaximumParsedActorLength} OR {LabelTooLongSql(issuer)} OR {LabelTooLongSql(subject)}
+                    OR {LabelTooLongSql("a.action")} OR {LabelTooLongSql("a.target")} OR {LabelTooLongSql("a.outcome")} THEN 1 ELSE 0 END AS clipped
+                FROM dj_audit a WHERE {string.Join(" AND ", conditions)} ORDER BY a.at DESC,a.command_id {PageSql("@limit")}
+                """, values.ToArray()))
             {
-                entries.Add(new(Guid.Parse(reader.GetString(0)), Date(reader, "at")!.Value,
-                    Text(reader, "issuer"), Text(reader, "subject"), reader.GetString(4), reader.GetString(5), reader.GetString(6),
-                    !reader.IsDBNull(2) && !reader.IsDBNull(3), reader.GetInt32(7) != 0));
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    entries.Add(new(Guid.Parse(reader.GetString(0)), Date(reader, "at")!.Value,
+                        Text(reader, "issuer"), Text(reader, "subject"), reader.GetString(4), reader.GetString(5), reader.GetString(6),
+                        !reader.IsDBNull(2) && !reader.IsDBNull(3), reader.GetInt32(7) != 0));
+                }
             }
-        }
 
-        var more = TrimPage(entries, query.Limit);
-        var next = more ? HistoryContinuation(page, entries[^1].At, entries[^1].CommandId) : null;
-        await transaction.CommitAsync(ct);
+            var more = TrimPage(entries, query.Limit);
+            var next = more ? HistoryContinuation(page, entries[^1].At, entries[^1].CommandId) : null;
 
-        return new(storeId, observed, DateTimeOffset.FromUnixTimeMilliseconds(page.From),
-            DateTimeOffset.FromUnixTimeMilliseconds(page.Until), entries, next);
+            return new(storeId, observed, DateTimeOffset.FromUnixTimeMilliseconds(page.From),
+                DateTimeOffset.FromUnixTimeMilliseconds(page.Until), entries, next);
+        }, cancellationToken);
     }
 
     public async Task<ArchivePage> SearchArchivesAsync(ArchiveQuery query, CancellationToken cancellationToken = default)
@@ -71,70 +70,65 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
             throw new ArgumentException("Archive kind must be Job or Flow.", nameof(query));
         }
 
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        var page = HistoryWindow("archives", query with { Cursor = null }, query.Cursor, query.From, query.Until, storeId, observed);
-        var conditions = new List<string> { "archived_at>=@from AND archived_at<@until" };
-        var values = HistoryParameters(page, query.Limit);
-        AddHistoryFilter("correlation_id", "correlation", query.CorrelationId, conditions, values);
-        AddHistoryFilter("kind", "kind", query.Kind?.ToString(), conditions, values);
-        AddHistoryPosition("archived_at", "id", query.Cursor is not null, conditions);
-        await using var command = OperationCommand(connection, transaction,
-            $"SELECT {ArchiveMetadataColumns} FROM dj_archives WHERE {string.Join(" AND ", conditions)} ORDER BY archived_at DESC,id {PageSql("@limit")}", values.ToArray());
-        var items = await ReadArchiveMetadataAsync(command, ct);
-        var more = TrimPage(items, query.Limit);
-        var next = more ? HistoryContinuation(page, items[^1].ArchivedAt, items[^1].Id) : null;
-        await transaction.CommitAsync(ct);
+        return await ReadOperationAsync<ArchivePage>(async (connection, transaction, ct) =>
+        {
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            var page = HistoryWindow("archives", query with { Cursor = null }, query.Cursor, query.From, query.Until, storeId, observed);
+            var conditions = new List<string> { "archived_at>=@from AND archived_at<@until" };
+            var values = HistoryParameters(page, query.Limit);
+            AddHistoryFilter("correlation_id", "correlation", query.CorrelationId, conditions, values);
+            AddHistoryFilter("kind", "kind", query.Kind?.ToString(), conditions, values);
+            AddHistoryPosition("archived_at", "id", query.Cursor is not null, conditions);
+            await using var command = OperationCommand(connection, transaction,
+                $"SELECT {ArchiveMetadataColumns} FROM dj_archives WHERE {string.Join(" AND ", conditions)} ORDER BY archived_at DESC,id {PageSql("@limit")}", values.ToArray());
+            var items = await ReadArchiveMetadataAsync(command, ct);
+            var more = TrimPage(items, query.Limit);
+            var next = more ? HistoryContinuation(page, items[^1].ArchivedAt, items[^1].Id) : null;
 
-        return new(storeId, observed, DateTimeOffset.FromUnixTimeMilliseconds(page.From), DateTimeOffset.FromUnixTimeMilliseconds(page.Until), items, next);
+            return new(storeId, observed, DateTimeOffset.FromUnixTimeMilliseconds(page.From), DateTimeOffset.FromUnixTimeMilliseconds(page.Until), items, next);
+        }, cancellationToken);
     }
 
     public async Task<ArchiveLookup> FindArchiveAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        await using var command = OperationCommand(connection, transaction,
-            $"SELECT {ArchiveMetadataColumns} FROM dj_archives WHERE id=@id", ("id", id.ToString()));
-        var items = await ReadArchiveMetadataAsync(command, ct);
-        await transaction.CommitAsync(ct);
+        return await ReadOperationAsync<ArchiveLookup>(async (connection, transaction, ct) =>
+        {
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            await using var command = OperationCommand(connection, transaction,
+                $"SELECT {ArchiveMetadataColumns} FROM dj_archives WHERE id=@id", ("id", id.ToString()));
+            var items = await ReadArchiveMetadataAsync(command, ct);
 
-        return new(storeId, observed, items.SingleOrDefault());
+            return new(storeId, observed, items.SingleOrDefault());
+        }, cancellationToken);
     }
 
     public async Task<RetentionPreview> PreviewRetentionAsync(ArchivePolicy policy, CancellationToken cancellationToken = default)
     {
         ValidateArchivePolicy(policy);
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        var candidates = new List<RetentionCandidate>();
-        await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT id,kind,{ClippedLabelSql("correlation_id")} AS correlation_id,completed,jobs,
-              CASE WHEN {LabelTooLongSql("correlation_id")} THEN 1 ELSE 0 END AS clipped
-            FROM ({EligibleArchiveUnitsSql}) candidates ORDER BY completed,id {PageSql("@limit")}
-            """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()),
-            ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()), ("limit", policy.BatchSize + 1)))
+
+        return await ReadOperationAsync<RetentionPreview>(async (connection, transaction, ct) =>
         {
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            var candidates = new List<RetentionCandidate>();
+            await using (var command = OperationCommand(connection, transaction, $"""
+                SELECT id,kind,{ClippedLabelSql("correlation_id")} AS correlation_id,completed,jobs,
+                  CASE WHEN {LabelTooLongSql("correlation_id")} THEN 1 ELSE 0 END AS clipped
+                FROM ({EligibleArchiveUnitsSql}) candidates ORDER BY completed,id {PageSql("@limit")}
+                """, ("success", policy.SucceededBefore.ToUnixTimeMilliseconds()),
+                ("failure", policy.FailedBefore?.ToUnixTimeMilliseconds()), ("limit", policy.BatchSize + 1)))
             {
-                candidates.Add(new(Guid.Parse(reader.GetString(0)), Enum.Parse<ArchiveKind>(reader.GetString(1)), Text(reader, "correlation_id"),
-                    Date(reader, "completed")!.Value, Convert.ToInt32(reader.GetValue(4)), reader.GetInt32(5) != 0));
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    candidates.Add(new(Guid.Parse(reader.GetString(0)), Enum.Parse<ArchiveKind>(reader.GetString(1)), Text(reader, "correlation_id"),
+                        Date(reader, "completed")!.Value, Convert.ToInt32(reader.GetValue(4)), reader.GetInt32(5) != 0));
+                }
             }
-        }
 
-        var more = TrimPage(candidates, policy.BatchSize);
-        await transaction.CommitAsync(ct);
+            var more = TrimPage(candidates, policy.BatchSize);
 
-        return new(storeId, observed, policy, candidates, more);
+            return new(storeId, observed, policy, candidates, more);
+        }, cancellationToken);
     }
 
     private async Task<List<ArchiveMetadata>> ReadArchiveMetadataAsync(DbCommand command, CancellationToken ct)

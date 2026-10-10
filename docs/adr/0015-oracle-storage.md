@@ -35,3 +35,9 @@ Run shared real-provider conformance, audit rollback, scheduling, signals, archi
 References: [Oracle transactions](https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/SET-TRANSACTION.html), [DBMS_LOCK](https://docs.oracle.com/en/database/oracle/oracle-database/26/arpls/DBMS_LOCK.html), [ODP.NET requirements](https://docs.oracle.com/en/database/oracle/oracle-database/26/odpnt/InstallSystemRequirements.html).
 
 Migration fingerprints normalize line endings so builds from LF and CRLF source checkouts identify the same DDL sequence. This normalization changes no stored processor identity or application data.
+
+## Amendment — 2026-10-10: retry read snapshots after ORA-08177
+
+CI kept failing intermittently with ORA-08177 (sometimes wrapped in ORA-00604) in Serializable inspection reads, even with sequential fixtures. Each fixture's own schema DDL runs immediately before its reads, and a deployment can see the same conflict whenever DDL runs in the database, including from another application.
+
+Every store read now runs through one snapshot-read path. When Oracle reports ORA-08177, the read is repeated with a fresh snapshot, up to three attempts with a short increasing delay, inside the caller's cancellation and the operations-query deadline. Reads change nothing, so repeating one is safe, and each attempt still returns a complete single snapshot, never a partial one. A conflict that persists through every attempt still fails the read. Writes and business transactions are never retried; callers continue to reconcile ambiguous writes through stable receipts.

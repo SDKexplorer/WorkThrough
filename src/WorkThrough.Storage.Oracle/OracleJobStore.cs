@@ -75,6 +75,13 @@ public sealed partial class OracleJobStore : RelationalJobStore
         }
     }
 
+    // ORA-08177 can surface wrapped in ORA-00604 when recursive dictionary SQL meets concurrent DDL.
+    private const int SerializationConflict = 8177;
+
+    protected override bool IsReadSnapshotConflict(DbException error) => error is OracleException oracle
+        && (oracle.Number == SerializationConflict || oracle.Errors.Cast<OracleError>().Any(e => e.Number == SerializationConflict)
+            || oracle.Message.Contains("ORA-08177", StringComparison.Ordinal));
+
     protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 

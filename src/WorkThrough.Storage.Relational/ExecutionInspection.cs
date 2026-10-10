@@ -20,42 +20,39 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
                 $"Use a text limit of 1–{OperationQueryLimits.MaximumDiagnosticCharacters} characters.");
         }
 
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        var exists = false;
-        var attemptExists = false;
-        JobFailure? failure = null;
-        var truncated = false;
-        await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT a.{AttemptNumberSql},{SubstringFunction}({DiagnosticExceptionSql},1,@length) AS exception_type,
-              {SubstringFunction}(COALESCE(f.message,a.error),1,@length) AS message,{SubstringFunction}(f.stack_trace,1,@length) AS stack_trace,
-              CASE WHEN {LengthSql(DiagnosticExceptionSql)}>@length OR {LengthSql("COALESCE(f.message,a.error)")}>@length
-                OR {LengthSql("f.stack_trace")}>@length THEN 1 ELSE 0 END AS clipped
-            FROM dj_jobs j LEFT JOIN dj_attempts a ON a.job_id=j.id AND a.{AttemptNumberSql}=@attempt
-            LEFT JOIN dj_failures f ON f.job_id=a.job_id AND f.attempt=a.{AttemptNumberSql} WHERE j.id=@id
-            """, ("id", id.ToString()), ("attempt", attempt), ("length", maximumCharacters)))
+        return await ReadOperationAsync<ExecutionDiagnostic>(async (connection, transaction, ct) =>
         {
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            if (await reader.ReadAsync(ct))
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            var exists = false;
+            var attemptExists = false;
+            JobFailure? failure = null;
+            var truncated = false;
+            await using (var command = OperationCommand(connection, transaction, $"""
+                SELECT a.{AttemptNumberSql},{SubstringFunction}({DiagnosticExceptionSql},1,@length) AS exception_type,
+                  {SubstringFunction}(COALESCE(f.message,a.error),1,@length) AS message,{SubstringFunction}(f.stack_trace,1,@length) AS stack_trace,
+                  CASE WHEN {LengthSql(DiagnosticExceptionSql)}>@length OR {LengthSql("COALESCE(f.message,a.error)")}>@length
+                    OR {LengthSql("f.stack_trace")}>@length THEN 1 ELSE 0 END AS clipped
+                FROM dj_jobs j LEFT JOIN dj_attempts a ON a.job_id=j.id AND a.{AttemptNumberSql}=@attempt
+                LEFT JOIN dj_failures f ON f.job_id=a.job_id AND f.attempt=a.{AttemptNumberSql} WHERE j.id=@id
+                """, ("id", id.ToString()), ("attempt", attempt), ("length", maximumCharacters)))
             {
-                exists = true;
-                attemptExists = !reader.IsDBNull(0);
-                var message = Text(reader, "message");
-                if (message is not null)
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                if (await reader.ReadAsync(ct))
                 {
-                    failure = new(reader.GetString(1), message, Text(reader, "stack_trace"));
+                    exists = true;
+                    attemptExists = !reader.IsDBNull(0);
+                    var message = Text(reader, "message");
+                    if (message is not null)
+                    {
+                        failure = new(reader.GetString(1), message, Text(reader, "stack_trace"));
+                    }
+
+                    truncated = failure is not null && reader.GetInt32(4) != 0;
                 }
-
-                truncated = failure is not null && reader.GetInt32(4) != 0;
             }
-        }
 
-        await transaction.CommitAsync(ct);
-
-        return new(storeId, observed, id, attempt, exists, attemptExists, failure, truncated);
+            return new(storeId, observed, id, attempt, exists, attemptExists, failure, truncated);
+        }, cancellationToken);
     }
 
     public async Task<FlowInspection> ReadFlowAsync(Guid runId, int nodeOffset = 0, int dependencyOffset = 0,
@@ -67,37 +64,35 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
             throw new ArgumentOutOfRangeException(nameof(nodeOffset), "Invalid flow page position.");
         }
 
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        var (flow, graphStatus) = await ReadFlowMetadataAsync(connection, transaction, runId, ct);
-        await using var nodesCommand = OperationCommand(connection, transaction,
-            $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE j.workflow_run_id=@run ORDER BY j.id {PageSql("@limit", "@offset")}",
-            ("run", runId.ToString()), ("limit", limit + 1), ("offset", nodeOffset));
-        var nodes = await ReadExecutionMetadataAsync(nodesCommand, ct);
-        var nextNode = TrimPage(nodes, limit) ? nodeOffset + limit : (int?)null;
-        var dependencies = graphStatus == FlowGraphStatuses.Available
-            ? await ReadDependenciesAsync(connection, transaction, runId, dependencyOffset, limit, ct) : [];
-        var nextDependency = TrimPage(dependencies, limit) ? dependencyOffset + limit : (int?)null;
-        EventPosition position;
-        await using (var command = OperationCommand(connection, transaction, EventPositionSql))
+        return await ReadOperationAsync<FlowInspection>(async (connection, transaction, ct) =>
         {
-            position = await ReadEventPositionAsync(command, ct);
-        }
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            var (flow, graphStatus) = await ReadFlowMetadataAsync(connection, transaction, runId, ct);
+            await using var nodesCommand = OperationCommand(connection, transaction,
+                $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE j.workflow_run_id=@run ORDER BY j.id {PageSql("@limit", "@offset")}",
+                ("run", runId.ToString()), ("limit", limit + 1), ("offset", nodeOffset));
+            var nodes = await ReadExecutionMetadataAsync(nodesCommand, ct);
+            var nextNode = TrimPage(nodes, limit) ? nodeOffset + limit : (int?)null;
+            var dependencies = graphStatus == FlowGraphStatuses.Available
+                ? await ReadDependenciesAsync(connection, transaction, runId, dependencyOffset, limit, ct) : [];
+            var nextDependency = TrimPage(dependencies, limit) ? dependencyOffset + limit : (int?)null;
+            EventPosition position;
+            await using (var command = OperationCommand(connection, transaction, EventPositionSql))
+            {
+                position = await ReadEventPositionAsync(command, ct);
+            }
 
-        if (afterEvent > position.LastSequence)
-        {
-            throw new ArgumentOutOfRangeException(nameof(afterEvent), "The requested event position is beyond this store's journal.");
-        }
+            if (afterEvent > position.LastSequence)
+            {
+                throw new ArgumentOutOfRangeException(nameof(afterEvent), "The requested event position is beyond this store's journal.");
+            }
 
-        var events = await ReadFlowEventsAsync(connection, transaction, runId, Math.Max(afterEvent, position.RetainedAfter), limit, ct);
-        var nextEvent = TrimPage(events, limit) ? events[^1].Sequence : (long?)null;
-        await transaction.CommitAsync(ct);
+            var events = await ReadFlowEventsAsync(connection, transaction, runId, Math.Max(afterEvent, position.RetainedAfter), limit, ct);
+            var nextEvent = TrimPage(events, limit) ? events[^1].Sequence : (long?)null;
 
-        return new(storeId, observed, flow, nodes, nextNode, dependencies, nextDependency, graphStatus, events,
-            nextEvent, position.RetainedAfter, position.LastSequence, afterEvent < position.RetainedAfter);
+            return new(storeId, observed, flow, nodes, nextNode, dependencies, nextDependency, graphStatus, events,
+                nextEvent, position.RetainedAfter, position.LastSequence, afterEvent < position.RetainedAfter);
+        }, cancellationToken);
     }
 
     private async Task<(FlowMetadata? Flow, string GraphStatus)> ReadFlowMetadataAsync(
