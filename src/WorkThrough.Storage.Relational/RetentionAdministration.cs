@@ -57,64 +57,62 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
 
     public async Task<RetentionHold?> FindRetentionHoldAsync(Guid unitId, CancellationToken cancellationToken = default)
     {
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        await using var connection = await OpenAsync(timeout.Token);
-        await using var transaction = await BeginReadAsync(connection, timeout.Token);
-        await using var command = OperationCommand(connection, transaction, "SELECT held,revision FROM dj_retention_holds WHERE unit_id=@id", ("id", unitId.ToString()));
-        await using var reader = await command.ExecuteReaderAsync(timeout.Token);
-        if (!await reader.ReadAsync(timeout.Token))
+        return await ReadOperationAsync<RetentionHold?>(async (connection, transaction, ct) =>
         {
-            return null;
-        }
+            await using var command = OperationCommand(connection, transaction, "SELECT held,revision FROM dj_retention_holds WHERE unit_id=@id", ("id", unitId.ToString()));
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+            {
+                return null;
+            }
 
-        return new(unitId, reader.GetInt32(0) == 1, reader.GetInt32(1));
+            return new(unitId, reader.GetInt32(0) == 1, reader.GetInt32(1));
+        }, cancellationToken);
     }
 
     public async Task<RetentionStatus> ReadRetentionStatusAsync(CancellationToken cancellationToken = default)
     {
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, now) = await ReadOperationContextAsync(connection, transaction, ct);
-        var configuration = await ReadRetentionPolicyAsync(connection, transaction, ct);
-        Guid? pending;
-        DateTimeOffset? expires;
-        MaintenanceResult? last;
-        string? failure;
-        DateTimeOffset? failedAt;
-        await using (var command = OperationCommand(connection, transaction, """
-            SELECT m.batch_id,m.lease_expires_at,b.result,m.failure_code,m.failed_at FROM dj_maintenance m
-            LEFT JOIN dj_maintenance_batches b ON b.id=m.last_batch_id WHERE m.id=1
-            """))
+        return await ReadOperationAsync<RetentionStatus>(async (connection, transaction, ct) =>
         {
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            await reader.ReadAsync(ct);
-            pending = ParseGuid(Text(reader, "batch_id"));
-            expires = Date(reader, "lease_expires_at");
-            last = reader.IsDBNull(2) ? null : JsonSerializer.Deserialize<MaintenanceResult>(reader.GetString(2), JobJson.Options);
-            failure = Text(reader, "failure_code");
-            failedAt = Date(reader, "failed_at");
-        }
-
-        var holds = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_holds WHERE held=1", ct));
-        var incidents = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_incidents", ct));
-        var examples = new List<RetentionIncident>();
-        await using (var command = OperationCommand(connection, transaction, $"SELECT unit_id,code,at FROM dj_retention_incidents ORDER BY at DESC,unit_id {PageSql(MaximumIncidentExamples)}"))
-        {
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
+            var (storeId, now) = await ReadOperationContextAsync(connection, transaction, ct);
+            var configuration = await ReadRetentionPolicyAsync(connection, transaction, ct);
+            Guid? pending;
+            DateTimeOffset? expires;
+            MaintenanceResult? last;
+            string? failure;
+            DateTimeOffset? failedAt;
+            await using (var command = OperationCommand(connection, transaction, """
+                SELECT m.batch_id,m.lease_expires_at,b.result,m.failure_code,m.failed_at FROM dj_maintenance m
+                LEFT JOIN dj_maintenance_batches b ON b.id=m.last_batch_id WHERE m.id=1
+                """))
             {
-                examples.Add(new(Guid.Parse(reader.GetString(0)), reader.GetString(1), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2))));
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                await reader.ReadAsync(ct);
+                pending = ParseGuid(Text(reader, "batch_id"));
+                expires = Date(reader, "lease_expires_at");
+                last = reader.IsDBNull(2) ? null : JsonSerializer.Deserialize<MaintenanceResult>(reader.GetString(2), JobJson.Options);
+                failure = Text(reader, "failure_code");
+                failedAt = Date(reader, "failed_at");
             }
-        }
 
-        var position = await ReadEventPositionAsync(connection, transaction, ct);
-        var slowest = await ReadSlowestSubscriberAsync(connection, transaction, ct);
-        await transaction.CommitAsync(ct);
+            var holds = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_holds WHERE held=1", ct));
+            var incidents = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_incidents", ct));
+            var examples = new List<RetentionIncident>();
+            await using (var command = OperationCommand(connection, transaction, $"SELECT unit_id,code,at FROM dj_retention_incidents ORDER BY at DESC,unit_id {PageSql(MaximumIncidentExamples)}"))
+            {
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    examples.Add(new(Guid.Parse(reader.GetString(0)), reader.GetString(1), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2))));
+                }
+            }
 
-        return new(storeId, now, configuration, pending, expires > now, expires, last, holds, incidents, examples,
-            position.RetainedAfter, position.LastSequence, slowest, failure, failedAt);
+            var position = await ReadEventPositionAsync(connection, transaction, ct);
+            var slowest = await ReadSlowestSubscriberAsync(connection, transaction, ct);
+
+            return new(storeId, now, configuration, pending, expires > now, expires, last, holds, incidents, examples,
+                position.RetainedAfter, position.LastSequence, slowest, failure, failedAt);
+        }, cancellationToken);
     }
 
     private async Task<long?> ReadSlowestSubscriberAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)

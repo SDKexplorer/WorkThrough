@@ -33,6 +33,54 @@ public sealed class StorageConformanceTests
     private static ClaimRequest Claim(string worker = "worker", TimeSpan? lease = null) =>
         new(worker, [JobContractId.For<Alpha>(), JobContractId.For<Beta>()], ["default"], lease ?? TimeSpan.FromSeconds(30));
 
+    /// <summary>Plain job reads ran outside a snapshot and were chosen as deadlock victims by SQL Server under settlement load.</summary>
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Job_reads_do_not_fail_while_workers_settle_flows(string provider)
+    {
+        const int runs = 60;
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var flow = new FlowBuilder("tests.read-contention", 1).Step<Alpha>("first", new Alpha("a")).Step<Beta>("second", new Beta("b")).After("first").Build();
+        var correlation = Guid.NewGuid().ToString("N");
+        for (var i = 0; i < runs; i++)
+        {
+            await new WorkflowClient(harness.Store).StartAsync(flow, new { }, correlation);
+        }
+
+        using var done = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        var workers = Enumerable.Range(0, 4).Select(worker => Task.Run(async () =>
+        {
+            var store = harness.NewStore();
+            while (!done.IsCancellationRequested)
+            {
+                if (await store.ClaimAsync(Claim($"worker-{worker}")) is not { } job)
+                {
+                    if ((await store.StatisticsAsync()).Counts.GetValueOrDefault(JobStatus.Succeeded) == runs * 2)
+                    {
+                        return;
+                    }
+
+                    continue;
+                }
+
+                Assert.True(await store.CompleteAsync(job.Id, job.LeaseToken!.Value, JobResult.Done()));
+            }
+        })).ToArray();
+        var readers = Enumerable.Range(0, 4).Select(reader => Task.Run(async () =>
+        {
+            var store = harness.NewStore();
+            while (!workers.All(worker => worker.IsCompleted))
+            {
+                foreach (var job in await store.ListAsync(new(correlation, Limit: 500)))
+                {
+                    _ = await store.AttemptsAsync(job.Id);
+                }
+            }
+        })).ToArray();
+
+        await Task.WhenAll(workers.Concat(readers));
+        Assert.Equal(runs * 2, (await harness.Store.StatisticsAsync()).Counts[JobStatus.Succeeded]);
+    }
+
     public static IEnumerable<object[]> TerminalFlowCases() =>
         Providers().SelectMany(provider => new[] { "fail", "release", "expire", "complete" }
             .Select(outcome => new object[] { provider[0], outcome }));

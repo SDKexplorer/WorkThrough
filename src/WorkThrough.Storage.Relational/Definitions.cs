@@ -62,11 +62,12 @@ public abstract partial class RelationalJobStore
             return checked(expectedRevision + 1);
         }, ct);
 
-    public async Task<StoredFlowDefinition?> GetDefinitionAsync(string key, int version, CancellationToken cancellationToken = default)
+    public Task<StoredFlowDefinition?> GetDefinitionAsync(string key, int version, CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-
-        return await ReadDefinitionAsync(connection, null, key, version, cancellationToken);
+        return ReadAsync<StoredFlowDefinition?>(async (connection, transaction, ct) =>
+        {
+            return await ReadDefinitionAsync(connection, transaction, key, version, ct);
+        }, cancellationToken);
     }
 
     private async Task<StoredFlowDefinition?> ReadDefinitionAsync(DbConnection connection, DbTransaction? transaction, string key, int version, CancellationToken ct)
@@ -78,35 +79,39 @@ public abstract partial class RelationalJobStore
         return await reader.ReadAsync(ct) ? Definition(reader) : null;
     }
 
-    public async Task<IReadOnlyList<StoredFlowDefinition>> DefinitionsAsync(int limit = 100, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<StoredFlowDefinition>> DefinitionsAsync(int limit = 100, CancellationToken cancellationToken = default)
     {
         if (limit is < 1 or > MaximumDefinitionPage)
         {
             throw new ArgumentOutOfRangeException(nameof(limit));
         }
 
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, $"SELECT definition,status,revision FROM dj_definition_lifecycle ORDER BY flow_key,version DESC {PageSql("@limit")}", ("limit", limit));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        var definitions = new List<StoredFlowDefinition>();
-        while (await reader.ReadAsync(cancellationToken))
+        return ReadAsync<IReadOnlyList<StoredFlowDefinition>>(async (connection, transaction, ct) =>
         {
-            definitions.Add(Definition(reader));
-        }
+            await using var command = Command(connection, transaction, $"SELECT definition,status,revision FROM dj_definition_lifecycle ORDER BY flow_key,version DESC {PageSql("@limit")}", ("limit", limit));
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            var definitions = new List<StoredFlowDefinition>();
+            while (await reader.ReadAsync(ct))
+            {
+                definitions.Add(Definition(reader));
+            }
 
-        return definitions;
+            return definitions;
+        }, cancellationToken);
     }
 
     private static StoredFlowDefinition Definition(DbDataReader reader) => new(
         JsonSerializer.Deserialize<FlowDefinition>(reader.GetString(0), JobJson.Options)!, Enum.Parse<DefinitionStatus>(reader.GetString(1)), reader.GetInt32(2));
 
-    public async Task<FlowDefinition?> GetRunDefinitionAsync(Guid runId, CancellationToken cancellationToken = default)
+    public Task<FlowDefinition?> GetRunDefinitionAsync(Guid runId, CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        var saved = await ScalarAsync(connection, null, """
-            SELECT d.definition FROM dj_definitions d JOIN dj_flows f ON d.flow_key=f.flow_key AND d.version=f.version WHERE f.id=@id
-            """, cancellationToken, ("id", runId.ToString()));
+        return ReadAsync<FlowDefinition?>(async (connection, transaction, ct) =>
+        {
+            var saved = await ScalarAsync(connection, transaction, """
+                SELECT d.definition FROM dj_definitions d JOIN dj_flows f ON d.flow_key=f.flow_key AND d.version=f.version WHERE f.id=@id
+                """, ct, ("id", runId.ToString()));
 
-        return saved is string json ? JsonSerializer.Deserialize<FlowDefinition>(json, JobJson.Options) : null;
+            return saved is string json ? JsonSerializer.Deserialize<FlowDefinition>(json, JobJson.Options) : null;
+        }, cancellationToken);
     }
 }

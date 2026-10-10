@@ -8,12 +8,12 @@ public abstract partial class RelationalJobStore
 
     public async Task<ProcessorRegistrySnapshot> ProcessorRegistryAsync(CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var transaction = await BeginReadAsync(connection, cancellationToken);
-        var snapshot = await ReadRegistryAsync(connection, transaction, cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        return await ReadAsync<ProcessorRegistrySnapshot>(async (connection, transaction, ct) =>
+        {
+            var snapshot = await ReadRegistryAsync(connection, transaction, ct);
 
-        return snapshot;
+            return snapshot;
+        }, cancellationToken);
     }
 
     private async Task<ProcessorRegistrySnapshot> ReadRegistryAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)

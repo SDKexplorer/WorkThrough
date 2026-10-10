@@ -61,11 +61,12 @@ public abstract partial class RelationalJobStore
             "SELECT COUNT(*) FROM dj_jobs WHERE id=@id AND lease_token=@token AND status='Running' AND lease_expires_at>@now", ct,
             ("id", id.ToString()), ("token", token.ToString()), ("now", now))) == 1;
 
-    public async Task<IReadOnlyList<AttemptFailure>> FailuresAsync(Guid id, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<AttemptFailure>> FailuresAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-
-        return await ReadFailuresAsync(connection, null, id, cancellationToken);
+        return ReadAsync<IReadOnlyList<AttemptFailure>>(async (connection, transaction, ct) =>
+        {
+            return await ReadFailuresAsync(connection, transaction, id, ct);
+        }, cancellationToken);
     }
 
     private async Task<List<AttemptFailure>> ReadFailuresAsync(DbConnection connection, DbTransaction? transaction, Guid id, CancellationToken ct)
@@ -90,21 +91,23 @@ public abstract partial class RelationalJobStore
             return null;
         }
 
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, """
-            SELECT p.started_at,p.last_progress_at,p.deadline,p.progress_timeout,p.description
-            FROM dj_progress p JOIN dj_jobs j ON j.id=p.job_id AND j.lease_token=p.lease_token
-            WHERE p.job_id=@id AND j.status='Running'
-            """, ("id", id.ToString()));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        JobProgress? progress = null;
-        if (await reader.ReadAsync(cancellationToken))
+        return await ReadAsync<JobHealth?>(async (connection, transaction, ct) =>
         {
-            var timeout = reader.IsDBNull(3) ? (TimeSpan?)null : TimeSpan.FromMilliseconds(reader.GetInt64(3));
-            progress = new(Date(reader, "started_at")!.Value, Date(reader, "last_progress_at")!.Value, Date(reader, "deadline"), timeout, Text(reader, "description"));
-        }
+            await using var command = Command(connection, transaction, """
+                SELECT p.started_at,p.last_progress_at,p.deadline,p.progress_timeout,p.description
+                FROM dj_progress p JOIN dj_jobs j ON j.id=p.job_id AND j.lease_token=p.lease_token
+                WHERE p.job_id=@id AND j.status='Running'
+                """, ("id", id.ToString()));
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            JobProgress? progress = null;
+            if (await reader.ReadAsync(ct))
+            {
+                var timeout = reader.IsDBNull(3) ? (TimeSpan?)null : TimeSpan.FromMilliseconds(reader.GetInt64(3));
+                progress = new(Date(reader, "started_at")!.Value, Date(reader, "last_progress_at")!.Value, Date(reader, "deadline"), timeout, Text(reader, "description"));
+            }
 
-        return new(readiness.Reason, readiness.SuspectedStalled, readiness.ObservedAt, progress);
+            return new(readiness.Reason, readiness.SuspectedStalled, readiness.ObservedAt, progress);
+        }, cancellationToken);
     }
 
     public Task HeartbeatAsync(WorkerHeartbeat worker, CancellationToken cancellationToken = default) => WriteAsync(async (connection, transaction, ct) =>
@@ -117,26 +120,30 @@ public abstract partial class RelationalJobStore
         return true;
     }, cancellationToken);
 
-    public async Task<IReadOnlyList<WorkerHeartbeat>> WorkersAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<WorkerHeartbeat>> WorkersAsync(CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, $"SELECT details FROM dj_workers ORDER BY seen_at DESC {PageSql(MaximumWorkerRows)}");
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        var workers = new List<WorkerHeartbeat>();
-        while (await reader.ReadAsync(cancellationToken))
+        return ReadAsync<IReadOnlyList<WorkerHeartbeat>>(async (connection, transaction, ct) =>
         {
-            workers.Add(JsonSerializer.Deserialize<WorkerHeartbeat>(reader.GetString(0), JobJson.Options)!);
-        }
+            await using var command = Command(connection, transaction, $"SELECT details FROM dj_workers ORDER BY seen_at DESC {PageSql(MaximumWorkerRows)}");
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            var workers = new List<WorkerHeartbeat>();
+            while (await reader.ReadAsync(ct))
+            {
+                workers.Add(JsonSerializer.Deserialize<WorkerHeartbeat>(reader.GetString(0), JobJson.Options)!);
+            }
 
-        return workers;
+            return workers;
+        }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<ExecutionEvent>> EventsAsync(Guid runId, long after = 0, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ExecutionEvent>> EventsAsync(Guid runId, long after = 0, CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, $"SELECT {EventColumns} FROM dj_events WHERE run_id=@run AND sequence>@after ORDER BY sequence {PageSql(MaximumFlowEvents)}",
-            ("run", runId.ToString()), ("after", after));
+        return ReadAsync<IReadOnlyList<ExecutionEvent>>(async (connection, transaction, ct) =>
+        {
+            await using var command = Command(connection, transaction, $"SELECT {EventColumns} FROM dj_events WHERE run_id=@run AND sequence>@after ORDER BY sequence {PageSql(MaximumFlowEvents)}",
+                ("run", runId.ToString()), ("after", after));
 
-        return await ReadEventsAsync(command, cancellationToken);
+            return await ReadEventsAsync(command, ct);
+        }, cancellationToken);
     }
 }

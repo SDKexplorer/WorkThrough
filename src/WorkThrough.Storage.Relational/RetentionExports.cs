@@ -6,33 +6,30 @@ public abstract partial class RelationalJobStore
 {
     public async Task<IReadOnlyList<ArchiveSummary>> ReadExportCandidatesAsync(MaintenanceLease lease, CancellationToken cancellationToken = default)
     {
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        await RequireMaintenanceLeaseAsync(connection, transaction, lease, ct);
-        var batch = await ReadMaintenanceBatchAsync(connection, transaction, lease.BatchId, ct);
-        var policy = await ReadRetentionPolicyAsync(connection, transaction, ct);
-        var candidates = new List<ArchiveSummary>();
-        if (policy?.Policy.Enabled == true && policy.Revision == batch.PolicyRevision && batch.PurgeBefore is { } before)
+        return await ReadOperationAsync<IReadOnlyList<ArchiveSummary>>(async (connection, transaction, ct) =>
         {
-            await using var command = OperationCommand(connection, transaction, $"""
-                SELECT a.id,a.kind,a.correlation_id,a.archived_at,a.jobs,a.sha256,1 AS has_body FROM dj_archives a
-                WHERE a.body IS NOT NULL AND a.archived_at<=@before
-                  AND NOT EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=a.id AND h.held=1)
-                  AND NOT EXISTS (SELECT 1 FROM dj_retention_incidents i WHERE i.unit_id=a.id)
-                ORDER BY a.archived_at,a.id {PageSql("@limit")}
-                """, ("before", before.ToUnixTimeMilliseconds()), ("limit", batch.ArchivePolicy.BatchSize));
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
+            await RequireMaintenanceLeaseAsync(connection, transaction, lease, ct);
+            var batch = await ReadMaintenanceBatchAsync(connection, transaction, lease.BatchId, ct);
+            var policy = await ReadRetentionPolicyAsync(connection, transaction, ct);
+            var candidates = new List<ArchiveSummary>();
+            if (policy?.Policy.Enabled == true && policy.Revision == batch.PolicyRevision && batch.PurgeBefore is { } before)
             {
-                candidates.Add(ReadArchiveSummary(reader));
+                await using var command = OperationCommand(connection, transaction, $"""
+                    SELECT a.id,a.kind,a.correlation_id,a.archived_at,a.jobs,a.sha256,1 AS has_body FROM dj_archives a
+                    WHERE a.body IS NOT NULL AND a.archived_at<=@before
+                      AND NOT EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=a.id AND h.held=1)
+                      AND NOT EXISTS (SELECT 1 FROM dj_retention_incidents i WHERE i.unit_id=a.id)
+                    ORDER BY a.archived_at,a.id {PageSql("@limit")}
+                    """, ("before", before.ToUnixTimeMilliseconds()), ("limit", batch.ArchivePolicy.BatchSize));
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    candidates.Add(ReadArchiveSummary(reader));
+                }
             }
-        }
 
-        await transaction.CommitAsync(ct);
-
-        return candidates;
+            return candidates;
+        }, cancellationToken);
     }
 
     public Task RecordVerifiedExportAsync(MaintenanceLease lease, VerifiedArchiveExport export, CancellationToken cancellationToken = default)

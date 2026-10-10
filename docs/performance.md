@@ -95,3 +95,34 @@ Raw version-2 reports: [SQLite](performance-results/2026-10-10-sqlite-investigat
 Two exploratory measurement defects were found and corrected. First, a default metrics window excluded the older fixture; current runs assert complete fixture coverage before and during measurement. Second, version-1 queue measurements subtracted the settled AvailableAt timestamp, which changes during settlement. Current reports use original storage acceptance time for these immediate, single-attempt jobs and reject negative/non-finite measurements. Version-1 reports are excluded from the table and retained under `artifacts/performance-exploratory/invalid-queue-metric-v1`; the current committed reports replace them. Resource counters unavailable from the OS are null, not zero. Six regression cases exercise rejection and explicit histogram overflow on both runtimes.
 
 The longer full profile, repetitions on the other providers, SQL-plan analysis, a two-hour soak, connection-growth tracking, maintenance contention and production restore/partition campaigns remain uncompleted qualification work. Harness allocations and GC samples are recorded, but they include both clients and producers and do not isolate server allocation costs.
+
+## Claim-path baseline — 2026-10-10
+
+Baseline for the execution-control work (partition concurrency, rate limits, fairness), measured before any of it. Full profile: per provider, a crash proof plus three fresh-store repetitions of each workload; 6,000 measured jobs per provider, 24,000 in total. Revision `808e79c` with a clean working tree, .NET 8.0.31, macOS ARM64, 16 logical processors. SQLite ran locally with WAL/FULL. PostgreSQL 17.11 and Oracle Free 26ai (23.26.3) ran natively in Docker; SQL Server 2022 CU27 ran in Docker under x64 emulation, so its figures are not a native capacity claim. Providers ran one at a time. Unrelated containers were running on the same Docker host; treat small differences as noise.
+
+| Provider | Workload | Jobs/s median (range) | Queue wait p50, median | Run p95 end-to-end, median |
+|---|---|---:|---:|---:|
+| sqlite | mixed | 34.3 (25.1–46.1) | 2.70 s | 11.43 s |
+| sqlite | flows | 14.4 (13.8–14.7) | 5.30 s | 62.70 s |
+| sqlite | outbox | 84.6 (76.9–91.7) | 2.63 s | 5.33 s |
+| postgres | mixed | 80.6 (79.7–82.0) | 1.62 s | 3.88 s |
+| postgres | flows | 58.7 (56.4–59.1) | 5.04 s | 11.58 s |
+| postgres | outbox | 48.0 (48.0–48.8) | 5.15 s | 9.50 s |
+| sqlserver (emulated) | mixed | 36.7 (35.9–37.0) | 4.07 s | 8.20 s |
+| sqlserver (emulated) | flows | 30.9 (29.8–31.1) | 9.83 s | 21.59 s |
+| sqlserver (emulated) | outbox | 36.0 (30.6–36.6) | 7.00 s | 12.65 s |
+| oracle | mixed | 64.8 (64.2–65.6) | 1.95 s | 4.57 s |
+| oracle | flows | 46.9 (38.5–47.4) | 6.13 s | 14.37 s |
+| oracle | outbox | 52.5 (30.1–55.0) | 4.38 s | 8.09 s |
+
+Every measured job settled once with the expected output, within fleet and type admission limits, and each crash proof passed. This is the first complete SQL Server and Oracle run of this suite. Latencies include the burst backlog; flow throughput counts completed steps.
+
+Observations:
+
+- PostgreSQL is within 2–6% of the 2026-10-08 campaign. SQLite mixed again varied widely between repetitions (25–46 jobs/s); SQLite flows are the slowest path on every run.
+- Oracle repetition 3 is an outlier for flows (38.5 vs ~47 jobs/s) and outbox (30.1 vs ~54 jobs/s), with 20–45% more worker CPU for the same work and unchanged mixed throughput. This points to host contention rather than a code path; repetitions 1 and 2 match each other.
+- Outbox queue and end-to-end latency are measured from the source commit, as the report's `latencyOrigin` records. Destination stores assign creation time on delivery, so measuring from stored creation time would hide the outbox backlog. An intermediate run at `1e66a31`, before this harness change, reported ~45 ms PostgreSQL outbox p95 for that reason; it is superseded by this table.
+
+**SQL Server read deadlock (fixed in `808e79c`).** The first attempt at `1e66a31` aborted during flows repetition 1: the harness completion poll, `IJobQueries.ListAsync`, was chosen as a deadlock victim (error 1205). Plain store reads ran as auto-commit statements at locking READ COMMITTED on SQL Server and deadlocked with settling workers; dashboard job lists share that path. They now run in the provider's read snapshot, like the bounded operations queries. `Job_reads_do_not_fail_while_workers_settle_flows` reproduced the deadlock on every SQL Server run before the change and passes after it, and this baseline completed all SQL Server repetitions without error.
+
+Raw reports: [SQLite](performance-results/2026-10-10-sqlite-full.json), [PostgreSQL](performance-results/2026-10-10-postgres-full.json), [SQL Server](performance-results/2026-10-10-sqlserver-full.json), [Oracle](performance-results/2026-10-10-oracle-full.json).

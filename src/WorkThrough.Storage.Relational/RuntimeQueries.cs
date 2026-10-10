@@ -12,42 +12,39 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
     public async Task<ExecutionReadiness> ReadReadinessAsync(Guid id, int workerExamples = ExecutionReadiness.DefaultWorkerExamples, CancellationToken cancellationToken = default)
     {
         ValidateOperationLimit(workerExamples);
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        var state = await ReadReadinessStateAsync(connection, transaction, id, ct);
-        if (state is null)
-        {
-            await transaction.CommitAsync(ct);
 
-            return new(storeId, observed, id, false, ReadinessReasons.NotLive, false, null, false, null, null, null, null, null, [], 0, false, false);
-        }
-
-        var capacity = await ReadCapacityAsync(connection, transaction, state.Key, observed.ToUnixTimeMilliseconds(), ct);
-        var workers = new List<ReadinessWorker>();
-        await using (var command = OperationCommand(connection, transaction, ReadinessWorkersSql,
-            ("id", id.ToString()), ("fresh", (observed - WorkerHeartbeat.Freshness).ToUnixTimeMilliseconds())))
+        return await ReadOperationAsync<ExecutionReadiness>(async (connection, transaction, ct) =>
         {
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            var state = await ReadReadinessStateAsync(connection, transaction, id, ct);
+            if (state is null)
             {
-                workers.Add(new(reader.GetString(0), Date(reader, "seen_at")!.Value,
-                    Convert.ToInt32(reader.GetValue(2)), Convert.ToInt32(reader.GetValue(3)), reader.GetInt32(4) != 0,
-                    reader.GetInt32(5) != 0, reader.GetInt32(6) != 0, reader.GetInt32(7) != 0,
-                    reader.IsDBNull(8) ? null : Convert.ToInt32(reader.GetValue(8))));
+                return new(storeId, observed, id, false, ReadinessReasons.NotLive, false, null, false, null, null, null, null, null, [], 0, false, false);
             }
-        }
 
-        var incomplete = workers.Count > MaximumReadinessWorkers || workers.Any(worker => !worker.DetailsAvailable);
-        var matching = workers.Where(worker => worker.Matches).ToArray();
-        var reason = ExplainReadiness(state, capacity, matching, incomplete, observed);
-        await transaction.CommitAsync(ct);
+            var capacity = await ReadCapacityAsync(connection, transaction, state.Key, observed.ToUnixTimeMilliseconds(), ct);
+            var workers = new List<ReadinessWorker>();
+            await using (var command = OperationCommand(connection, transaction, ReadinessWorkersSql,
+                ("id", id.ToString()), ("fresh", (observed - WorkerHeartbeat.Freshness).ToUnixTimeMilliseconds())))
+            {
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    workers.Add(new(reader.GetString(0), Date(reader, "seen_at")!.Value,
+                        Convert.ToInt32(reader.GetValue(2)), Convert.ToInt32(reader.GetValue(3)), reader.GetInt32(4) != 0,
+                        reader.GetInt32(5) != 0, reader.GetInt32(6) != 0, reader.GetInt32(7) != 0,
+                        reader.IsDBNull(8) ? null : Convert.ToInt32(reader.GetValue(8))));
+                }
+            }
 
-        return new(storeId, observed, id, true, reason, ReadinessReasons.IsSuspectedStall(reason),
-            state.FlowStatus, state.QueuePaused, state.AvailableAt, state.LeaseExpiresAt, state.Deadline, state.LastProgressAt,
-            capacity, matching.Take(workerExamples).ToArray(), matching.Length, matching.Length > workerExamples, incomplete);
+            var incomplete = workers.Count > MaximumReadinessWorkers || workers.Any(worker => !worker.DetailsAvailable);
+            var matching = workers.Where(worker => worker.Matches).ToArray();
+            var reason = ExplainReadiness(state, capacity, matching, incomplete, observed);
+
+            return new(storeId, observed, id, true, reason, ReadinessReasons.IsSuspectedStall(reason),
+                state.FlowStatus, state.QueuePaused, state.AvailableAt, state.LeaseExpiresAt, state.Deadline, state.LastProgressAt,
+                capacity, matching.Take(workerExamples).ToArray(), matching.Length, matching.Length > workerExamples, incomplete);
+        }, cancellationToken);
     }
 
     private static string ExplainReadiness(ReadinessState state, CapacityObservation capacity,
@@ -181,32 +178,30 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
     public async Task<RuntimeMetrics> ReadRuntimeMetricsAsync(RuntimeMetricsQuery query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        var until = CeilingMilliseconds(query.Until ?? observed);
-        var from = CeilingMilliseconds(query.From ?? DateTimeOffset.FromUnixTimeMilliseconds(until) - DefaultMetricsWindow);
-        ValidateWindow(from, until);
-        RuntimeMetrics result;
-        await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT COUNT(*),COALESCE(SUM(CASE WHEN status='Succeeded' THEN 1 ELSE 0 END),0),
-              COALESCE(SUM(CASE WHEN status='Failed' THEN 1 ELSE 0 END),0),
-              AVG(CAST(finished_at-started_at AS {FloatingPointType})),MAX(finished_at-started_at)
-            FROM dj_attempts WHERE finished_at>=@from AND finished_at<@until
-            """, ("from", from), ("until", until)))
+
+        return await ReadOperationAsync<RuntimeMetrics>(async (connection, transaction, ct) =>
         {
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            await reader.ReadAsync(ct);
-            result = new(storeId, observed, DateTimeOffset.FromUnixTimeMilliseconds(from), DateTimeOffset.FromUnixTimeMilliseconds(until),
-                Convert.ToInt64(reader.GetValue(0)), Convert.ToInt64(reader.GetValue(1)), Convert.ToInt64(reader.GetValue(2)),
-                reader.IsDBNull(3) ? null : Convert.ToDouble(reader.GetValue(3)), reader.IsDBNull(4) ? null : Convert.ToInt64(reader.GetValue(4)));
-        }
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            var until = CeilingMilliseconds(query.Until ?? observed);
+            var from = CeilingMilliseconds(query.From ?? DateTimeOffset.FromUnixTimeMilliseconds(until) - DefaultMetricsWindow);
+            ValidateWindow(from, until);
+            RuntimeMetrics result;
+            await using (var command = OperationCommand(connection, transaction, $"""
+                SELECT COUNT(*),COALESCE(SUM(CASE WHEN status='Succeeded' THEN 1 ELSE 0 END),0),
+                  COALESCE(SUM(CASE WHEN status='Failed' THEN 1 ELSE 0 END),0),
+                  AVG(CAST(finished_at-started_at AS {FloatingPointType})),MAX(finished_at-started_at)
+                FROM dj_attempts WHERE finished_at>=@from AND finished_at<@until
+                """, ("from", from), ("until", until)))
+            {
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                await reader.ReadAsync(ct);
+                result = new(storeId, observed, DateTimeOffset.FromUnixTimeMilliseconds(from), DateTimeOffset.FromUnixTimeMilliseconds(until),
+                    Convert.ToInt64(reader.GetValue(0)), Convert.ToInt64(reader.GetValue(1)), Convert.ToInt64(reader.GetValue(2)),
+                    reader.IsDBNull(3) ? null : Convert.ToDouble(reader.GetValue(3)), reader.IsDBNull(4) ? null : Convert.ToInt64(reader.GetValue(4)));
+            }
 
-        await transaction.CommitAsync(ct);
-
-        return result;
+            return result;
+        }, cancellationToken);
     }
 
     private static readonly TimeSpan DefaultMetricsWindow = TimeSpan.FromHours(1);

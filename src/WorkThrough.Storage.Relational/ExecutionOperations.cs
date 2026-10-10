@@ -22,19 +22,19 @@ public abstract partial class RelationalJobStore : IExecutionOperations
         return rows.Select(row => new WorkerControlState(row.Key, row.Enabled, row.Revision)).ToArray();
     }
 
-    private async Task<List<(string Key, bool Enabled, int Revision)>> ReadControlsAsync(string sql, CancellationToken ct)
-    {
-        await using var connection = await OpenAsync(ct);
-        await using var command = Command(connection, null, $"{sql} {PageSql(MaximumControlRows)}");
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        var rows = new List<(string, bool, int)>();
-        while (await reader.ReadAsync(ct))
+    private Task<List<(string Key, bool Enabled, int Revision)>> ReadControlsAsync(string sql, CancellationToken cancellationToken) =>
+        ReadAsync(async (connection, transaction, ct) =>
         {
-            rows.Add((reader.GetString(0), reader.GetInt32(1) != 0, reader.GetInt32(2)));
-        }
+            await using var command = Command(connection, transaction, $"{sql} {PageSql(MaximumControlRows)}");
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            var rows = new List<(string Key, bool Enabled, int Revision)>();
+            while (await reader.ReadAsync(ct))
+            {
+                rows.Add((reader.GetString(0), reader.GetInt32(1) != 0, reader.GetInt32(2)));
+            }
 
-        return rows;
-    }
+            return rows;
+        }, cancellationToken);
 
     public Task<Result<int>> SetQueuePausedAsync(string queue, bool paused, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
         SetControlAsync(new("dj_queue_controls", "queue", "paused"), queue, paused, expectedRevision, command,

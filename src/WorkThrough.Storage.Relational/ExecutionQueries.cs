@@ -20,14 +20,12 @@ public abstract partial class RelationalJobStore : IExecutionQueries
 
     public async Task<ExecutionStoreContext> GetExecutionContextAsync(CancellationToken cancellationToken = default)
     {
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        await transaction.CommitAsync(ct);
+        return await ReadOperationAsync<ExecutionStoreContext>(async (connection, transaction, ct) =>
+        {
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
 
-        return new(storeId, observed);
+            return new(storeId, observed);
+        }, cancellationToken);
     }
 
     public async Task<ExecutionPage> SearchExecutionsAsync(ExecutionQuery query, CancellationToken cancellationToken = default)
@@ -35,69 +33,65 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         ValidateExecutionQuery(query);
         var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(query with { Cursor = null })));
         var cursor = query.Cursor is null ? null : ReadExecutionCursor(query.Cursor);
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        var until = cursor?.Until ?? CeilingMilliseconds(query.Until ?? observed.AddMilliseconds(1));
-        var from = cursor?.From ?? CeilingMilliseconds(query.From ?? DateTimeOffset.FromUnixTimeMilliseconds(until) - OperationQueryLimits.DefaultWindow);
-        ValidateWindow(from, until);
-        if (cursor is not null && (cursor.StoreId != storeId || cursor.Fingerprint != fingerprint))
-        {
-            throw new ArgumentException("The continuation cursor belongs to a different store or query.", nameof(query));
-        }
 
-        var conditions = new List<string>();
-        var values = new List<(string, object?)> { ("from", from), ("until", until), ("limit", query.Limit + 1) };
-        AddExecutionFilters(query, conditions, values);
-        if (query.TimeBasis == ExecutionTimeBasis.Created)
+        return await ReadOperationAsync<ExecutionPage>(async (connection, transaction, ct) =>
         {
-            conditions.Add("j.created_at>=@from AND j.created_at<@until");
-        }
-        else
-        {
-            conditions.Add("""
-                j.id IN (SELECT a.job_id FROM dj_attempts a WHERE a.status='Failed'
-                  AND a.finished_at>=@from AND a.finished_at<@until)
-                """);
-        }
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            var until = cursor?.Until ?? CeilingMilliseconds(query.Until ?? observed.AddMilliseconds(1));
+            var from = cursor?.From ?? CeilingMilliseconds(query.From ?? DateTimeOffset.FromUnixTimeMilliseconds(until) - OperationQueryLimits.DefaultWindow);
+            ValidateWindow(from, until);
+            if (cursor is not null && (cursor.StoreId != storeId || cursor.Fingerprint != fingerprint))
+            {
+                throw new ArgumentException("The continuation cursor belongs to a different store or query.", nameof(query));
+            }
 
-        if (cursor is not null)
-        {
-            conditions.Add("(j.created_at<@created OR (j.created_at=@created AND j.id>@id))");
-            values.Add(("created", cursor.Position));
-            values.Add(("id", cursor.Id.ToString()));
-        }
+            var conditions = new List<string>();
+            var values = new List<(string, object?)> { ("from", from), ("until", until), ("limit", query.Limit + 1) };
+            AddExecutionFilters(query, conditions, values);
+            if (query.TimeBasis == ExecutionTimeBasis.Created)
+            {
+                conditions.Add("j.created_at>=@from AND j.created_at<@until");
+            }
+            else
+            {
+                conditions.Add("""
+                    j.id IN (SELECT a.job_id FROM dj_attempts a WHERE a.status='Failed'
+                      AND a.finished_at>=@from AND a.finished_at<@until)
+                    """);
+            }
 
-        await using var command = OperationCommand(connection, transaction,
-            $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE {string.Join(" AND ", conditions)} ORDER BY j.created_at DESC,j.id {PageSql("@limit")}", values.ToArray());
-        var items = await ReadExecutionMetadataAsync(command, ct);
-        string? next = null;
-        if (TrimPage(items, query.Limit))
-        {
-            var last = items[^1];
-            next = EncodeCursor(new(CursorVersion, storeId, fingerprint, from, until, last.CreatedAt.ToUnixTimeMilliseconds(), last.Id));
-        }
+            if (cursor is not null)
+            {
+                conditions.Add("(j.created_at<@created OR (j.created_at=@created AND j.id>@id))");
+                values.Add(("created", cursor.Position));
+                values.Add(("id", cursor.Id.ToString()));
+            }
 
-        await transaction.CommitAsync(ct);
+            await using var command = OperationCommand(connection, transaction,
+                $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE {string.Join(" AND ", conditions)} ORDER BY j.created_at DESC,j.id {PageSql("@limit")}", values.ToArray());
+            var items = await ReadExecutionMetadataAsync(command, ct);
+            string? next = null;
+            if (TrimPage(items, query.Limit))
+            {
+                var last = items[^1];
+                next = EncodeCursor(new(CursorVersion, storeId, fingerprint, from, until, last.CreatedAt.ToUnixTimeMilliseconds(), last.Id));
+            }
 
-        return new(storeId, observed, DateTimeOffset.FromUnixTimeMilliseconds(from), DateTimeOffset.FromUnixTimeMilliseconds(until), query.TimeBasis, items, next);
+            return new(storeId, observed, DateTimeOffset.FromUnixTimeMilliseconds(from), DateTimeOffset.FromUnixTimeMilliseconds(until), query.TimeBasis, items, next);
+        }, cancellationToken);
     }
 
     public async Task<ExecutionLookup> FindExecutionAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        await using var command = OperationCommand(connection, transaction,
-            $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE j.id=@id", ("id", id.ToString()));
-        var items = await ReadExecutionMetadataAsync(command, ct);
-        await transaction.CommitAsync(ct);
+        return await ReadOperationAsync<ExecutionLookup>(async (connection, transaction, ct) =>
+        {
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            await using var command = OperationCommand(connection, transaction,
+                $"SELECT {ExecutionColumns} FROM dj_jobs j WHERE j.id=@id", ("id", id.ToString()));
+            var items = await ReadExecutionMetadataAsync(command, ct);
 
-        return new(storeId, observed, items.SingleOrDefault());
+            return new(storeId, observed, items.SingleOrDefault());
+        }, cancellationToken);
     }
 
     public async Task<ExecutionAttemptPage> ReadAttemptsAsync(Guid id, int afterAttempt = 0, int limit = 25, CancellationToken cancellationToken = default)
@@ -108,35 +102,32 @@ public abstract partial class RelationalJobStore : IExecutionQueries
             throw new ArgumentOutOfRangeException(nameof(afterAttempt));
         }
 
-        using var timeout = OperationQueryTimeout(cancellationToken);
-        var ct = timeout.Token;
-        await using var connection = await OpenAsync(ct);
-        await using var transaction = await BeginReadAsync(connection, ct);
-        var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
-        bool exists;
-        await using (var lookup = OperationCommand(connection, transaction, "SELECT id FROM dj_jobs WHERE id=@id", ("id", id.ToString())))
+        return await ReadOperationAsync<ExecutionAttemptPage>(async (connection, transaction, ct) =>
         {
-            exists = await lookup.ExecuteScalarAsync(ct) is not null;
-        }
-
-        var items = new List<ExecutionAttemptMetadata>();
-        await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT {AttemptNumberSql},status,started_at,finished_at FROM dj_attempts
-            WHERE job_id=@id AND {AttemptNumberSql}>@after ORDER BY {AttemptNumberSql} {PageSql("@limit")}
-            """, ("id", id.ToString()), ("after", afterAttempt), ("limit", limit + 1)))
-        {
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
+            var (storeId, observed) = await ReadOperationContextAsync(connection, transaction, ct);
+            bool exists;
+            await using (var lookup = OperationCommand(connection, transaction, "SELECT id FROM dj_jobs WHERE id=@id", ("id", id.ToString())))
             {
-                items.Add(new(reader.GetInt32(0), Enum.Parse<AttemptStatus>(reader.GetString(1)), Date(reader, "started_at")!.Value, Date(reader, "finished_at")));
+                exists = await lookup.ExecuteScalarAsync(ct) is not null;
             }
-        }
 
-        int? next = TrimPage(items, limit) ? items[^1].Number : null;
+            var items = new List<ExecutionAttemptMetadata>();
+            await using (var command = OperationCommand(connection, transaction, $"""
+                SELECT {AttemptNumberSql},status,started_at,finished_at FROM dj_attempts
+                WHERE job_id=@id AND {AttemptNumberSql}>@after ORDER BY {AttemptNumberSql} {PageSql("@limit")}
+                """, ("id", id.ToString()), ("after", afterAttempt), ("limit", limit + 1)))
+            {
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    items.Add(new(reader.GetInt32(0), Enum.Parse<AttemptStatus>(reader.GetString(1)), Date(reader, "started_at")!.Value, Date(reader, "finished_at")));
+                }
+            }
 
-        await transaction.CommitAsync(ct);
+            int? next = TrimPage(items, limit) ? items[^1].Number : null;
 
-        return new(storeId, observed, exists, items, next);
+            return new(storeId, observed, exists, items, next);
+        }, cancellationToken);
     }
 
     private async Task<List<ExecutionMetadata>> ReadExecutionMetadataAsync(DbCommand command, CancellationToken ct)
@@ -268,6 +259,14 @@ public abstract partial class RelationalJobStore : IExecutionQueries
     }
 
     private static string EncodeCursor(ExecutionCursor cursor) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(cursor));
+
+    /// <summary>A snapshot read bounded by the operations query deadline, including any retries.</summary>
+    private async Task<T> ReadOperationAsync<T>(Func<DbConnection, DbTransaction, CancellationToken, Task<T>> read, CancellationToken cancellationToken)
+    {
+        using var timeout = OperationQueryTimeout(cancellationToken);
+
+        return await ReadAsync(read, timeout.Token);
+    }
 
     private static CancellationTokenSource OperationQueryTimeout(CancellationToken cancellationToken)
     {

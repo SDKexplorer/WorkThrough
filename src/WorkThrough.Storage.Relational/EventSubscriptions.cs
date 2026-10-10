@@ -8,11 +8,12 @@ public abstract partial class RelationalJobStore : IExecutionEvents
     private const int MaximumEventPage = 500;
     private const int MaximumSubscriberLength = 200;
 
-    public async Task<EventPosition> EventPositionAsync(CancellationToken cancellationToken = default)
+    public Task<EventPosition> EventPositionAsync(CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-
-        return await ReadEventPositionAsync(connection, null, cancellationToken);
+        return ReadAsync<EventPosition>(async (connection, transaction, ct) =>
+        {
+            return await ReadEventPositionAsync(connection, transaction, ct);
+        }, cancellationToken);
     }
 
     private async Task<EventPosition> ReadEventPositionAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
@@ -62,24 +63,23 @@ public abstract partial class RelationalJobStore : IExecutionEvents
             throw new ArgumentOutOfRangeException(nameof(limit));
         }
 
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var transaction = await BeginReadAsync(connection, cancellationToken);
-        var position = await ReadEventPositionAsync(connection, transaction, cancellationToken);
-        if (after < position.RetainedAfter)
+        return await ReadAsync<IReadOnlyList<ExecutionEvent>>(async (connection, transaction, ct) =>
         {
-            throw new StateConflictException("Requested events have been trimmed. Resume from an explicit retained position.");
-        }
+            var position = await ReadEventPositionAsync(connection, transaction, ct);
+            if (after < position.RetainedAfter)
+            {
+                throw new StateConflictException("Requested events have been trimmed. Resume from an explicit retained position.");
+            }
 
-        List<ExecutionEvent> entries;
-        await using (var command = Command(connection, transaction, $"SELECT {EventColumns} FROM dj_events WHERE sequence>@after ORDER BY sequence {PageSql("@limit")}",
-            ("after", after), ("limit", limit)))
-        {
-            entries = await ReadEventsAsync(command, cancellationToken);
-        }
+            List<ExecutionEvent> entries;
+            await using (var command = Command(connection, transaction, $"SELECT {EventColumns} FROM dj_events WHERE sequence>@after ORDER BY sequence {PageSql("@limit")}",
+                ("after", after), ("limit", limit)))
+            {
+                entries = await ReadEventsAsync(command, ct);
+            }
 
-        await transaction.CommitAsync(cancellationToken);
-
-        return entries;
+            return entries;
+        }, cancellationToken);
     }
 
     public Task<bool> AcknowledgeAsync(string subscriber, long expectedSequence, long sequence, CancellationToken cancellationToken = default)
