@@ -95,3 +95,27 @@ Raw version-2 reports: [SQLite](performance-results/2026-10-10-sqlite-investigat
 Two exploratory measurement defects were found and corrected. First, a default metrics window excluded the older fixture; current runs assert complete fixture coverage before and during measurement. Second, version-1 queue measurements subtracted the settled AvailableAt timestamp, which changes during settlement. Current reports use original storage acceptance time for these immediate, single-attempt jobs and reject negative/non-finite measurements. Version-1 reports are excluded from the table and retained under `artifacts/performance-exploratory/invalid-queue-metric-v1`; the current committed reports replace them. Resource counters unavailable from the OS are null, not zero. Six regression cases exercise rejection and explicit histogram overflow on both runtimes.
 
 The longer full profile, repetitions on the other providers, SQL-plan analysis, a two-hour soak, connection-growth tracking, maintenance contention and production restore/partition campaigns remain uncompleted qualification work. Harness allocations and GC samples are recorded, but they include both clients and producers and do not isolate server allocation costs.
+
+## Claim-path baseline — 2026-10-10
+
+Baseline for the execution-control work (partition concurrency, rate limits, fairness), measured before any of it. Full profile: per provider, a crash proof plus three fresh-store repetitions of each workload, 6,000 measured jobs. Revision `1e66a31` with a clean working tree, .NET 8.0.31, macOS ARM64, 16 logical processors. SQLite ran locally with WAL/FULL; PostgreSQL 17.11 and Oracle Free 26ai (23.26.3) ran natively in Docker. Providers ran one at a time. Unrelated containers were running on the same Docker host, so treat small differences as noise.
+
+| Provider | Workload | Jobs/s median (range) | Run p95 end-to-end, median |
+|---|---|---:|---:|
+| sqlite | mixed | 39.9 (37.2–57.3) | 9.39 s |
+| sqlite | flows | 14.1 (13.2–14.4) | 64.54 s |
+| sqlite | outbox | 73.4 (70.8–73.6) | 4.58 s* |
+| postgres | mixed | 80.9 (79.5–82.9) | 3.87 s |
+| postgres | flows | 60.3 (58.1–61.0) | 11.29 s |
+| postgres | outbox | 47.7 (47.6–48.7) | 0.04 s* |
+| oracle | mixed | 64.6 (63.4–66.2) | 4.44 s |
+| oracle | flows | 45.4 (44.5–46.8) | 14.83 s |
+| oracle | outbox | 51.4 (50.7–54.8) | 0.06 s* |
+
+Every measured job settled once with the expected output, within fleet and type admission limits; each crash proof passed. Compared with 2026-10-08, PostgreSQL mixed and flows are 3–6% lower and SQLite matches within its known variability (SQLite mixed again varied widely between repetitions).
+
+\* **Outbox latency is not comparable with earlier campaigns.** Since database-clock immediate acceptance, the destination store assigns `created_at` on delivery, so queue and end-to-end latency start when the envelope reaches the job store and exclude the time it waited in the source outbox. PostgreSQL queue wait fell from ~4.7 s to ~1 ms (p50) while throughput stayed level. The harness should measure outbox latency from source acceptance before this metric is used again. SQLite's outbox latency still includes a backlog because the source and destination share one serialized writer.
+
+**SQL Server did not complete.** The crash proof and mixed repetition 1 passed (37.2 jobs/s, emulated x64 SQL Server 2022 CU27). During flows repetition 1 the harness's completion poll, `IJobQueries.ListAsync`, was chosen as a deadlock victim (error 1205). The `IJobQueries` reads run as auto-commit statements at locking READ COMMITTED on SQL Server and can deadlock with settling workers; the newer operations queries read through snapshot transactions and are not affected. SQL Server chose the reader, so no job was affected, but dashboard job lists share this read path. This needs a fix before a SQL Server baseline can be recorded.
+
+Raw reports: [SQLite](performance-results/2026-10-10-sqlite-full.json), [PostgreSQL](performance-results/2026-10-10-postgres-full.json), [Oracle](performance-results/2026-10-10-oracle-full.json).
