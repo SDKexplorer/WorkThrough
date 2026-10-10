@@ -1,0 +1,422 @@
+{
+  "recordedAt": "2026-10-10T20:22:00.237719+00:00",
+  "gitRevision": "e2de671a1513a326c1ac8812078c9e8a9cad261c",
+  "workingTree": "clean",
+  "runtime": ".NET 8.0.31",
+  "os": "Darwin 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:17:26 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T6041",
+  "architecture": "Arm64",
+  "logicalProcessors": 16,
+  "profile": "full",
+  "workload": {
+    "workerProcesses": 2,
+    "producers": 4,
+    "localSlots": 4,
+    "globalLimit": 6,
+    "limitedTypeLimit": 2,
+    "handlerDelayMs": 10,
+    "pollMs": 10,
+    "leaseSeconds": 30,
+    "load": "finite concurrent burst",
+    "latencyOrigin": "stored creation time; outbox uses the source commit observed by the harness clock",
+    "repetitions": 3,
+    "measuredOperations": 500
+  },
+  "runs": [
+    {
+      "scenario": "mixed",
+      "repetition": 1,
+      "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 36.300503583818035,
+      "acceptedOperationsPerSecond": 91.14610392332935,
+      "acceptanceMs": {
+        "min": 5.7362,
+        "p50": 39.376,
+        "p95": 73.2437,
+        "p99": 113.4892,
+        "max": 114.3718
+      },
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 3936,
+        "p95": 8175,
+        "p99": 8205,
+        "max": 8228
+      },
+      "endToEndMs": {
+        "min": 131,
+        "p50": 4109,
+        "p95": 8215,
+        "p99": 8245,
+        "max": 8274
+      },
+      "attemptMs": {
+        "min": 38,
+        "p50": 122,
+        "p95": 207,
+        "p99": 234,
+        "max": 253
+      },
+      "wallSeconds": 13.7739136,
+      "workerCpuMs": 13752.400099999997,
+      "harnessCpuMs": 3148.2208999999993,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 96.61783864573675,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "flows",
+      "repetition": 1,
+      "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+      "jobs": 1000,
+      "operations": 500,
+      "jobsPerSecond": 31.34296116593634,
+      "acceptedOperationsPerSecond": 51.43243867772055,
+      "acceptanceMs": {
+        "min": 54.7064,
+        "p50": 74.9851,
+        "p95": 104.4511,
+        "p99": 120.7367,
+        "max": 134.0404
+      },
+      "queueWaitMs": {
+        "min": 9,
+        "p50": 9398,
+        "p95": 21439,
+        "p99": 21873,
+        "max": 22067
+      },
+      "endToEndMs": {
+        "min": 237,
+        "p50": 9517,
+        "p95": 21488,
+        "p99": 21918,
+        "max": 22108
+      },
+      "attemptMs": {
+        "min": 41,
+        "p50": 108,
+        "p95": 252,
+        "p99": 272,
+        "max": 315
+      },
+      "wallSeconds": 31.9050901,
+      "workerCpuMs": 31150.025,
+      "harnessCpuMs": 10760.7,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 93.00551425232743,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "outbox",
+      "repetition": 1,
+      "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 34.99256799846794,
+      "acceptedOperationsPerSecond": 357.1915627638083,
+      "acceptanceMs": {
+        "min": 9.0415,
+        "p50": 10.7397,
+        "p95": 13.0572,
+        "p99": 18.3568,
+        "max": 46.3208
+      },
+      "queueWaitMs": {
+        "min": 193.784,
+        "p50": 7123.789,
+        "p95": 12968.049,
+        "p99": 13514.636,
+        "max": 13787.264
+      },
+      "endToEndMs": {
+        "min": 260.784,
+        "p50": 7203.789,
+        "p95": 13034.049,
+        "p99": 13578.636,
+        "max": 13859.264
+      },
+      "attemptMs": {
+        "min": 50,
+        "p50": 74,
+        "p95": 95,
+        "p99": 119,
+        "max": 174
+      },
+      "wallSeconds": 14.2887484,
+      "workerCpuMs": 13412.008299999998,
+      "harnessCpuMs": 6087.3375000000015,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 95.42082845070044,
+      "maximumGlobalLeases": 5,
+      "maximumLimitedLeases": 0
+    },
+    {
+      "scenario": "mixed",
+      "repetition": 2,
+      "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 32.21881949961828,
+      "acceptedOperationsPerSecond": 88.15046381512492,
+      "acceptanceMs": {
+        "min": 4.5339,
+        "p50": 41.5827,
+        "p95": 73.397,
+        "p99": 103.4522,
+        "max": 137.8456
+      },
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 4179,
+        "p95": 9584,
+        "p99": 9784,
+        "max": 9838
+      },
+      "endToEndMs": {
+        "min": 103,
+        "p50": 4374,
+        "p95": 9631,
+        "p99": 9838,
+        "max": 9889
+      },
+      "attemptMs": {
+        "min": 41,
+        "p50": 133,
+        "p95": 222,
+        "p99": 242,
+        "max": 536
+      },
+      "wallSeconds": 15.5188802,
+      "workerCpuMs": 12877.9875,
+      "harnessCpuMs": 3095.7790999999997,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 101.72468835527506,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "flows",
+      "repetition": 2,
+      "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+      "jobs": 1000,
+      "operations": 500,
+      "jobsPerSecond": 32.04047794050421,
+      "acceptedOperationsPerSecond": 52.774442139843195,
+      "acceptanceMs": {
+        "min": 42.3862,
+        "p50": 72.0527,
+        "p95": 104.6586,
+        "p99": 121.5765,
+        "max": 132.6601
+      },
+      "queueWaitMs": {
+        "min": 8,
+        "p50": 9317,
+        "p95": 20954,
+        "p99": 21483,
+        "max": 21669
+      },
+      "endToEndMs": {
+        "min": 205,
+        "p50": 9413,
+        "p95": 21004,
+        "p99": 21529,
+        "max": 21711
+      },
+      "attemptMs": {
+        "min": 38,
+        "p50": 104,
+        "p95": 248,
+        "p99": 270,
+        "max": 305
+      },
+      "wallSeconds": 31.2105207,
+      "workerCpuMs": 35777.4458,
+      "harnessCpuMs": 12353.212499999998,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 76.88237785591355,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "outbox",
+      "repetition": 2,
+      "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 31.922690904076145,
+      "acceptedOperationsPerSecond": 356.1236566748577,
+      "acceptanceMs": {
+        "min": 8.1293,
+        "p50": 10.7517,
+        "p95": 13.3448,
+        "p99": 22.5723,
+        "max": 43.8759
+      },
+      "queueWaitMs": {
+        "min": 210.533,
+        "p50": 8379.556,
+        "p95": 14239.937,
+        "p99": 14983.384,
+        "max": 15288.624
+      },
+      "endToEndMs": {
+        "min": 281.533,
+        "p50": 8460.556,
+        "p95": 14303.937,
+        "p99": 15057.384,
+        "max": 15341.624
+      },
+      "attemptMs": {
+        "min": 49,
+        "p50": 76,
+        "p95": 132,
+        "p99": 161,
+        "max": 186
+      },
+      "wallSeconds": 15.66284,
+      "workerCpuMs": 13835.5958,
+      "harnessCpuMs": 6285.666700000002,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 102.28099172232909,
+      "maximumGlobalLeases": 5,
+      "maximumLimitedLeases": 0
+    },
+    {
+      "scenario": "mixed",
+      "repetition": 3,
+      "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 36.635860524084336,
+      "acceptedOperationsPerSecond": 94.91577572708236,
+      "acceptanceMs": {
+        "min": 5.8486,
+        "p50": 37.6703,
+        "p95": 73.707,
+        "p99": 100.8803,
+        "max": 124.381
+      },
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 4040,
+        "p95": 8246,
+        "p99": 8279,
+        "max": 8310
+      },
+      "endToEndMs": {
+        "min": 120,
+        "p50": 4200,
+        "p95": 8292,
+        "p99": 8322,
+        "max": 8344
+      },
+      "attemptMs": {
+        "min": 34,
+        "p50": 123,
+        "p95": 218,
+        "p99": 238,
+        "max": 268
+      },
+      "wallSeconds": 13.6478301,
+      "workerCpuMs": 15464.025000000001,
+      "harnessCpuMs": 3615.4665999999997,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 96.73818745483428,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "flows",
+      "repetition": 3,
+      "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+      "jobs": 1000,
+      "operations": 500,
+      "jobsPerSecond": 30.129555370709397,
+      "acceptedOperationsPerSecond": 52.304723427215535,
+      "acceptanceMs": {
+        "min": 40.6401,
+        "p50": 73.3418,
+        "p95": 103.812,
+        "p99": 114.0304,
+        "max": 133.0742
+      },
+      "queueWaitMs": {
+        "min": 8,
+        "p50": 9478,
+        "p95": 22515,
+        "p99": 23257,
+        "max": 23480
+      },
+      "endToEndMs": {
+        "min": 216,
+        "p50": 9596,
+        "p95": 22603,
+        "p99": 23309,
+        "max": 23540
+      },
+      "attemptMs": {
+        "min": 42,
+        "p50": 110,
+        "p95": 249,
+        "p99": 278,
+        "max": 298
+      },
+      "wallSeconds": 33.1900019,
+      "workerCpuMs": 35613.433399999994,
+      "harnessCpuMs": 13417.066599999998,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 100.59516715637909,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "outbox",
+      "repetition": 3,
+      "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 35.91298714171408,
+      "acceptedOperationsPerSecond": 368.86646082442684,
+      "acceptanceMs": {
+        "min": 8.6211,
+        "p50": 10.525,
+        "p95": 12.7986,
+        "p99": 14.0845,
+        "max": 30.833
+      },
+      "queueWaitMs": {
+        "min": 313.346,
+        "p50": 7053.629,
+        "p95": 12515.393,
+        "p99": 13171.892,
+        "max": 13682.143
+      },
+      "endToEndMs": {
+        "min": 376.346,
+        "p50": 7128.629,
+        "p95": 12592.393,
+        "p99": 13249.892,
+        "max": 13763.143
+      },
+      "attemptMs": {
+        "min": 48,
+        "p50": 73,
+        "p95": 96,
+        "p99": 127,
+        "max": 188
+      },
+      "wallSeconds": 13.92254,
+      "workerCpuMs": 13520.3458,
+      "harnessCpuMs": 6104.050000000003,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 101.81021809236144,
+      "maximumGlobalLeases": 5,
+      "maximumLimitedLeases": 0
+    }
+  ]
+}

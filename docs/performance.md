@@ -126,3 +126,28 @@ Observations:
 **SQL Server read deadlock (fixed in `808e79c`).** The first attempt at `1e66a31` aborted during flows repetition 1: the harness completion poll, `IJobQueries.ListAsync`, was chosen as a deadlock victim (error 1205). Plain store reads ran as auto-commit statements at locking READ COMMITTED on SQL Server and deadlocked with settling workers; dashboard job lists share that path. They now run in the provider's read snapshot, like the bounded operations queries. `Job_reads_do_not_fail_while_workers_settle_flows` reproduced the deadlock on every SQL Server run before the change and passes after it, and this baseline completed all SQL Server repetitions without error.
 
 Raw reports: [SQLite](performance-results/2026-10-10-sqlite-full.json), [PostgreSQL](performance-results/2026-10-10-postgres-full.json), [SQL Server](performance-results/2026-10-10-sqlserver-full.json), [Oracle](performance-results/2026-10-10-oracle-full.json).
+
+## Execution controls with no policies — 2026-10-10
+
+The claim-path baseline rerun after ADR-018 (partition limits, rate limits, weighted queue fairness), with no policies configured and one queue, as in the baseline. Same profile, host and harness; revision `e2de671`, clean working tree. Every measured job settled once with the expected output within the fleet (6) and type (2) admission limits, and each crash proof passed.
+
+| Provider | Workload | Baseline jobs/s | Controls jobs/s median (range) | Change | Queue wait p50 | Run p95 end-to-end |
+|---|---|---:|---:|---:|---:|---:|
+| sqlite | mixed | 34.3 | 30.8 (28.2–33.3) | -10% | 2.61 s | 12.96 s |
+| sqlite | flows | 14.4 | 12.7 (12.7–13.0) | -12% | 6.77 s | 70.90 s |
+| sqlite | outbox | 84.6 | 68.5 (57.2–77.2) | -19% | 3.96 s | 6.88 s |
+| postgres | mixed | 80.6 | 82.8 (82.2–83.4) | +3% | 1.56 s | 3.75 s |
+| postgres | flows | 58.7 | 60.4 (53.4–61.4) | +3% | 5.00 s | 11.16 s |
+| postgres | outbox | 48.0 | 49.4 (21.9–52.6) | +3% | 4.99 s | 9.20 s |
+| sqlserver (emulated) | mixed | 36.7 | 36.3 (32.2–36.6) | -1% | 4.04 s | 8.29 s |
+| sqlserver (emulated) | flows | 30.9 | 31.3 (30.1–32.0) | +1% | 9.40 s | 21.49 s |
+| sqlserver (emulated) | outbox | 36.0 | 35.0 (31.9–35.9) | -3% | 7.12 s | 13.03 s |
+| oracle | mixed | 64.8 | 67.7 (67.5–67.7) | +4% | 1.86 s | 4.27 s |
+| oracle | flows | 46.9 | 47.8 (47.4–48.0) | +2% | 6.12 s | 13.95 s |
+| oracle | outbox | 52.5 | 56.6 (55.1–56.8) | +8% | 4.10 s | 7.56 s |
+
+The first rerun, at `92b855f`, was 14–18% slower on PostgreSQL in every workload. Paired, interleaved runs against `cab5d8a` (develop) confirmed a real cost of 5–10%, while run-to-run drift on this host reached 30%. `EXPLAIN ANALYZE` showed the cause: claims are not prepared statements, so PostgreSQL re-plans every claim, and the partition and rate predicates raised planning time from 0.25 ms to 0.60 ms inside the global advisory lock (execution rose only 0.07 ms). A separate policy check fixed planning but added a round trip, which costs as much on this Docker host. The final claim reads the registry revision, drain flag, global maximum and configured policy kinds in one query, leaves absent policy predicates out of the claim query, and indexes only partitioned jobs. Two further paired PostgreSQL passes then measured the branch at or above develop (mixed 83.1–87.5 vs 80.6–84.1 jobs/s, outbox 49.5–54.9 vs 46.9–50.2). That combined query is one round trip fewer than before, which explains the small gains.
+
+SQLite's lower medians are host drift, not the change: a paired SQLite A/B (six runs per side) measured develop at 26.9 / 13.2 / 63.7 jobs/s and this revision at 30.2 / 12.9 / 68.9 jobs/s (mixed / flows / outbox). Develop itself ran 25% below its own baseline that hour. PostgreSQL outbox repetition 1 (21.9 jobs/s) matches isolated collapses also seen on develop during the A/B runs. Throughput with policies configured depends on policy shape and is covered for correctness, not performance, by `AdmissionControlTests`.
+
+Raw reports: [SQLite](performance-results/2026-10-10-sqlite-controls.json), [PostgreSQL](performance-results/2026-10-10-postgres-controls.json), [SQL Server](performance-results/2026-10-10-sqlserver-controls.json), [Oracle](performance-results/2026-10-10-oracle-controls.json).

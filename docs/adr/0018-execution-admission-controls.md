@@ -1,6 +1,6 @@
 # ADR 018: partition concurrency, rate limits and weighted queue fairness
 
-Status: accepted, implementation in progress on `codex/execution-controls`.
+Status: accepted, implemented (schema 5).
 
 Admission stays inside the provider's existing serialized claim transaction, so every rule below is exact across hosts and counts only admitted, unexpired leases (ADR-003).
 
@@ -23,4 +23,4 @@ Admission stays inside the provider's existing serialized claim transaction, so 
 
 - Audited commands (ADR-017 results) set and remove partition and rate limits (`limits.manage`) and queue weights (`queues.manage`). Readiness reports `PartitionCapacity` and `RateLimited`.
 - Schema 5 is additive on all four providers (partition column, policy tables, queue weight and fairness state, attempt start index); Oracle resumes from its existing migration checkpoint. Stop schema-4 writers before upgrading: they would ignore the new limits.
-- Rerun the claim-path baseline (`docs/performance.md`) after implementation; changes to throughput with no policies configured must be explained.
+- The claim reads which policy kinds exist in its first query and leaves absent predicates out of the claim query, so stores without these policies keep their claim cost. PostgreSQL admission and read transactions set `jit = off`: JIT compilation of the admission predicates took ~250 ms per claim against sub-millisecond execution. The rerun claim-path baseline is in `docs/performance.md`.
