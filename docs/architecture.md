@@ -95,3 +95,7 @@ Typed definitions/manual registration, coordinated aliases with shared admission
 Schema 4 adds opt-in fenced retention maintenance, whole-unit holds, persisted policies, verified directory exports and bounded journal cleanup. See [ADR-013](adr/0013-fenced-retention-maintenance.md) and the operations guide. Older writers must stop before upgrade; active flows remain in one store. SQL Server/Oracle and tenant/partition controls remain separate work.
 
 SQL Server uses the shared state transitions with provider-owned schema/JSON projections, small SQL-fragment seams, transaction-owned application locking and snapshot inspection. Its explicit key bounds and trailing-space restriction are recorded in [ADR-014](adr/0014-sql-server-storage.md). Business transaction callbacks retain the original ADO.NET connection and SQL dialect.
+
+Oracle uses a schema-local admission row lock, Serializable inspection and checkpointed initialization under a DDL-surviving session lock. Its explicit text/credential/DML-only restrictions are recorded in [ADR-015](adr/0015-oracle-storage.md).
+
+Immediate client envelopes use the destination database clock on acceptance, including outbox delivery; explicit not-before instants retain their precision. See [ADR-016](adr/0016-immediate-acceptance-clock.md).

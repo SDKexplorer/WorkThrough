@@ -291,6 +291,7 @@ public sealed partial class McpTests
 
             builder.WebHost.UseTestServer();
             await harness.ProvisionReadOnlySqlServerAsync();
+            await harness.ProvisionReadOnlyOracleAsync();
             builder.Services.AddSingleton<IExecutionQueries>(queries ?? ReadOnlyQueries(harness));
             if (includeInspection)
             {
@@ -350,6 +351,11 @@ public sealed partial class McpTests
 
         private static IExecutionQueries ReadOnlyQueries(StoreHarness harness)
         {
+            if (harness.Store is OracleJobStore)
+            {
+                return new OracleJobStore(harness.ReadOnlyConnectionString!, new(Schema: harness.OracleSchema));
+            }
+
             if (harness.Store is SqlServerJobStore)
             {
                 return new SqlServerJobStore(harness.ReadOnlyConnectionString!);

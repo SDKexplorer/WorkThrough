@@ -26,7 +26,12 @@ public sealed record JobRecord(
     string? Error = null,
     string? WorkerId = null,
     Guid? LeaseToken = null,
-    DateTimeOffset? LeaseExpiresAt = null, DateTimeOffset? ExpiresAt = null, Guid? CausationJobId = null);
+    DateTimeOffset? LeaseExpiresAt = null, DateTimeOffset? ExpiresAt = null, Guid? CausationJobId = null)
+{
+    /// <summary>For immediate acceptance envelopes, assign creation and eligibility from the destination storage clock.</summary>
+    /// <remarks>Preserved by the outbox; cleared on acceptance. Existing envelopes without this flag retain their explicit times.</remarks>
+    public bool UseStorageTime { get; init; }
+}
 
 public sealed record JobAttempt(
     Guid JobId, int Number, string WorkerId, DateTimeOffset StartedAt,

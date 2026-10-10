@@ -7,9 +7,9 @@ if (args.FirstOrDefault() == "worker")
     return;
 }
 
-if (args.Length < 2 || args[1] is not ("sqlite" or "postgres" or "sqlserver"))
+if (args.Length < 2 || args[1] is not ("sqlite" or "postgres" or "sqlserver" or "oracle"))
 {
-    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance> <sqlite|postgres|sqlserver> [output.json] [--full]");
+    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance> <sqlite|postgres|sqlserver|oracle> [output.json] [--full]");
     Environment.ExitCode = 2;
 
     return;

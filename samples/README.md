@@ -20,4 +20,4 @@ Use a common absolute SQLite path for separate local processes. Configure Postgr
 
 Run `scripts/performance.sh --smoke` for independent worker processes, real-provider load checks, and crash recovery. Use `--full` for repeated measured runs; see [performance methodology](../docs/performance.md).
 
-`Demo.Host` also accepts `Jobs__SqlServer` for a dedicated SQL Server database with snapshot isolation enabled. Configure only one of `Jobs__PostgreSql` and `Jobs__SqlServer`; otherwise startup fails explicitly. The processor definitions, flows and Angular dashboard stay the same. See [provider setup](../docs/providers.md#sql-server-setup).
+`Demo.Host` also accepts `Jobs__SqlServer` for a dedicated SQL Server database with snapshot isolation enabled. It also accepts `Jobs__Oracle` for an initialized dedicated Oracle schema. Configure only one of `Jobs__PostgreSql`, `Jobs__SqlServer` and `Jobs__Oracle`; otherwise startup fails explicitly. The processor definitions, flows and Angular dashboard stay the same. See [provider setup](../docs/providers.md#sql-server-setup).

@@ -4,6 +4,7 @@ namespace WorkThrough;
 public interface IJobStore
 {
     Task InitializeAsync(CancellationToken cancellationToken = default);
+    /// <summary>Commits acceptance and any receipt; immediate envelopes use the storage clock before persistence.</summary>
     Task<Guid> EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default);
     Task SeedLimitsAsync(IReadOnlyList<ConcurrencyLimit> limits, CancellationToken cancellationToken = default);
     Task SetLimitAsync(ConcurrencyLimit limit, CancellationToken cancellationToken = default);

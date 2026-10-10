@@ -186,20 +186,6 @@ public sealed class OperationHistoryTests
         return id;
     }
 
-    private static async Task ExecuteAsync(StoreHarness harness, string sql, params (string Name, object Value)[] parameters)
-    {
-        await using DbConnection connection = harness.CreateConnection();
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        foreach (var (name, value) in parameters)
-        {
-            var parameter = command.CreateParameter();
-            parameter.ParameterName = name;
-            parameter.Value = value;
-            command.Parameters.Add(parameter);
-        }
-
-        await command.ExecuteNonQueryAsync();
-    }
+    private static Task ExecuteAsync(StoreHarness harness, string sql, params (string Name, object Value)[] values) =>
+        harness.ExecuteAsync(sql, values);
 }

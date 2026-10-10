@@ -14,16 +14,23 @@ public sealed class ProviderIdentityTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var client = new JobClient(harness.Store);
-        var first = await client.EnqueueAsync(Definition, "ă😀 ", new(Queue: "Queue", CorrelationId: "", IdempotencyKey: "café"));
+        if (provider == "oracle")
+        {
+            await Assert.ThrowsAsync<ArgumentException>(() => client.EnqueueAsync(Definition, "empty correlation", new(CorrelationId: "")));
+            Assert.Empty(await harness.Store.ListAsync(new()));
+        }
+
+        var correlation = provider == "oracle" ? "correlation" : "";
+        var first = await client.EnqueueAsync(Definition, "ă😀 ", new(Queue: "Queue", CorrelationId: correlation, IdempotencyKey: "café"));
         var second = await client.EnqueueAsync(Definition, "", new(Queue: "queue", CorrelationId: null, IdempotencyKey: "cafe\u0301"));
         var third = await client.EnqueueAsync(Definition, "third", new(IdempotencyKey: "CAFÉ"));
         Assert.NotEqual(first, second);
         Assert.NotEqual(first, third);
         Assert.Equal("ă😀 ", (await harness.Store.GetAsync(first))!.Payload.GetString());
-        Assert.Equal("", (await harness.Store.GetAsync(first))!.CorrelationId);
+        Assert.Equal(correlation, (await harness.Store.GetAsync(first))!.CorrelationId);
         Assert.Null((await harness.Store.GetAsync(second))!.CorrelationId);
         Assert.Equal("", (await harness.Store.GetAsync(second))!.Payload.GetString());
-        Assert.Equal(first, await client.EnqueueAsync(Definition, "ă😀 ", new(Queue: "Queue", CorrelationId: "", IdempotencyKey: "café")));
+        Assert.Equal(first, await client.EnqueueAsync(Definition, "ă😀 ", new(Queue: "Queue", CorrelationId: correlation, IdempotencyKey: "café")));
         var lower = (await harness.Store.ClaimAsync(new("worker", [Definition.Identity], ["queue"], TimeSpan.FromMinutes(1))))!;
         Assert.Equal(second, lower.Id);
         Assert.Null(await harness.Store.ClaimAsync(new("worker", [Definition.Identity], ["queue"], TimeSpan.FromMinutes(1))));

@@ -150,12 +150,7 @@ public sealed class CompletionTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var store = harness.Store;
-        await store.InTransactionAsync(async (connection, transaction, _, ct) =>
-        {
-            await ExecuteAsync(connection, transaction, "CREATE TABLE business_orders(id INTEGER PRIMARY KEY)", ct);
-
-            return true;
-        });
+        await harness.ExecuteAsync("CREATE TABLE business_orders(id INTEGER PRIMARY KEY)");
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.InTransactionAsync<bool>(async (connection, transaction, jobs, ct) =>
         {
             await ExecuteAsync(connection, transaction, "INSERT INTO business_orders(id) VALUES (1)", ct);

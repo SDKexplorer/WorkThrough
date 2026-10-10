@@ -7,7 +7,7 @@ namespace WorkThrough.Tests;
 
 public sealed class CompatibilityTests
 {
-    public static IEnumerable<object[]> Providers() => StorageConformanceTests.Providers().Where(row => (string)row[0] != "sqlserver");
+    public static IEnumerable<object[]> Providers() => StorageConformanceTests.Providers().Where(row => (string)row[0] is "sqlite" or "postgres");
 
     [Theory, MemberData(nameof(Providers))]
     public async Task Schema_one_fixtures_upgrade_without_rewriting_invocations_or_flow_semantics(string provider)

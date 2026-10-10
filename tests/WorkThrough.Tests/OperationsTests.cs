@@ -23,7 +23,7 @@ public sealed class OperationsTests
         await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var query = connection.CreateCommand();
-        query.CommandText = provider == "sqlserver" ? "CREATE TRIGGER reject_audit ON dj_audit AFTER INSERT AS THROW 51000,'audit unavailable',1;" : provider == "sqlite"
+        query.CommandText = provider == "oracle" ? "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit BEGIN raise_application_error(-20001, 'audit unavailable'); END;" : provider == "sqlserver" ? "CREATE TRIGGER reject_audit ON dj_audit AFTER INSERT AS THROW 51000,'audit unavailable',1;" : provider == "sqlite"
             ? "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END"
             : "CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$; CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit FOR EACH ROW EXECUTE FUNCTION reject_audit();";
         await query.ExecuteNonQueryAsync();

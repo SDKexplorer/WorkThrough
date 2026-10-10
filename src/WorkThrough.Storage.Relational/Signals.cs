@@ -48,8 +48,10 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             }
 
             var now = await NowAsync(connection, transaction, ct);
-            await ExecuteAsync(connection, transaction, "INSERT INTO dj_signals(run_id,name,payload,received_at) VALUES (@run,@name,@input,@now); INSERT INTO dj_signal_receipts(run_id,idempotency_key,fingerprint) VALUES (@run,@key,@hash)", ct,
-                ("run", runId.ToString()), ("name", name), ("input", input.GetRawText()), ("now", now), ("key", idempotencyKey), ("hash", hash));
+            await ExecuteAsync(connection, transaction, "INSERT INTO dj_signals(run_id,name,payload,received_at) VALUES (@run,@name,@input,@now)", ct,
+                ("run", runId.ToString()), ("name", name), ("input", input.GetRawText()), ("now", now));
+            await ExecuteAsync(connection, transaction, "INSERT INTO dj_signal_receipts(run_id,idempotency_key,fingerprint) VALUES (@run,@key,@hash)", ct,
+                ("run", runId.ToString()), ("key", idempotencyKey), ("hash", hash));
             await AdvanceWorkflowAsync(connection, transaction, runId, ct);
 
             return true;

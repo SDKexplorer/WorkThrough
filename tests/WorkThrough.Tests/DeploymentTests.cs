@@ -105,6 +105,14 @@ public sealed class DeploymentTests
                 .Replace("AS TEXT", "AS nvarchar(36)", StringComparison.Ordinal) + " OPTION(MAXRECURSION 0)";
         }
 
+        if (provider == "oracle")
+        {
+            command.CommandText = """
+                INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,status,attempt,max_attempts,created_at,available_at)
+                SELECT TO_CHAR(LEVEL),'tests.group',LEVEL,'{}','default','Queued',0,3,0,0 FROM dual CONNECT BY LEVEL<=1001
+                """;
+        }
+
         await command.ExecuteNonQueryAsync();
         var requirements = await harness.Store.DeploymentRequirementsAsync();
         Assert.Equal(1000, requirements.Items.Count);

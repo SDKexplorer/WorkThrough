@@ -34,7 +34,7 @@ public sealed class TransactionalJobs
 public abstract partial class RelationalJobStore : IJobOutbox
 {
     /// <summary>Commits business SQL and accepted jobs/outbox requests atomically in this database.</summary>
-    /// <remarks>Keep callbacks short, await every command, and do not call external services or commit/dispose the supplied transaction.</remarks>
+    /// <remarks>Keep callbacks short and DML-only. Await every command; do not run DDL, autonomous transactions, external calls, or commit/dispose the supplied transaction.</remarks>
     public Task<T> InTransactionAsync<T>(Func<DbConnection, DbTransaction, TransactionalJobs, CancellationToken, Task<T>> action, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(action);

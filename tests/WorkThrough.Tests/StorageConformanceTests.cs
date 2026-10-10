@@ -14,6 +14,11 @@ public sealed class StorageConformanceTests
     public static IEnumerable<object[]> Providers()
     {
         yield return ["sqlite"];
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_ORACLE")))
+        {
+            yield return ["oracle"];
+        }
+
         if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_SQLSERVER")))
         {
             yield return ["sqlserver"];
@@ -176,6 +181,22 @@ public sealed class StorageConformanceTests
         Assert.True(await harness.Store.CompleteAsync(first.Id, first.LeaseToken!.Value, JobResult.Done()));
         await harness.Store.SetLimitAsync(new(null, 1));
         Assert.NotNull(await harness.Store.ClaimAsync(Claim()));
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Immediate_acceptance_uses_storage_time_even_when_the_producer_clock_is_ahead(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var request = JobClient.CreateRecord(JobContractId.For<Alpha>(), new Alpha("clock skew"));
+        var ahead = DateTimeOffset.UtcNow.AddHours(1);
+        request = request with { CreatedAt = ahead, AvailableAt = ahead };
+        var id = await harness.Store.EnqueueAsync(request);
+        var claimed = await harness.Store.ClaimAsync(new("worker", [request.Contract], ["default"], TimeSpan.FromMinutes(1)));
+        Assert.NotNull(claimed);
+        Assert.Equal(id, claimed.Id);
+        Assert.True(claimed.CreatedAt < ahead);
+        Assert.Equal(claimed.CreatedAt, claimed.AvailableAt);
+        Assert.False(claimed.UseStorageTime);
     }
 
     [Theory, MemberData(nameof(Providers))]

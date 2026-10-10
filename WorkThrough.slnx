@@ -20,6 +20,7 @@
     <Project Path="src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />
     <Project Path="src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
     <Project Path="src/WorkThrough.Storage.Relational/WorkThrough.Storage.Relational.csproj" />
+    <Project Path="src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
     <Project Path="src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
     <Project Path="src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
   </Folder>

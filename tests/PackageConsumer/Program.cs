@@ -84,6 +84,7 @@ finally
 }
 
 await SqlServerPackageSmoke.RunAsync();
+await OraclePackageSmoke.RunAsync();
 
 [JobContract("smoke.package")]
 public sealed record PackageJob(string Value);

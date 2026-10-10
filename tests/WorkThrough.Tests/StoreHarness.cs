@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Data.SqlClient;
 using System.Data.Common;
 using Npgsql;
+using Oracle.ManagedDataAccess.Client;
 using WorkThrough.Storage;
 
 namespace WorkThrough.Tests;
@@ -12,13 +13,44 @@ internal sealed class StoreHarness : IAsyncDisposable
     private string? schema;
     private string? adminConnection;
     private string? database;
+    private string? oraclePassword;
+    public string? OracleSchema => Store is OracleJobStore ? schema : null;
     public string? ReadOnlyConnectionString { get; private set; }
     public required Func<RelationalJobStore> NewStore { get; init; }
     public required string ConnectionString { get; init; }
     public RelationalJobStore Store => NewStore();
 
+    public async Task ExecuteAsync(string sql, params (string Name, object Value)[] values)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        if (command is OracleCommand oracle)
+        {
+            oracle.BindByName = true;
+            command.CommandText = System.Text.RegularExpressions.Regex.Replace(sql, "@([A-Za-z][A-Za-z0-9_]*)", ":fixture_$1");
+        }
+
+        foreach (var (name, value) in values)
+        {
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = command is OracleCommand ? "fixture_" + name : name;
+            parameter.Value = value;
+            if (parameter is OracleParameter oracleParameter && value is string { Length: > 2000 })
+            {
+                oracleParameter.OracleDbType = OracleDbType.Clob;
+            }
+
+            command.Parameters.Add(parameter);
+        }
+
+        await command.ExecuteNonQueryAsync();
+    }
+
     public DbConnection CreateConnection() => Store switch
     {
+        OracleJobStore => new OracleConnection(ConnectionString),
         SqlServerJobStore => new SqlConnection(ConnectionString),
         PostgresJobStore => new NpgsqlConnection(ConnectionString),
         SqliteJobStore => new SqliteConnection(ConnectionString),
@@ -27,6 +59,7 @@ internal sealed class StoreHarness : IAsyncDisposable
 
     public WorkThroughBuilder Register(WorkThroughBuilder builder) => Store switch
     {
+        OracleJobStore => builder.UseOracle(ConnectionString),
         SqlServerJobStore => builder.UseSqlServer(ConnectionString),
         PostgresJobStore => builder.UsePostgreSql(ConnectionString),
         SqliteJobStore => builder.UseSqlite(ConnectionString),
@@ -36,7 +69,33 @@ internal sealed class StoreHarness : IAsyncDisposable
     public static async Task<StoreHarness> CreateAsync(string provider, bool initialize = true)
     {
         StoreHarness harness;
-        if (provider == "sqlserver")
+        if (provider == "oracle")
+        {
+            var admin = Environment.GetEnvironmentVariable("DURABLEJOBS_ORACLE")
+                ?? throw new InvalidOperationException("Oracle tests require a disposable PDB administrator connection.");
+            var schema = "WT_TEST_" + Guid.NewGuid().ToString("N").ToUpperInvariant();
+            var password = "Test_" + Guid.NewGuid().ToString("N");
+            await using var connection = new OracleConnection(admin);
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"CREATE USER {schema} IDENTIFIED BY {password} DEFAULT TABLESPACE USERS QUOTA UNLIMITED ON USERS";
+            await command.ExecuteNonQueryAsync();
+            command.CommandText = $"GRANT CREATE SESSION, CREATE TABLE, CREATE TRIGGER TO {schema}";
+            await command.ExecuteNonQueryAsync();
+            command.CommandText = $"GRANT EXECUTE ON SYS.DBMS_LOCK TO {schema}";
+            await command.ExecuteNonQueryAsync();
+            // Bound each fixture pool; cleanup clears and disconnects only this exact disposable user.
+            var cs = new OracleConnectionStringBuilder(admin) { UserID = schema, Password = password, MinPoolSize = 0, MaxPoolSize = 16 }.ConnectionString;
+            harness = new()
+            {
+                schema = schema,
+                oraclePassword = password,
+                adminConnection = admin,
+                ConnectionString = cs,
+                NewStore = () => new OracleJobStore(cs)
+            };
+        }
+        else if (provider == "sqlserver")
         {
             var admin = Environment.GetEnvironmentVariable("DURABLEJOBS_SQLSERVER")
                 ?? throw new InvalidOperationException("SQL Server tests require a disposable server connection with database creation privileges.");
@@ -90,12 +149,40 @@ internal sealed class StoreHarness : IAsyncDisposable
             throw new ArgumentException("Unknown test provider.", nameof(provider));
         }
 
-        if (initialize)
+        try
         {
-            await harness.Store.InitializeAsync();
+            if (initialize)
+            {
+                await harness.Store.InitializeAsync();
+            }
+
+            return harness;
+        }
+        catch
+        {
+            await harness.DisposeAsync();
+            throw;
+        }
+    }
+
+    public async Task ProvisionReadOnlyOracleAsync()
+    {
+        if (oraclePassword is null || ReadOnlyConnectionString is not null)
+        {
+            return;
         }
 
-        return harness;
+        var login = schema + "_R";
+        await using var connection = new OracleConnection(adminConnection);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE USER {login} IDENTIFIED BY {oraclePassword}";
+        await command.ExecuteNonQueryAsync();
+        command.CommandText = $"GRANT CREATE SESSION TO {login}";
+        await command.ExecuteNonQueryAsync();
+        command.CommandText = $"BEGIN FOR t IN (SELECT table_name FROM all_tables WHERE owner='{schema}') LOOP EXECUTE IMMEDIATE 'GRANT SELECT ON {schema}.' || t.table_name || ' TO {login}'; END LOOP; END;";
+        await command.ExecuteNonQueryAsync();
+        ReadOnlyConnectionString = new OracleConnectionStringBuilder(ConnectionString) { UserID = login, Pooling = false }.ConnectionString;
     }
 
     public async Task ProvisionReadOnlySqlServerAsync()
@@ -137,7 +224,20 @@ internal sealed class StoreHarness : IAsyncDisposable
             await command.ExecuteNonQueryAsync();
         }
 
-        if (schema is not null)
+        if (oraclePassword is not null)
+        {
+            OracleConnection.ClearPool(new OracleConnection(ConnectionString));
+            await using var connection = new OracleConnection(adminConnection);
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            if (ReadOnlyConnectionString is not null)
+            {
+                await DropOracleUserAsync(connection, schema + "_R");
+            }
+
+            await DropOracleUserAsync(connection, schema!);
+        }
+        else if (schema is not null)
         {
             // Every test's search path creates a separate pool. Release only this test's idle connections.
             await using var pooledConnection = new NpgsqlConnection(ConnectionString);
@@ -154,4 +254,51 @@ internal sealed class StoreHarness : IAsyncDisposable
             Directory.Delete(directory, true);
         }
     }
+    private static async Task DropOracleUserAsync(OracleConnection connection, string user)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"DROP USER {user} CASCADE";
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await command.ExecuteNonQueryAsync();
+
+                return;
+            }
+            catch (OracleException error) when (error.Number == 1940 && attempt < 20)
+            {
+                // Oracle may retain pooled sessions after ClearPool. Disconnect only this fixture's exact user.
+                await using var sessions = connection.CreateCommand();
+                sessions.BindByName = true;
+                sessions.CommandText = "SELECT sid,serial# FROM v$session WHERE username=:owner";
+                sessions.Parameters.Add("owner", OracleDbType.Varchar2).Value = user;
+                var identities = new List<(int Id, int Serial)>();
+                await using (var reader = await sessions.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        identities.Add((reader.GetInt32(0), reader.GetInt32(1)));
+                    }
+                }
+
+                foreach (var (id, serial) in identities)
+                {
+                    await using var disconnect = connection.CreateCommand();
+                    disconnect.CommandText = $"ALTER SYSTEM DISCONNECT SESSION '{id},{serial}' IMMEDIATE";
+                    try
+                    {
+                        await disconnect.ExecuteNonQueryAsync();
+                    }
+                    catch (OracleException gone) when (gone.Number is 30 or 31)
+                    {
+                        // A pooled session may finish closing between enumeration and disconnection.
+                    }
+                }
+
+                await Task.Delay(250);
+            }
+        }
+    }
+
 }

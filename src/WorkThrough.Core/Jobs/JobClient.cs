@@ -53,8 +53,8 @@ public sealed class JobClient(IJobStore store)
         }
 
         var now = DateTimeOffset.UtcNow;
-        // Immediate work has no not-before boundary. Use the current storage-resolution instant;
-        // explicit NotBefore values keep their precision and are rounded up by the provider.
+        // Immediate work has no not-before boundary. Storage replaces these provisional times
+        // on acceptance; explicit NotBefore values retain their requested precision.
         var available = options.NotBefore ?? DateTimeOffset.FromUnixTimeMilliseconds(now.ToUnixTimeMilliseconds());
         var payload = JsonSerializer.SerializeToElement(job, JobJson.Options);
         if (System.Text.Encoding.UTF8.GetByteCount(payload.GetRawText()) > 1_048_576)
@@ -70,6 +70,9 @@ public sealed class JobClient(IJobStore store)
         return new(Guid.NewGuid(), processor,
             payload, options.Queue, options.CorrelationId,
             JobStatus.Queued, 0, options.MaxAttempts, now, available,
-            options.IdempotencyKey, ExpiresAt: options.ExpiresAt);
+            options.IdempotencyKey, ExpiresAt: options.ExpiresAt)
+        {
+            UseStorageTime = options.NotBefore is null
+        };
     }
 }

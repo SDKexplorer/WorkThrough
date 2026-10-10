@@ -121,8 +121,8 @@ public abstract partial class RelationalJobStore : IExecutionQueries
 
         var items = new List<ExecutionAttemptMetadata>();
         await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT number,status,started_at,finished_at FROM dj_attempts
-            WHERE job_id=@id AND number>@after ORDER BY number {PageSql("@limit")}
+            SELECT {AttemptNumberSql},status,started_at,finished_at FROM dj_attempts
+            WHERE job_id=@id AND {AttemptNumberSql}>@after ORDER BY {AttemptNumberSql} {PageSql("@limit")}
             """, ("id", id.ToString()), ("after", afterAttempt), ("limit", limit + 1)))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);

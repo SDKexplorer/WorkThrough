@@ -49,7 +49,7 @@ public abstract partial class RelationalJobStore
     public async Task<IReadOnlyList<JobAttempt>> AttemptsAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT * FROM dj_attempts WHERE job_id=@id ORDER BY number", ("id", jobId.ToString()));
+        await using var command = Command(connection, null, $"SELECT * FROM dj_attempts WHERE job_id=@id ORDER BY {AttemptNumberSql}", ("id", jobId.ToString()));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var result = new List<JobAttempt>();
         while (await reader.ReadAsync(cancellationToken))

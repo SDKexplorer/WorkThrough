@@ -1,4 +1,5 @@
 using Npgsql;
+using Oracle.ManagedDataAccess.Client;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -40,6 +41,24 @@ public sealed class FaultTests
                 await using var kill = new NpgsqlCommand("SELECT pg_terminate_backend(@pid)", killer);
                 kill.Parameters.AddWithValue("pid", pid);
                 Assert.True((bool)(await kill.ExecuteScalarAsync(ct))!);
+            }
+            else if (provider == "oracle")
+            {
+                await using var id = connection.CreateCommand();
+                id.Transaction = transaction;
+                id.CommandText = "SELECT SYS_CONTEXT('USERENV','SID') FROM dual";
+                var sid = Convert.ToInt32(await id.ExecuteScalarAsync(ct));
+                await using var killer = new OracleConnection(Environment.GetEnvironmentVariable("DURABLEJOBS_ORACLE"));
+                await killer.OpenAsync(ct);
+                await using var kill = killer.CreateCommand();
+                kill.BindByName = true;
+                kill.CommandText = "SELECT serial# FROM v$session WHERE sid=:sid AND username=:owner";
+                kill.Parameters.Add("sid", OracleDbType.Int32).Value = sid;
+                kill.Parameters.Add("owner", OracleDbType.Varchar2).Value = database.OracleSchema;
+                var serial = Convert.ToInt32(await kill.ExecuteScalarAsync(ct));
+                kill.Parameters.Clear();
+                kill.CommandText = $"ALTER SYSTEM DISCONNECT SESSION '{sid},{serial}' IMMEDIATE";
+                await kill.ExecuteNonQueryAsync(ct);
             }
             else
             {

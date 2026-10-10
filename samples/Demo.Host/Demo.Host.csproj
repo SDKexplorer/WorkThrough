@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup><IsPackable>false</IsPackable><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
     <ProjectReference Include="../../samples/Demo.Processors/Demo.Processors.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />

@@ -6,9 +6,9 @@
 
 A .NET 8 library for durable jobs, persisted flows, and recurring schedules, verified on .NET 8 and .NET 10. **Move a processor between classes, namespaces, projects, and assemblies without rewriting queued job metadata.**
 
-WorkThrough is an alpha. SQLite, PostgreSQL and SQL Server are implemented; SQL Server qualification is tracked in [provider verification](docs/verification.md); packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
+WorkThrough is an alpha. SQLite, PostgreSQL, SQL Server and Oracle are implemented; SQL Server qualification is tracked in [provider verification](docs/verification.md); packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
 
-The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/attempt investigation, protected failure details, saved-flow inspection, audit/archive metadata, waiting/capacity explanations, windowed attempt metrics and retention status/preview. Opt-in [automatic retention](docs/operations-and-retention.md#opt-in-automatic-maintenance) includes holds and verified-copy purge. Controlled MCP actions, the Oracle provider and large load/restore qualification remain in the [plan](specs/storage-evolution.spec.md). The [remaining delivery order](docs/plan.md#remaining-delivery-order) makes those gaps explicit. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
+The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/attempt investigation, protected failure details, saved-flow inspection, audit/archive metadata, waiting/capacity explanations, windowed attempt metrics and retention status/preview. Opt-in [automatic retention](docs/operations-and-retention.md#opt-in-automatic-maintenance) includes holds and verified-copy purge. Controlled MCP actions, Oracle release qualification and large load/restore qualification remain in the [plan](specs/storage-evolution.spec.md). The [remaining delivery order](docs/plan.md#remaining-delivery-order) makes those gaps explicit. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
 
 ## Repository map
 
@@ -16,7 +16,7 @@ The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/at
 |---|---|
 | `src/WorkThrough.Core` | Stable processor identities, flows, state rules, and persistence contracts |
 | `src/WorkThrough.Hosting` | DI composition, background workers, and schedule dispatch |
-| `src/WorkThrough.Storage.*` | SQLite/PostgreSQL/SQL Server adapters and shared transactional operations |
+| `src/WorkThrough.Storage.*` | SQLite/PostgreSQL/SQL Server/Oracle adapters and shared transactional operations |
 | `src/WorkThrough.Dashboard`, `dashboard-ui` | Protected HTTP APIs and the embedded Angular console |
 | `src/WorkThrough.Generators` | Compile-time processor discovery and registration |
 | `src/WorkThrough.Mcp` | Optional bearer-protected, read-only MCP endpoint without a dashboard dependency |
@@ -60,11 +60,11 @@ The [published relocation proof](scripts/check-refactor.sh) creates typed, futur
 
 ## Setup and hosting
 
-Nine local NuGet packages separate Core, Hosting, Dashboard, MCP, Generators, relational mechanics, SQLite, PostgreSQL, and SQL Server. Consumers do not need Node. The Angular console is embedded in the Dashboard package.
+Ten local NuGet packages separate Core, Hosting, Dashboard, MCP, Generators, relational mechanics, SQLite, PostgreSQL, SQL Server, and Oracle. Consumers do not need Node. The Angular console is embedded in the Dashboard package.
 
 ```csharp
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=jobs.db") // Or UsePostgreSql(connectionString) / UseSqlServer(connectionString).
+    .UseSqlite("Data Source=jobs.db") // Or UsePostgreSql / UseSqlServer / UseOracle with a connection string.
     .AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)
     .SeedClusterLimits(new(null, 20), new(InvoiceJobs.Generate.Identity.Key, 3))
     .AddScheduler()
@@ -138,7 +138,7 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --project samples/Demo.Host --urls
 
 Open `/operations/jobs`. In Development, POST `{ "orderId": "123", "amount": 250 }` to `/demo/orders`; an amount above 1000 selects the review branch, and a negative amount creates an intentional incident. The [direct processor sample](samples/Demo.Processor) demonstrates typed definitions, configurable delayed and recurring work; `--once` performs a smoke test.
 
-`./scripts/verify.sh` builds the frontend and libraries, tests both runtimes, proves cross-runtime assembly relocation, packs NuGet artifacts, and runs isolated package-only consumers with SDK 8 and SDK 10. Set `DURABLEJOBS_POSTGRES` or `DURABLEJOBS_SQLSERVER` to disposable test databases/servers to include those providers; see [provider instructions](docs/providers.md). If .NET 8 is installed separately, set `WORKTHROUGH_DOTNET8` to its absolute executable path. Local packages are written to `artifacts/packages`.
+`./scripts/verify.sh` builds the frontend and libraries, tests both runtimes, proves cross-runtime assembly relocation, packs NuGet artifacts, and runs isolated package-only consumers with SDK 8 and SDK 10. Set `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVER` or `DURABLEJOBS_ORACLE` to disposable test databases/servers to include those providers; see [provider instructions](docs/providers.md). If .NET 8 is installed separately, set `WORKTHROUGH_DOTNET8` to its absolute executable path. Local packages are written to `artifacts/packages`.
 
 ## Operational extensions and performance
 

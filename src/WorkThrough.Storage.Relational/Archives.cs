@@ -101,12 +101,19 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         foreach (var job in jobs)
         {
             await SaveJobReceiptAsync(connection, transaction, job, ct);
-            await ExecuteAsync(connection, transaction, "DELETE FROM dj_attempts WHERE job_id=@id; DELETE FROM dj_failures WHERE job_id=@id; DELETE FROM dj_progress WHERE job_id=@id; DELETE FROM dj_jobs WHERE id=@id", ct, ("id", job.Id.ToString()));
+            foreach (var table in new[] { "dj_attempts", "dj_failures", "dj_progress" })
+            {
+                await ExecuteAsync(connection, transaction, $"DELETE FROM {table} WHERE job_id=@id", ct, ("id", job.Id.ToString()));
+            }
+
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_jobs WHERE id=@id", ct, ("id", job.Id.ToString()));
         }
 
         if (flow is not null)
         {
-            await ExecuteAsync(connection, transaction, "DELETE FROM dj_signal_waits WHERE run_id=@id; DELETE FROM dj_signals WHERE run_id=@id; DELETE FROM dj_flows WHERE id=@id", ct, ("id", flow.Id.ToString()));
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_signal_waits WHERE run_id=@id", ct, ("id", flow.Id.ToString()));
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_signals WHERE run_id=@id", ct, ("id", flow.Id.ToString()));
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_flows WHERE id=@id", ct, ("id", flow.Id.ToString()));
         }
 
         await ExecuteAsync(connection, transaction, "DELETE FROM dj_retention_incidents WHERE unit_id=@id", ct, ("id", candidate.Id.ToString()));
@@ -134,7 +141,7 @@ public abstract partial class RelationalJobStore : IExecutionArchives
     public async Task<ArchiveExport?> ExportArchiveAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT *,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives WHERE id=@id", ("id", id.ToString()));
+        await using var command = Command(connection, null, "SELECT a.*,CASE WHEN body IS NULL THEN 0 ELSE 1 END AS has_body FROM dj_archives a WHERE id=@id", ("id", id.ToString()));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken) || reader.IsDBNull(reader.GetOrdinal("body")))
         {

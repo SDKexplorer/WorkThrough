@@ -12,9 +12,9 @@ public abstract partial class RelationalJobStore
             throw new StateConflictException("Archive exceeds the 500-job evidence limit; export this execution separately.");
         }
 
-        var size = Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM({LengthSql("payload")}+{LengthSql("COALESCE(output,'')")}),0) FROM dj_jobs WHERE {predicate}", ct, ("id", candidate.Id.ToString())));
-        size += Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM({LengthSql("exception_type")}+{LengthSql("message")}+{LengthSql("COALESCE(stack_trace,'')")}),0) FROM dj_failures WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));
-        size += Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM({LengthSql("COALESCE(error,'')")}+{LengthSql("COALESCE(handler,'')")}),0) FROM dj_attempts WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));
+        var size = Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM({LengthSql("payload")}+COALESCE({LengthSql("output")},0)),0) FROM dj_jobs WHERE {predicate}", ct, ("id", candidate.Id.ToString())));
+        size += Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM({LengthSql("exception_type")}+{LengthSql("message")}+COALESCE({LengthSql("stack_trace")},0)),0) FROM dj_failures WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));
+        size += Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM(COALESCE({LengthSql("error")},0)+COALESCE({LengthSql("handler")},0)),0) FROM dj_attempts WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));
         if (candidate.Kind == "Flow")
         {
             size += Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT {LengthSql("f.input")}+{LengthSql("d.definition")} FROM dj_flows f JOIN dj_definitions d ON f.flow_key=d.flow_key AND f.version=d.version WHERE f.id=@id", ct, ("id", candidate.Id.ToString())));
@@ -32,7 +32,7 @@ public abstract partial class RelationalJobStore
     private async Task<ArchivedJob> ReadArchivedJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
     {
         var attempts = new List<JobAttempt>();
-        await using (var query = Command(connection, transaction, "SELECT * FROM dj_attempts WHERE job_id=@id ORDER BY number", ("id", job.Id.ToString())))
+        await using (var query = Command(connection, transaction, $"SELECT * FROM dj_attempts WHERE job_id=@id ORDER BY {AttemptNumberSql}", ("id", job.Id.ToString())))
         {
             await using (var reader = await query.ExecuteReaderAsync(ct))
             {

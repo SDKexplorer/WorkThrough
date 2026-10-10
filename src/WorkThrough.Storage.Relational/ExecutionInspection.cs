@@ -26,12 +26,12 @@ public abstract partial class RelationalJobStore : IExecutionInspectionQueries
         JobFailure? failure = null;
         var truncated = false;
         await using (var command = OperationCommand(connection, transaction, $"""
-            SELECT a.number,{SubstringFunction}(COALESCE(f.exception_type,'Unspecified'),1,@length) AS exception_type,
+            SELECT a.{AttemptNumberSql},{SubstringFunction}({DiagnosticExceptionSql},1,@length) AS exception_type,
               {SubstringFunction}(COALESCE(f.message,a.error),1,@length) AS message,{SubstringFunction}(f.stack_trace,1,@length) AS stack_trace,
-              CASE WHEN {LengthSql("COALESCE(f.exception_type,'Unspecified')")}>@length OR {LengthSql("COALESCE(f.message,a.error)")}>@length
+              CASE WHEN {LengthSql(DiagnosticExceptionSql)}>@length OR {LengthSql("COALESCE(f.message,a.error)")}>@length
                 OR {LengthSql("f.stack_trace")}>@length THEN 1 ELSE 0 END AS clipped
-            FROM dj_jobs j LEFT JOIN dj_attempts a ON a.job_id=j.id AND a.number=@attempt
-            LEFT JOIN dj_failures f ON f.job_id=a.job_id AND f.attempt=a.number WHERE j.id=@id
+            FROM dj_jobs j LEFT JOIN dj_attempts a ON a.job_id=j.id AND a.{AttemptNumberSql}=@attempt
+            LEFT JOIN dj_failures f ON f.job_id=a.job_id AND f.attempt=a.{AttemptNumberSql} WHERE j.id=@id
             """, ("id", id.ToString()), ("attempt", attempt), ("length", maximumCharacters)))
         {
             await using var reader = await command.ExecuteReaderAsync(ct);

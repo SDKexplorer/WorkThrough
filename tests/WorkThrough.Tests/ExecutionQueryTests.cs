@@ -49,7 +49,8 @@ public sealed class ExecutionQueryTests
             var record = JobClient.CreateRecord(Invoice.Identity, "input") with
             {
                 Id = Guid.Parse($"00000000-0000-0000-0000-{i:D12}"),
-                CreatedAt = timestamp
+                CreatedAt = timestamp,
+                UseStorageTime = false
             };
             expected.Add(await harness.Store.EnqueueAsync(record));
         }
@@ -80,7 +81,7 @@ public sealed class ExecutionQueryTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var store = harness.Store;
-        var id = await store.EnqueueAsync(JobClient.CreateRecord(Invoice.Identity, "input") with { CreatedAt = DateTimeOffset.UtcNow.AddDays(-30) });
+        var id = await store.EnqueueAsync(JobClient.CreateRecord(Invoice.Identity, "input") with { CreatedAt = DateTimeOffset.UtcNow.AddDays(-30), UseStorageTime = false });
         for (var i = 0; i < 2; i++)
         {
             var attempt = (await store.ClaimAsync(Claim()))!;
@@ -107,8 +108,8 @@ public sealed class ExecutionQueryTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var boundary = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeMilliseconds());
-        var first = await harness.Store.EnqueueAsync(JobClient.CreateRecord(Invoice.Identity, "first") with { CreatedAt = boundary });
-        var second = await harness.Store.EnqueueAsync(JobClient.CreateRecord(Invoice.Identity, "second") with { CreatedAt = boundary.AddMilliseconds(1) });
+        var first = await harness.Store.EnqueueAsync(JobClient.CreateRecord(Invoice.Identity, "first") with { CreatedAt = boundary, UseStorageTime = false });
+        var second = await harness.Store.EnqueueAsync(JobClient.CreateRecord(Invoice.Identity, "second") with { CreatedAt = boundary.AddMilliseconds(1), UseStorageTime = false });
         var exact = await harness.Store.SearchExecutionsAsync(new(From: boundary, Until: boundary.AddMilliseconds(1)));
         Assert.Equal(first, Assert.Single(exact.Items).Id);
         var fractional = await harness.Store.SearchExecutionsAsync(new(From: boundary.AddTicks(1), Until: boundary.AddMilliseconds(2)));
@@ -213,20 +214,6 @@ public sealed class ExecutionQueryTests
         Assert.Equal((await harness.Store.FindExecutionAsync(Guid.NewGuid())).StoreId, (await read.SearchExecutionsAsync(new())).StoreId);
     }
 
-    private static async Task ExecuteAsync(StoreHarness harness, string sql, params (string Name, object Value)[] parameters)
-    {
-        await using DbConnection connection = harness.CreateConnection();
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        foreach (var (name, value) in parameters)
-        {
-            var parameter = command.CreateParameter();
-            parameter.ParameterName = name;
-            parameter.Value = value;
-            command.Parameters.Add(parameter);
-        }
-
-        await command.ExecuteNonQueryAsync();
-    }
+    private static Task ExecuteAsync(StoreHarness harness, string sql, params (string Name, object Value)[] values) =>
+        harness.ExecuteAsync(sql, values);
 }

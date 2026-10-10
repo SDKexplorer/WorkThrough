@@ -13,7 +13,7 @@ namespace WorkThrough.Tests;
 public sealed class RetentionTests
 {
     public static IEnumerable<object[]> Providers() => StorageConformanceTests.Providers();
-    public static IEnumerable<object[]> LegacyProviders() => Providers().Where(row => (string)row[0] != "sqlserver");
+    public static IEnumerable<object[]> LegacyProviders() => Providers().Where(row => (string)row[0] is "sqlite" or "postgres");
     private static readonly JobDefinition<string> Invoice = new("retention.invoice");
     private static readonly OperationActor Actor = new("tests", "maintenance");
     private static AdministrativeCommand Command() => new(Guid.NewGuid(), new("tests", "operator"), "retention fixture");
@@ -105,7 +105,7 @@ public sealed class RetentionTests
         var id = await CompletedAsync(harness, "rollback-receipt");
         await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command());
         var lease = await Lease(harness.Store);
-        await ExecuteAsync(harness, provider == "sqlserver" ? "CREATE TRIGGER expire_batch ON dj_archives AFTER INSERT AS UPDATE dj_maintenance SET lease_expires_at=0;" : provider == "sqlite" ? """
+        await ExecuteAsync(harness, provider == "oracle" ? "CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN UPDATE dj_maintenance SET lease_expires_at=0; END;" : provider == "sqlserver" ? "CREATE TRIGGER expire_batch ON dj_archives AFTER INSERT AS UPDATE dj_maintenance SET lease_expires_at=0;" : provider == "sqlite" ? """
             CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN
               UPDATE dj_maintenance SET lease_expires_at=0; END
             """ : """
@@ -344,20 +344,6 @@ public sealed class RetentionTests
         return id;
     }
 
-    private static async Task ExecuteAsync(StoreHarness harness, string sql, params (string Name, object Value)[] values)
-    {
-        await using DbConnection connection = harness.CreateConnection();
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        foreach (var (name, value) in values)
-        {
-            var parameter = command.CreateParameter();
-            parameter.ParameterName = name;
-            parameter.Value = value;
-            command.Parameters.Add(parameter);
-        }
-
-        await command.ExecuteNonQueryAsync();
-    }
+    private static Task ExecuteAsync(StoreHarness harness, string sql, params (string Name, object Value)[] values) =>
+        harness.ExecuteAsync(sql, values);
 }

@@ -76,7 +76,8 @@ public abstract partial class RelationalJobStore
                 throw new StateConflictException("Drain active leases before changing processor mappings.");
             }
 
-            await ExecuteAsync(connection, transaction, "DELETE FROM dj_processor_aliases; DELETE FROM dj_processor_groups", ct);
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_processor_aliases", ct);
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_processor_groups", ct);
             foreach (var alias in ordered)
             {
                 await ExecuteAsync(connection, transaction, "INSERT INTO dj_processor_aliases(alias_key,alias_version,target_key,target_version) VALUES (@alias,@version,@target,@targetVersion)", ct,

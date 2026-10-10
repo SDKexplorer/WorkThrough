@@ -78,3 +78,51 @@ jobs:
         with:
           name: performance-smoke
           path: artifacts/performance/*.json
+  oracle:
+    # Separate runner: Oracle and SQL Server would compete for a single runner's memory.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      oracle:
+        image: container-registry.oracle.com/database/free:23.26.3.0-lite-amd64@sha256:770ca58ab319d8cfde610b0db25c06899ce0af9591c4addfa10d2cb8f0318e65
+        env:
+          ORACLE_PWD: WorkThrough_Oracle_2026
+        ports:
+          - 1521:1521
+        options: >-
+          --shm-size 1g
+          --health-cmd "/opt/oracle/checkDBStatus.sh"
+          --health-interval 10s --health-timeout 10s --health-retries 30
+    env:
+      DURABLEJOBS_ORACLE: User Id=system;Password=WorkThrough_Oracle_2026;Data Source=127.0.0.1:1521/FREEPDB1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dashboard-ui/package-lock.json
+      - name: Provision disposable integration-test tablespace and migration grant
+        env:
+          ORACLE_CONTAINER: ${{ job.services.oracle.id }}
+        run: |
+          docker exec -i "$ORACLE_CONTAINER" sqlplus -s / as sysdba <<'SQL'
+          WHENEVER SQLERROR EXIT SQL.SQLCODE
+          ALTER SESSION SET CONTAINER=FREEPDB1;
+          CREATE TABLESPACE USERS DATAFILE '/opt/oracle/oradata/workthrough-tests.dbf' SIZE 100M AUTOEXTEND ON NEXT 100M MAXSIZE 2G;
+          GRANT EXECUTE ON SYS.DBMS_LOCK TO SYSTEM WITH GRANT OPTION;
+          EXIT;
+          SQL
+      - run: ./scripts/verify.sh
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: oracle-performance-smoke
+          path: artifacts/performance/*.json

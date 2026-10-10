@@ -9,6 +9,7 @@ internal static class RefactorStorage
     {
         "sqlite" => builder.UseSqlite(connection),
         "postgres" => builder.UsePostgreSql(connection),
+        "oracle" => builder.UseOracle(connection),
         "sqlserver" => builder.UseSqlServer(connection),
         _ => throw new InvalidOperationException("Unknown refactor-proof provider.")
     };
@@ -17,6 +18,7 @@ internal static class RefactorStorage
     {
         "sqlite" => new SqliteJobStore(connection),
         "postgres" => new PostgresJobStore(connection),
+        "oracle" => new OracleJobStore(connection),
         "sqlserver" => new SqlServerJobStore(connection),
         _ => throw new InvalidOperationException("Unknown refactor-proof provider.")
     };

@@ -8,6 +8,8 @@ public abstract partial class RelationalJobStore
     protected virtual string SubstringFunction => "SUBSTR";
     protected virtual string TextType => "TEXT";
     protected virtual string FloatingPointType => "DOUBLE PRECISION";
+    protected virtual string AttemptNumberSql => "number";
+    protected virtual string DiagnosticExceptionSql => "COALESCE(f.exception_type,'Unspecified')";
 
     /// <summary>Composes a single-row upsert inside the provider's serialized write transaction.</summary>
     protected virtual string UpsertSql(string table, string columns, string values, string keys, string updates = "")

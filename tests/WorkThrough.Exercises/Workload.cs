@@ -22,7 +22,11 @@ internal static class Workload
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(new EffectStore(effects));
         var jobs = builder.Services.AddWorkThrough();
-        if (provider == "sqlserver")
+        if (provider == "oracle")
+        {
+            jobs.UseOracle(connection);
+        }
+        else if (provider == "sqlserver")
         {
             jobs.UseSqlServer(connection);
         }

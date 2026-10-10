@@ -100,6 +100,12 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             }
         }
 
+        if (job.UseStorageTime)
+        {
+            var acceptedAt = DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct));
+            job = job with { CreatedAt = acceptedAt, AvailableAt = acceptedAt, UseStorageTime = false };
+        }
+
         await InsertJobAsync(connection, transaction, job, ct);
         await SaveJobReceiptAsync(connection, transaction, job, ct);
 
@@ -224,8 +230,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 UPDATE dj_jobs SET status='Running',attempt=attempt+1,worker_id=@worker,
                 lease_token=@token,lease_expires_at=@expires,error=NULL WHERE id=@id
                 """, ct, ("id", candidate.Id.ToString()), ("worker", request.WorkerId), ("token", token.ToString()), ("expires", expires));
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_attempts(job_id,number,worker_id,started_at,status)
+            await ExecuteAsync(connection, transaction, $"""
+                INSERT INTO dj_attempts(job_id,{AttemptNumberSql},worker_id,started_at,status)
                 VALUES (@id,@number,@worker,@now,'Running')
                 """, ct, ("id", candidate.Id.ToString()), ("number", candidate.Attempt + 1), ("worker", request.WorkerId), ("now", now));
             await JournalAsync(connection, transaction, candidate with
@@ -373,9 +379,9 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
     public Task RecordHandlerAsync(Guid jobId, Guid leaseToken, string handler, CancellationToken cancellationToken = default) => WriteAsync(async (connection, transaction, ct) =>
     {
-        await ExecuteAsync(connection, transaction, """
+        await ExecuteAsync(connection, transaction, $"""
             UPDATE dj_attempts SET handler=@handler WHERE job_id=@id AND status='Running'
-            AND number=(SELECT attempt FROM dj_jobs WHERE id=@id AND lease_token=@token)
+            AND {AttemptNumberSql}=(SELECT attempt FROM dj_jobs WHERE id=@id AND lease_token=@token)
             """, ct, ("handler", handler), ("id", jobId.ToString()), ("token", leaseToken.ToString()));
 
         return true;
@@ -412,7 +418,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     private async Task FinishAttemptAsync(DbConnection connection, DbTransaction transaction, JobRecord job, long now, string status, string? error, CancellationToken ct)
     {
         await ExecuteAsync(connection, transaction,
-            "UPDATE dj_attempts SET finished_at=@now,status=@status,error=@error WHERE job_id=@id AND number=@number AND status='Running'", ct,
+            $"UPDATE dj_attempts SET finished_at=@now,status=@status,error=@error WHERE job_id=@id AND {AttemptNumberSql}=@number AND status='Running'", ct,
             ("now", now), ("status", status), ("error", Truncate(error)), ("id", job.Id.ToString()), ("number", job.Attempt));
         await JournalAsync(connection, transaction, job, now, status, ct);
     }
