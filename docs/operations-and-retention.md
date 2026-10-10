@@ -79,7 +79,7 @@ if (!result.IsSuccess)
 }
 ```
 
-Administrative commands return `Result`/`Result<T>` instead of throwing for expected failures (ADR 009).
+Administrative commands return `Result`/`Result<T>` instead of throwing for expected failures (ADR 017).
 
 These durations are an example, not defaults. Omit `FailedAfter` to retain unsuccessful executions indefinitely. Omit both `PurgeAfter` and `ExportDestination` to keep archive bodies. `EventsAfter` is a separate opt-in age for journal cleanup, additionally bounded by every subscriber and live/held evidence. Maintenance does not expire acceptance receipts or audit records. Policy revisions survive deployments; do not overwrite them on every application startup.
 

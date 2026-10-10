@@ -1,4 +1,4 @@
-# ADR 009: operator commands return results
+# ADR 017: operator commands return results
 
 Audited operator commands report expected failures as values. `IJobAdministration`, `IWorkflowDefinitions`, `IJobSchedules`, `IExecutionOperations`, `IRetentionAdministration`, `IProcessorRegistry.SetProcessorAliasesAsync`, the archive commands on `IExecutionArchives`, and `IExecutionEvents.TrimEventsAsync` return `Result` or `Result<T>` from `WorkThrough.Core`.
 
