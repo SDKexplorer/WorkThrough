@@ -19,7 +19,7 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
           WHERE (pl.job_key=@all OR {AdmissionGroupSql("pl.job_key")}={AdmissionGroupSql($"{job}.job_key")})
             AND pl.maximum<=(
               SELECT COUNT(*) FROM dj_jobs pr
-              WHERE pr.status='Running' AND pr.lease_expires_at>@now AND pr.partition_key={job}.partition_key
+              WHERE pr.partition_key IS NOT NULL AND pr.partition_key={job}.partition_key AND pr.status='Running' AND pr.lease_expires_at>@now
                 AND (pl.job_key=@all OR {AdmissionGroupSql("pr.job_key")}={AdmissionGroupSql("pl.job_key")}))))
         """;
 
@@ -88,6 +88,30 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
     }
 
     private sealed record FairQueueOrder(IReadOnlyList<string> Queues, bool Competing, long Clock);
+
+    /// <summary>
+    /// Claim configuration read in one round trip at the start of the admission transaction, so every value is exact for this claim.
+    /// Absent policy kinds are left out of the claim query: PostgreSQL re-plans every claim and unused predicates doubled its planning time.
+    /// </summary>
+    private async Task<ClaimSettings> ReadClaimSettingsAsync(DbConnection connection, DbTransaction transaction, string workerId, CancellationToken ct)
+    {
+        await using var command = Command(connection, transaction, """
+            SELECT r.revision,
+              (SELECT COUNT(*) FROM dj_worker_controls WHERE worker_id=@worker AND draining=1),
+              (SELECT maximum FROM dj_limits WHERE job_key=@all),
+              (SELECT COUNT(*) FROM dj_partition_limits),
+              (SELECT COUNT(*) FROM dj_rate_limits)
+            FROM dj_registry r WHERE r.id=1
+            """, ("worker", workerId), ("all", AllJobsLimitKey));
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+
+        return new(Convert.ToInt64(reader.GetValue(0)), Convert.ToInt64(reader.GetValue(1)) > 0,
+            reader.IsDBNull(2) ? null : Convert.ToInt64(reader.GetValue(2)),
+            Convert.ToInt64(reader.GetValue(3)) > 0, Convert.ToInt64(reader.GetValue(4)) > 0);
+    }
+
+    private sealed record ClaimSettings(long RegistryRevision, bool Draining, long? GlobalMaximum, bool HasPartitionLimits, bool HasRateLimits);
 
     public Task<AdmissionPolicies> AdmissionPoliciesAsync(CancellationToken cancellationToken = default) =>
         ReadAsync(async (connection, transaction, ct) =>

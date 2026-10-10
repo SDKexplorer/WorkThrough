@@ -228,7 +228,7 @@ public sealed partial class OracleJobStore
             window_ms NUMBER(19) NOT NULL CHECK(window_ms>0),PRIMARY KEY(job_key,per_partition)) SEGMENT CREATION IMMEDIATE
             """),
         new("IX_DJ_JOBS_PARTITION", true, """
-            CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at)
+            CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key)
             """),
         new("IX_DJ_ATTEMPTS_STARTED", true, """
             CREATE INDEX ix_dj_attempts_started ON dj_attempts(started_at,job_id)

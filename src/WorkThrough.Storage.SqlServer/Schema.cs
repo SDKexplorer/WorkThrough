@@ -419,7 +419,7 @@ public sealed partial class SqlServerJobStore
     // A separate batch: SQL Server compiles a batch before its ALTER TABLE adds the indexed columns.
     private const string SqlServerAdmissionIndexes = """
         IF NOT EXISTS(SELECT 1 FROM dj_queue_clock WHERE id=1) INSERT INTO dj_queue_clock(id,value) VALUES (1,0);
-        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_partition' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at);
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_partition' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at) WHERE partition_key IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_attempts_started' AND object_id=OBJECT_ID(N'dj_attempts')) CREATE INDEX ix_dj_attempts_started ON dj_attempts(started_at,job_id);
         """;
 }

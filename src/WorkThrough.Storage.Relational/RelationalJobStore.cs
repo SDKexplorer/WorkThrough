@@ -59,7 +59,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             // Indexes on upgraded columns are created after the columns exist.
             await ExecuteAsync(connection, transaction, """
                 CREATE INDEX IF NOT EXISTS ix_dj_jobs_terminal ON dj_jobs(status,terminal_at,id);
-                CREATE INDEX IF NOT EXISTS ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at);
+                CREATE INDEX IF NOT EXISTS ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at) WHERE partition_key IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS ix_dj_attempts_started ON dj_attempts(started_at,job_id);
                 """, ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_event_sequence(id,value) SELECT 1,COALESCE(MAX(sequence),0) FROM dj_events WHERE 1=1 ON CONFLICT DO NOTHING", ct);
@@ -201,7 +201,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         return WriteAsync<JobRecord?>(async (connection, transaction, ct) =>
         {
             var now = await NowAsync(connection, transaction, ct);
-            if (await ReadRegistryRevisionAsync(connection, transaction, ct) != request.RegistryRevision)
+            var settings = await ReadClaimSettingsAsync(connection, transaction, request.WorkerId, ct);
+            if (settings.RegistryRevision != request.RegistryRevision)
             {
                 throw new ProcessorRegistryChangedException();
             }
@@ -209,7 +210,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             await RecoverExpiredAsync(connection, transaction, now, ct);
             await ExpireQueuedAsync(connection, transaction, now, ct);
             await DispatchSignalsCoreAsync(connection, transaction, now, SweepBatchSize, ct);
-            if (await IsDrainingAsync(connection, transaction, request.WorkerId, ct) || await GlobalLimitReachedAsync(connection, transaction, now, ct))
+            if (settings.Draining || await GlobalLimitReachedAsync(connection, transaction, settings.GlobalMaximum, now, ct))
             {
                 return null;
             }
@@ -217,7 +218,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             var order = await FairQueueOrderAsync(connection, transaction, request, now, ct);
             foreach (var queue in order.Queues)
             {
-                if (await FindClaimableAsync(connection, transaction, request, queue, now, ct) is not { } candidate)
+                if (await FindClaimableAsync(connection, transaction, request, queue, settings, now, ct) is not { } candidate)
                 {
                     continue;
                 }
@@ -234,13 +235,9 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         }, cancellationToken);
     }
 
-    private async Task<bool> IsDrainingAsync(DbConnection connection, DbTransaction transaction, string workerId, CancellationToken ct) =>
-        Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_worker_controls WHERE worker_id=@worker AND draining=1", ct, ("worker", workerId))) > 0;
-
-    private async Task<bool> GlobalLimitReachedAsync(DbConnection connection, DbTransaction transaction, long now, CancellationToken ct)
+    private async Task<bool> GlobalLimitReachedAsync(DbConnection connection, DbTransaction transaction, long? maximum, long now, CancellationToken ct)
     {
-        var maximum = await ScalarAsync(connection, transaction, "SELECT maximum FROM dj_limits WHERE job_key=@all", ct, ("all", AllJobsLimitKey));
-        if (maximum is null or DBNull)
+        if (maximum is null)
         {
             return false;
         }
@@ -248,10 +245,11 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         var active = Convert.ToInt64(await ScalarAsync(connection, transaction,
             "SELECT COUNT(*) FROM dj_jobs WHERE status='Running' AND lease_expires_at>@now", ct, ("now", now)));
 
-        return active >= Convert.ToInt64(maximum);
+        return active >= maximum;
     }
 
-    private async Task<JobRecord?> FindClaimableAsync(DbConnection connection, DbTransaction transaction, ClaimRequest request, string queue, long now, CancellationToken ct)
+    private async Task<JobRecord?> FindClaimableAsync(DbConnection connection, DbTransaction transaction, ClaimRequest request, string queue,
+        ClaimSettings settings, long now, CancellationToken ct)
     {
         var parameters = new List<(string, object?)> { ("now", now), ("all", AllJobsLimitKey), ("queue", queue) };
         var contracts = request.Contracts.Select((contract, index) =>
@@ -280,8 +278,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 SELECT 1 FROM dj_flows f WHERE f.id=j.workflow_run_id AND f.status='Running'))
               AND ({string.Join(" OR ", contracts)}) AND j.queue=@queue
               AND {AdmissionGroupSql("j.job_key")} NOT IN (SELECT group_key FROM blocked_groups)
-              AND NOT {PartitionBlockedSql("j")}
-              AND NOT {RateBlockedSql("j")}
+              {(settings.HasPartitionLimits ? $"AND NOT {PartitionBlockedSql("j")}" : "")}
+              {(settings.HasRateLimits ? $"AND NOT {RateBlockedSql("j")}" : "")}
             ORDER BY j.available_at,j.created_at,j.id {PageSql(1)}
             """;
 

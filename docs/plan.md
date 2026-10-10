@@ -70,11 +70,12 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [ ] Optional: add import/export adapters for other engines, such as Hangfire or Wolverine, with explicit identity/payload mappings, supported version shapes and semantic-loss reports. Nice to have; not a release prerequisite.
 - [ ] Add contract upcasters and rolling-deployment capability checks. Preserve pending old versions until compatible consumers exist.
 - [ ] Evaluate automatic canonical flow revisions with optional human labels; pin executions to the chosen revision and make activation/migration explicit. Mandatory integer versions remain the current API.
-- [ ] Add partition-key concurrency and rate limits. Correlation must remain independent from lock identity.
+- [x] Add partition-key concurrency and rate limits. Correlation must remain independent from lock identity (ADR-018, schema 5).
 - [x] Add SQL Server, then Oracle, following the portability refactor and real-provider gates in [storage evolution](../specs/storage-evolution.spec.md) and [ADR-012](adr/0012-retention-and-provider-expansion.md). Both pass native Linux x64 qualification on their documented initial server matrix. SQLite/PostgreSQL retain their existing verification. Sustained contention and provider restore campaigns remain release-readiness work.
 - [x] Add durable signals with deduplication, storage of signals arriving before their wait step, and race-tested timeout behavior; never park a worker thread while waiting.
 - [x] Define cron time zones, daylight-saving transitions, and missed-schedule policy alongside overlap controls.
-- [ ] Add bounded fan-out, queue fairness, per-tenant quotas where applicable, and load tests that measure both database contention and memory growth.
+- [x] Add weighted queue fairness (ADR-018).
+- [ ] Add bounded fan-out, per-tenant quotas where applicable, and load tests that measure both database contention and memory growth.
 
 ## P3 — controlled recovery and release
 

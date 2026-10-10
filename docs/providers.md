@@ -47,6 +47,8 @@ SQLite initialization now enables WAL by default for local multi-process use, an
 
 Schema 4 adds whole-unit retention holds, policy revisions, maintenance leases/batches/incidents and verified-export receipts on SQLite/PostgreSQL. Stop older writers before upgrading; see [ADR-013](adr/0013-fenced-retention-maintenance.md). `IRetentionQueries` is metadata-only and works through read-only connections. Maintenance uses the existing serialized write transaction, checks its lease before and after every batch, and keeps copy verification outside that transaction. Schema-1/schema-3 upgrades and partial-batch rollback are covered by the shared suite.
 
+Schema 5 adds `dj_jobs.partition_key`, `dj_queue_controls.weight` and the partition-limit, rate-limit and queue-turn tables on every provider ([ADR-018](adr/0018-execution-admission-controls.md)). The upgrade is additive: queued work and live leases survive, and existing queues get weight 1. Stop schema-4 writers before upgrading; they do not evaluate the new admission rules. SQL Server adds the columns transactionally; Oracle applies them as resumable steps. PostgreSQL admission and read transactions set `jit = off`, because JIT compilation of the admission predicates cost far more than executing them.
+
 ## SQL Server setup
 
 `WorkThrough.Storage.SqlServer` supplies `.UseSqlServer(connectionString)`. The implementation targets SQL Server 2022 CU27 Developer on Linux x64 with Microsoft.Data.SqlClient 7.1.0. The native CI qualification and current evidence are tracked in [verification](verification.md). Local ARM-emulated tests are not a supported deployment matrix. Azure SQL and other editions/OS/server versions remain unverified.
@@ -57,7 +59,7 @@ Use a dedicated database with `dbo` as the user's default schema. A deployment a
 ALTER DATABASE [WorkThrough] SET ALLOW_SNAPSHOT_ISOLATION ON;
 ```
 
-Initialization creates schema 4 transactionally and checks that snapshot isolation is active. Runtime hosts can use a DML credential with `.InitializeStorageOnStart(false)` after deployment initialization. Read-only dashboard/MCP hosts need SELECT grants and disable initialization. Production identities/passwords belong in host configuration or a secret store; the library does not create production logins.
+Initialization creates schema 5 transactionally and checks that snapshot isolation is active. Runtime hosts can use a DML credential with `.InitializeStorageOnStart(false)` after deployment initialization. Read-only dashboard/MCP hosts need SELECT grants and disable initialization. Production identities/passwords belong in host configuration or a secret store; the library does not create production logins.
 
 Every engine write takes a transaction-owned application lock for at most five seconds before failing. Multi-query inspection uses snapshot isolation. Locks, lease checks, administrative receipts/audit and successor activation retain the shared transaction boundary. See [ADR-014](adr/0014-sql-server-storage.md).
 

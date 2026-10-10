@@ -92,6 +92,8 @@ The explicit key overload lets producer-only hosts enqueue without the processor
 
 Local total/type concurrency and shared total/type limits all apply. Shared limits count valid admitted leases; lowering a limit does not terminate current handlers. A partitioned process can outlive its lease, so external effects still require idempotency/fencing.
 
+Jobs may carry a `PartitionKey` (enqueue, outbox, schedules, flow runs), separate from `CorrelationId`. `SeedPartitionLimits(new(null, 1))` serializes each key; `SeedRateLimits(new(InvoiceJobs.Generate.Identity.Key, 100, TimeSpan.FromMinutes(1), PerPartition: true))` caps attempt starts per sliding window. Queues sharing a worker are served by weighted stride scheduling (`SetQueueWeightAsync`, default weight 1). All rules are evaluated in the claim transaction, so they hold across hosts (ADR-018).
+
 ## Flows and recovery
 
 `FlowBuilder` supports sequences, parallel roots, joins, output property bindings, equality conditions, and raw/typed processor input. Every run pins an immutable definition version. `CorrelationId` groups executions; it is not an authorization, deduplication, or locking key.
