@@ -17,14 +17,6 @@ public static class DashboardPermissions
 /// <summary>Host policies may authorize a configured store or an individual route resource. Correlation is not an access boundary.</summary>
 public sealed record DashboardResource(string Path, IReadOnlyDictionary<string, object?> RouteValues);
 
-public sealed record DashboardCommand(Guid CommandId, string Reason, int ExpectedAttempt = 0, int ExpectedRevision = 0);
-
-public sealed record DraftCommand(FlowDefinition Definition, DashboardCommand Command);
-
-public sealed record LimitCommand(ConcurrencyLimit Limit, DashboardCommand Command);
-
-public sealed record ScheduleDraftCommand(ScheduleDefinition Definition, DashboardCommand Command);
-
 public static partial class DashboardEndpoints
 {
     internal const string CsrfHeader = "X-CSRF-TOKEN";

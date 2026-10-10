@@ -5,12 +5,6 @@ using Microsoft.AspNetCore.Routing;
 
 namespace WorkThrough;
 
-public sealed record QueueControlCommand(string Queue, bool Paused, DashboardCommand Command);
-
-public sealed record WorkerControlCommand(string WorkerId, bool Draining, DashboardCommand Command);
-
-public sealed record ArchiveCommand(ArchivePolicy Policy, DashboardCommand Command);
-
 public static partial class DashboardEndpoints
 {
     private static void MapOperations(RouteGroupBuilder group, JobDashboardOptions options)

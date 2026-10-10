@@ -5,10 +5,6 @@ using Microsoft.AspNetCore.Routing;
 
 namespace WorkThrough;
 
-public sealed record RetentionPolicyCommand(RetentionPolicy Policy, DashboardCommand Command);
-
-public sealed record RetentionHoldCommand(bool Held, DashboardCommand Command);
-
 public static partial class DashboardEndpoints
 {
     private const string RetentionUnavailable = "Retention administration is unavailable.";
