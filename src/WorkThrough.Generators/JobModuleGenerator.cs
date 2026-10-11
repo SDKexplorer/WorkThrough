@@ -10,11 +10,11 @@ namespace WorkThrough.Generators;
 [Generator]
 public sealed class JobModuleGenerator : IIncrementalGenerator
 {
-    private static readonly DiagnosticDescriptor InvalidContract = new("DJ001", "Missing stable contract identity",
+    private static readonly DiagnosticDescriptor InvalidContract = new("WT001", "Missing stable contract identity",
         "Handler '{0}' handles '{1}', which has no JobContract attribute", "WorkThrough", DiagnosticSeverity.Error, true);
-    private static readonly DiagnosticDescriptor InaccessibleHandler = new("DJ002", "Handler must be public and concrete",
-        "Handler '{0}' must be a public, non-generic concrete class", "WorkThrough", DiagnosticSeverity.Error, true);
-    private static readonly DiagnosticDescriptor InvalidProcessor = new("DJ003", "Missing stable processor identity",
+    private static readonly DiagnosticDescriptor InaccessibleHandler = new("WT002", "Handler must be public and concrete",
+        "Handler '{0}' must be a public, top-level class", "WorkThrough", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor InvalidProcessor = new("WT003", "Missing stable processor identity",
         "Processor '{0}' has no Processor attribute", "WorkThrough", DiagnosticSeverity.Error, true);
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -68,8 +68,13 @@ public sealed class JobModuleGenerator : IIncrementalGenerator
                         continue;
                     }
 
-                    if (handler.TypeKind != TypeKind.Class || handler.DeclaredAccessibility != Accessibility.Public
-                        || handler.IsAbstract || handler.IsGenericType || handler.ContainingType is not null)
+                    // Abstract and open generic bases cannot be instantiated; their concrete subclasses are registered instead.
+                    if (handler.IsAbstract || handler.IsGenericType)
+                    {
+                        continue;
+                    }
+
+                    if (handler.TypeKind != TypeKind.Class || handler.DeclaredAccessibility != Accessibility.Public || handler.ContainingType is not null)
                     {
                         output.ReportDiagnostic(Diagnostic.Create(InaccessibleHandler, handler.Locations.FirstOrDefault(), handler.Name));
                         continue;

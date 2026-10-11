@@ -101,11 +101,19 @@ public sealed class RawProcessor : IProcessor<string>
 
 public sealed record InvoiceInput(string InvoiceId);
 
-[Processor("smoke.invoice")]
-public sealed class InvoiceProcessor : IProcessor<InvoiceInput>
+// Generated registration skips abstract generic bases and registers their concrete processors.
+public abstract class EchoProcessor<TInput> : IProcessor<TInput>
 {
-    public Task<JobResult> ProcessAsync(InvoiceInput input, JobExecutionContext context, CancellationToken cancellationToken) =>
-        Task.FromResult(JobResult.From(input.InvoiceId));
+    public Task<JobResult> ProcessAsync(TInput input, JobExecutionContext context, CancellationToken cancellationToken) =>
+        Task.FromResult(JobResult.From(Echo(input)));
+
+    protected abstract string Echo(TInput input);
+}
+
+[Processor("smoke.invoice")]
+public sealed class InvoiceProcessor : EchoProcessor<InvoiceInput>
+{
+    protected override string Echo(InvoiceInput input) => input.InvoiceId;
 }
 
 [ManualProcessorRegistration]
