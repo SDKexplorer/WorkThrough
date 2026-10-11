@@ -73,6 +73,27 @@ public sealed class FlowBuilder
         string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts) =>
         ForEach(id, processor, sourceStep, JsonField.Of(items), JsonField.Of(item), input, queue, maxAttempts);
 
+    /// <summary>
+    /// Adds a step that runs the published flow <paramref name="child"/> with <paramref name="input"/>, bound like any step input,
+    /// and waits up to <paramref name="timeout"/> (default 365 days) for it; see <see cref="FlowChild"/>.
+    /// </summary>
+    public FlowBuilder Child(string id, FlowDefinition child, object? input = null, TimeSpan? timeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        Step(id, FlowChild.Processor, input);
+
+        return Change(step => step with { Child = new(child.Key, child.Version, timeout ?? FlowChild.MaximumTimeout) { Definition = child } });
+    }
+
+    /// <summary>Runs the published flow <paramref name="child"/> once per element, each child receiving its element in <paramref name="itemProperty"/>.</summary>
+    public FlowBuilder ForEach(string id, FlowDefinition child, string sourceStep, string sourceProperty, string itemProperty, object? input = null,
+        TimeSpan? timeout = null)
+    {
+        ForEach(id, FlowChild.Processor, sourceStep, sourceProperty, itemProperty, input);
+
+        return Change(step => step with { Child = new(child.Key, child.Version, timeout ?? FlowChild.MaximumTimeout) { Definition = child } });
+    }
+
     /// <summary>Persists a signal wait without invoking a processor or holding a worker lease.</summary>
     public FlowBuilder WaitForSignal<TInput>(string id, SignalDefinition<TInput> signal, TimeSpan timeout)
     {

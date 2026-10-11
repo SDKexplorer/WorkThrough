@@ -110,6 +110,17 @@ Gaps found when reviewing WorkThrough as an adopter would. None blocks the curre
 - [x] `dotnet new workthrough-worker` and `workthrough-web` templates for every storage provider, checked in `verify.sh`.
 - [x] Rolling upgrades from schema 6: schema reader ranges and engine protocol levels (ADR-021).
 
+## Adoption priorities — 2026-10-11
+
+Positioning: relocation alone does not win adoption. Hangfire has compatibility hooks, Quartz has rename mappings, and Wolverine separates handlers from message identities. The advantage must be how consistently the whole product handles deployment, diagnosis and recovery.
+
+1. **Release confidence (critical):** sustained soaks on SQL Server and Oracle, a backup/restore drill, and real OIDC against a local identity provider. Package publication and the license come last.
+2. **Execution controls:** done. Per-key serialization, tenant quotas, rate limits and weighted fair queues are exact across hosts (ADR-018, ADR-022).
+3. **Contract evolution (high):** input upcasters between contract versions, and rollout checks that understand them. A saved flow revision pins its graph and processor versions, not its handler binaries.
+4. **Consumer testing tools (high):** a `WorkThrough.Testing` package with a real store, a controllable clock, job fakes and flow assertions.
+5. **Recovery and composition (medium):** child flows are done (ADR-023). Next: validated input correction, compensation and checkpoint forks. Bounded fan-out, retry and pause/resume exist.
+6. **Operational breadth (medium):** wider fleet investigation in the console. MCP actions remain phase two.
+
 ## Exit criteria for the initial repository
 
 1. Given an enqueued job from build A, when its contract/handler classes are renamed and the old handler assembly is removed, build B executes the unchanged persisted job.

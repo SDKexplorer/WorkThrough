@@ -225,7 +225,8 @@ public static partial class DashboardEndpoints
                 flow = flow with { Error = null },
                 graph = definition is null ? null : Graph(definition),
                 jobs = (await queries.ListFlowJobsAsync(id, ct)).Select(Metadata),
-                events = await diagnostics.EventsAsync(id, cancellationToken: ct)
+                events = await diagnostics.EventsAsync(id, cancellationToken: ct),
+                children = await ChildrenAsync(queries, id, ct)
             }, JsonOptions);
         })).WithPermission(options, OperationPermissions.ReadExecutions).ForTenants();
         group.MapGet("/api/definitions", async (IWorkflowDefinitions definitions, CancellationToken ct) =>
@@ -328,6 +329,19 @@ public static partial class DashboardEndpoints
             .Mutation(options, OperationPermissions.ManageLimits);
     }
 
+
+    /// <summary>Child runs with the first job of each, so the console can open them like any flow.</summary>
+    private static async Task<IReadOnlyList<object>> ChildrenAsync(IJobQueries queries, Guid runId, CancellationToken ct)
+    {
+        var children = new List<object>();
+        foreach (var child in await queries.ChildRunsAsync(runId, ct))
+        {
+            var first = (await queries.ListFlowJobsAsync(child.Id, ct)).FirstOrDefault();
+            children.Add(new { run = child with { Error = null }, jobId = first?.Id });
+        }
+
+        return children;
+    }
     private static object Metadata(JobRecord job) => new
     {
         job.Id,

@@ -50,45 +50,9 @@ public abstract partial class RelationalJobStore
             }
 
             await RequireDefinitionProtocolAsync(connection, transaction, definition, ct);
-            var lifecycle = await ReadDefinitionAsync(connection, transaction, definition.Key, definition.Version, ct);
-            if (lifecycle is not null && lifecycle.Status != DefinitionStatus.Published)
-            {
-                throw new StateConflictException("Only published flow definitions can start new runs.");
-            }
-
-            var serialized = JsonSerializer.Serialize(definition, JobJson.Options);
-            var existing = await ScalarAsync(connection, transaction,
-                "SELECT definition FROM dj_definitions WHERE flow_key=@key AND version=@version", ct,
-                ("key", definition.Key), ("version", definition.Version));
-            if (existing is string saved && JsonSerializer.Serialize(JsonSerializer.Deserialize<FlowDefinition>(saved, JobJson.Options), JobJson.Options) != serialized)
-            {
-                throw new StateConflictException($"Flow {VersionTarget(definition.Key, definition.Version)} is immutable. Publish a new version.");
-            }
-
-            await ExecuteAsync(connection, transaction, UpsertSql("dj_definitions", "flow_key,version,definition", "@key,@version,@definition", "flow_key,version"), ct,
-                ("key", definition.Key), ("version", definition.Version), ("definition", serialized));
-            await ExecuteAsync(connection, transaction, UpsertSql("dj_definition_lifecycle", "flow_key,version,definition,status,revision",
-                "@key,@version,@definition,@status,1", "flow_key,version"), ct,
-                ("key", definition.Key), ("version", definition.Version), ("definition", serialized), ("status", nameof(DefinitionStatus.Published)));
-            var runId = Guid.NewGuid();
-            await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_flows(id,flow_key,version,input,correlation_id,status,max_parallel)
-                VALUES (@id,@key,@version,@input,@correlation,@status,@parallel)
-                """, ct, ("id", runId.ToString()), ("key", definition.Key), ("version", definition.Version),
-                ("input", input.GetRawText()), ("correlation", correlationId), ("status", nameof(FlowStatus.Running)), ("parallel", maxParallelSteps));
-            var now = DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct));
-            foreach (var step in definition.Steps)
-            {
-                await InsertJobAsync(connection, transaction, new(Guid.NewGuid(), step.Contract, step.Input, step.Queue,
-                    correlationId, JobStatus.Waiting, 0, step.MaxAttempts, now, now, WorkflowRunId: runId, StepId: step.Id)
-                {
-                    PartitionKey = partitionKey,
-                    TenantId = tenantId,
-                    TraceParent = traceParent
-                }, ct);
-            }
-
-            await AdvanceWorkflowAsync(connection, transaction, runId, ct);
+            await PublishForStartAsync(connection, transaction, definition, [], ct);
+            var runId = await InsertRunAsync(connection, transaction, definition, input,
+                new(correlationId, partitionKey, tenantId, maxParallelSteps, traceParent), ct);
             if (idempotencyKey is not null)
             {
                 await ExecuteAsync(connection, transaction,
@@ -106,8 +70,10 @@ public abstract partial class RelationalJobStore
         await LockFlowAsync(connection, transaction, runId, skipLocked: false, ct);
         FlowDefinition definition;
         JsonElement input;
+        Guid? parentRun;
+        int depth;
         await using (var command = Command(connection, transaction, """
-            SELECT f.input,d.definition FROM dj_flows f JOIN dj_definitions d
+            SELECT f.input,d.definition,f.parent_run_id,f.depth FROM dj_flows f JOIN dj_definitions d
             ON f.flow_key=d.flow_key AND f.version=d.version WHERE f.id=@id AND f.status='Running'
             """, ("id", runId.ToString())))
         {
@@ -120,6 +86,8 @@ public abstract partial class RelationalJobStore
 
                 input = Json(reader.GetString(0));
                 definition = JsonSerializer.Deserialize<FlowDefinition>(reader.GetString(1), JobJson.Options)!;
+                parentRun = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2));
+                depth = reader.IsDBNull(3) ? 0 : Convert.ToInt32(reader.GetValue(3));
             }
         }
 
@@ -129,6 +97,7 @@ public abstract partial class RelationalJobStore
             var read = jobs.ToDictionary(job => job.Id, job => job.Status);
             var plan = FlowPlanner.Advance(definition, input, jobs);
             var now = await NowAsync(connection, transaction, ct);
+            var replan = false;
             foreach (var change in plan.Changes)
             {
                 // A claim may lease a queued step that a failing flow is skipping; the lease then stands, as if it came first.
@@ -142,14 +111,11 @@ public abstract partial class RelationalJobStore
                     continue;
                 }
 
+                await JournalAsync(connection, transaction, change, now, change.Status.ToString(), ct);
                 if (change.Status == JobStatus.AwaitingSignal)
                 {
-                    var signal = definition.Steps.Single(s => s.Id == change.StepId).Signal!;
-                    await ExecuteAsync(connection, transaction, UpsertSql("dj_signal_waits", "job_id,run_id,name,deadline", "@job,@run,@name,@deadline", "job_id", "deadline"), ct,
-                        ("job", change.Id.ToString()), ("run", runId.ToString()), ("name", signal.Name), ("deadline", checked(now + (long)Math.Ceiling(signal.Timeout.TotalMilliseconds))));
+                    replan |= !await ArmWaitAsync(connection, transaction, runId, depth, change, definition.Steps.Single(s => s.Id == change.StepId), now, ct);
                 }
-
-                await JournalAsync(connection, transaction, change, now, change.Status.ToString(), ct);
             }
 
             // Item steps of a fan-out are created queued; the flow row lock keeps a second expansion out.
@@ -158,10 +124,20 @@ public abstract partial class RelationalJobStore
                 var created = DateTimeOffset.FromUnixTimeMilliseconds(now);
                 await InsertJobAsync(connection, transaction, item with { CreatedAt = created, AvailableAt = created }, ct);
                 await JournalAsync(connection, transaction, item, now, item.Status.ToString(), ct);
+                if (item.Status == JobStatus.AwaitingSignal)
+                {
+                    var stepId = item.StepId![..item.StepId!.IndexOf('[', StringComparison.Ordinal)];
+                    replan |= !await ArmWaitAsync(connection, transaction, runId, depth, item, definition.Steps.Single(s => s.Id == stepId), now, ct);
+                }
             }
 
             await SetFlowStatusAsync(connection, transaction, runId, plan.Status, ct, plan.Error);
-            if (plan.Status != FlowStatus.Running || !await ResolveRunSignalsAsync(connection, transaction, runId, now, ct))
+            if (parentRun is { } parent && plan.Status is FlowStatus.Succeeded or FlowStatus.Failed)
+            {
+                await NotifyParentAsync(connection, transaction, runId, parent, definition, jobs, plan, now, ct);
+            }
+
+            if (plan.Status != FlowStatus.Running || !(replan | await ResolveRunSignalsAsync(connection, transaction, runId, now, ct)))
             {
                 return;
             }

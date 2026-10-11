@@ -147,7 +147,8 @@ public abstract partial class RelationalJobStore
             }
 
             var now = await NowAsync(connection, transaction, ct);
-            var resumed = job.Contract == SignalWait.Processor ? JobStatus.Waiting : JobStatus.Queued;
+            // Waits are planned again: a signal re-arms its deadline and a child step starts a fresh child run.
+            var resumed = job.Contract == SignalWait.Processor || job.Contract == FlowChild.Processor ? JobStatus.Waiting : JobStatus.Queued;
             await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status=@status,available_at=@now,error=NULL,max_attempts=attempt+1 WHERE id=@id", ct,
                 ("status", resumed.ToString()), ("now", now), ("id", id.ToString()));
             await SetFlowStatusAsync(connection, transaction, run, FlowStatus.Running, ct);

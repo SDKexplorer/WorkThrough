@@ -32,6 +32,9 @@ public static class ExecutionEventKinds
     public const string ScheduledOccurrence = "ScheduledOccurrence";
     public const string SignalReceived = "SignalReceived";
     public const string SignalExpired = "SignalExpired";
+    public const string ChildFlowSucceeded = "ChildFlowSucceeded";
+    public const string ChildFlowFailed = "ChildFlowFailed";
+    public const string ChildFlowStarted = "ChildFlowStarted";
 }
 
 public sealed record ProcessorDescription(JobContractId Identity, JobContractId CanonicalIdentity, string? DisplayName);

@@ -406,6 +406,9 @@ public sealed partial class SqlServerJobStore
             ALTER TABLE dj_jobs ADD trace_parent nvarchar(64) NULL;
         IF COL_LENGTH(N'dj_flows',N'max_parallel') IS NULL
             ALTER TABLE dj_flows ADD max_parallel int NULL CONSTRAINT ck_dj_flows_max_parallel CHECK(max_parallel>0);
+        IF COL_LENGTH(N'dj_flows',N'parent_run_id') IS NULL
+            ALTER TABLE dj_flows ADD parent_run_id nvarchar(36) COLLATE Latin1_General_100_BIN2 NULL,
+                parent_job_id nvarchar(36) COLLATE Latin1_General_100_BIN2 NULL, depth int NULL;
         IF COL_LENGTH(N'dj_queue_controls',N'weight') IS NULL
             ALTER TABLE dj_queue_controls ADD weight int NOT NULL CONSTRAINT df_dj_queue_controls_weight DEFAULT 1;
         IF OBJECT_ID(N'dj_queue_turns',N'U') IS NULL
@@ -449,6 +452,7 @@ public sealed partial class SqlServerJobStore
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_partition' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at) WHERE partition_key IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_tenant' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_tenant ON dj_jobs(tenant_id,status,lease_expires_at) WHERE tenant_id IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_flows_bounded' AND object_id=OBJECT_ID(N'dj_flows')) CREATE INDEX ix_dj_flows_bounded ON dj_flows(status) WHERE max_parallel IS NOT NULL;
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_flows_parent' AND object_id=OBJECT_ID(N'dj_flows')) CREATE INDEX ix_dj_flows_parent ON dj_flows(parent_run_id) WHERE parent_run_id IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_rate_ledger' AND object_id=OBJECT_ID(N'dj_rate_ledger')) CREATE INDEX ix_dj_rate_ledger ON dj_rate_ledger(job_key,key_scope,rate_key,started_at);
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_rate_ledger_time' AND object_id=OBJECT_ID(N'dj_rate_ledger')) CREATE INDEX ix_dj_rate_ledger_time ON dj_rate_ledger(started_at);
         """;

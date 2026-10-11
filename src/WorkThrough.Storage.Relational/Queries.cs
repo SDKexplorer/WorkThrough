@@ -12,6 +12,23 @@ public abstract partial class RelationalJobStore
         ReadAsync<IReadOnlyList<JobRecord>>(async (connection, transaction, ct) => await ReadJobsAsync(connection, transaction,
             "SELECT * FROM dj_jobs WHERE workflow_run_id=@run ORDER BY step_id", ct, ("run", runId.ToString())), cancellationToken);
 
+    public Task<IReadOnlyList<WorkflowRun>> ChildRunsAsync(Guid runId, CancellationToken cancellationToken = default) =>
+        ReadAsync<IReadOnlyList<WorkflowRun>>(async (connection, transaction, ct) =>
+        {
+            await using var command = Command(connection, transaction, $"""
+                SELECT f.id,f.flow_key,f.version,f.correlation_id,f.status,f.error,f.parent_run_id,f.parent_job_id FROM dj_flows f
+                JOIN dj_jobs j ON j.id=f.parent_job_id WHERE f.parent_run_id=@run ORDER BY j.step_id,f.id {PageSql(IJobQueries.MaximumChildRuns)}
+                """, ("run", runId.ToString()));
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            var runs = new List<WorkflowRun>();
+            while (await reader.ReadAsync(ct))
+            {
+                runs.Add(ReadWorkflowRun(reader, Guid.Parse(reader.GetString(0))));
+            }
+
+            return runs;
+        }, cancellationToken);
+
     public Task<JobRecord?> GetAsync(Guid jobId, CancellationToken cancellationToken = default) =>
         ReadAsync((connection, transaction, ct) => ReadJobAsync(connection, transaction, jobId, ct), cancellationToken);
 
@@ -119,7 +136,7 @@ public abstract partial class RelationalJobStore
 
     public Task<WorkflowRun?> GetWorkflowAsync(Guid runId, CancellationToken cancellationToken = default) => ReadAsync(async (connection, transaction, ct) =>
     {
-        await using var command = Command(connection, transaction, "SELECT flow_key,version,correlation_id,status,error FROM dj_flows WHERE id=@id", ("id", runId.ToString()));
+        await using var command = Command(connection, transaction, "SELECT flow_key,version,correlation_id,status,error,parent_run_id,parent_job_id FROM dj_flows WHERE id=@id", ("id", runId.ToString()));
         await using var reader = await command.ExecuteReaderAsync(ct);
 
         return await reader.ReadAsync(ct) ? ReadWorkflowRun(reader, runId) : null;
@@ -127,7 +144,11 @@ public abstract partial class RelationalJobStore
 
     private static WorkflowRun ReadWorkflowRun(DbDataReader reader, Guid runId) => new(runId, reader.GetString(reader.GetOrdinal("flow_key")),
         reader.GetInt32(reader.GetOrdinal("version")), Text(reader, "correlation_id"), Enum.Parse<FlowStatus>(reader.GetString(reader.GetOrdinal("status"))),
-        Text(reader, "error"));
+        Text(reader, "error"))
+    {
+        ParentRunId = ParseGuid(Text(reader, "parent_run_id")),
+        ParentJobId = ParseGuid(Text(reader, "parent_job_id"))
+    };
 
     private async Task<JobRecord?> ReadJobAsync(DbConnection connection, DbTransaction? transaction, Guid id, CancellationToken ct) =>
         (await ReadJobsAsync(connection, transaction, "SELECT * FROM dj_jobs WHERE id=@id", ct, ("id", id.ToString()))).SingleOrDefault();

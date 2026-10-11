@@ -255,7 +255,23 @@
                 [selected]="detail.job.stepId"
                 (choose)="inspectStep($event)"
             />
-            }
+            @if (flow.flow.parentJobId || flow.children.length) {
+            <div class="live-graph-header">
+                @if (flow.flow.parentJobId) {
+                <button
+                    class="outline"
+                    (click)="inspectRun(flow.flow.parentJobId, flow.flow.parentRunId)"
+                >
+                    Parent flow
+                </button>
+                } @for (child of flow.children; track child.run.id) {
+                <button class="outline" (click)="inspectRun(child.jobId, child.run.id)">
+                    {{ child.run.flowKey }} · v{{ child.run.version }}
+                    <span class="badge">{{ child.run.status }}</span>
+                </button>
+                }
+            </div>
+            } }
             <div class="live-inspector-body">
                 <section>
                     <h3>Attempt history</h3>

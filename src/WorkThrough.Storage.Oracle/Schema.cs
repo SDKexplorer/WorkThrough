@@ -278,7 +278,25 @@ public sealed partial class OracleJobStore
             """),
     ];
 
-    private static readonly SchemaStep[] OracleSchemaSteps = [.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema];
+    /// <summary>Schema 8 additions (ADR-023), applied after the schema-7 steps.</summary>
+    private static readonly SchemaStep[] OracleChildFlowSchema =
+    [
+        new("DJ_FLOWS", false, """
+            ALTER TABLE dj_flows ADD parent_run_id VARCHAR2(36 CHAR)
+            """, Column: "PARENT_RUN_ID"),
+        new("DJ_FLOWS", false, """
+            ALTER TABLE dj_flows ADD parent_job_id VARCHAR2(36 CHAR)
+            """, Column: "PARENT_JOB_ID"),
+        new("DJ_FLOWS", false, """
+            ALTER TABLE dj_flows ADD depth NUMBER(10)
+            """, Column: "DEPTH"),
+        new("IX_DJ_FLOWS_PARENT", true, """
+            CREATE INDEX ix_dj_flows_parent ON dj_flows(parent_run_id)
+            """),
+    ];
+
+    private static readonly SchemaStep[] OracleSchemaSteps =
+        [.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema];
 
     /// <summary>Identifies the installed step list; any edit to a step's SQL changes it.</summary>
     private static readonly string SchemaFingerprint = Fingerprint(OracleSchemaSteps);
@@ -289,7 +307,9 @@ public sealed partial class OracleJobStore
         (4, OracleSchema.Length, Fingerprint(OracleSchema)),
         (5, OracleSchema.Length + OracleAdmissionSchema.Length, Fingerprint([.. OracleSchema, .. OracleAdmissionSchema])),
         (6, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length,
-            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema]))
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema])),
+        (7, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length + OracleLimitLockSchema.Length,
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema]))
     ];
 
     private static string Fingerprint(IEnumerable<SchemaStep> steps) => Convert.ToHexString(SHA256.HashData(

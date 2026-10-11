@@ -275,3 +275,25 @@ Exact limits without the admission lock (2026-10-11, ADR-022, schema 7, engine p
   - An ordered `FOR UPDATE` locks every matching row when it opens. Oracle claims now read candidate IDs and lock only what they need.
   - A claim whose candidates all failed the exact check gave up. Claims on every provider now try two further pages.
 
+Child flows (2026-10-11, ADR-023, schema 8, engine protocol 4), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 339 | 3 |
+| SQL Server 2022 (emulated), with and without `READ_COMMITTED_SNAPSHOT` | 345 | 3 |
+| Oracle Free 26ai | 339 | 0 |
+
+New coverage on every provider:
+
+- **Running a child:**
+  - a child run receives the step's input and links to its parent;
+  - its final outputs complete the step and bind into later steps.
+- **Failure and recovery:**
+  - a failed child fails the step and becomes an incident;
+  - recovery starts a new child run.
+- **Composition:** each fan-out item runs its own child flow, and the join receives every child's outputs in order.
+- **Guards:**
+  - a missing child fails the step;
+  - a flow that starts itself stops at depth 8, and the failure reaches the outermost run;
+  - child flows wait for protocol 4.
+

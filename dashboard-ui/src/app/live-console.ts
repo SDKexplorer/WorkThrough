@@ -65,9 +65,18 @@ interface Definition {
     status: string;
     graph: Graph;
 }
+interface FlowRun {
+    id: string;
+    flowKey: string;
+    version: number;
+    status: string;
+    parentRunId?: string | null;
+    parentJobId?: string | null;
+}
 interface Flow {
     jobs: Job[];
-    flow: { id: string; flowKey: string; version: number; status: string };
+    flow: FlowRun;
+    children: { run: FlowRun; jobId: string | null }[];
     graph: Graph;
     events: { sequence: number; jobId: string; kind: string; at: string; attempt: number }[];
 }
@@ -450,6 +459,10 @@ export class LiveConsoleComponent {
         } catch (e) {
             if (version === this.inspection) this.error.set(this.message(e));
         }
+    }
+    /** Opens a job by ID, for links between parent and child runs. */
+    async inspectRun(jobId: string | null | undefined, runId: string | null | undefined) {
+        if (jobId && runId) await this.inspect({ id: jobId, workflowRunId: runId } as Job);
     }
     async inspectStep(id: string) {
         const job = this.flow()?.jobs.find(

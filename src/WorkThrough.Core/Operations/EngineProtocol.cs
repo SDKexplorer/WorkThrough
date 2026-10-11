@@ -18,8 +18,11 @@ public static class EngineProtocol
     /// </summary>
     public const int ConcurrentLimits = 3;
 
+    /// <summary>Flow steps that run another published flow and wait for it (<see cref="FlowChild"/>).</summary>
+    public const int ChildFlows = 4;
+
     /// <summary>The highest level this build understands.</summary>
-    public const int Supported = ConcurrentLimits;
+    public const int Supported = ChildFlows;
 }
 
 /// <summary>A store's active protocol and, while a higher level waits, the workers that block it.</summary>

@@ -56,6 +56,12 @@ public interface IJobQueries
     Task<JobStatistics> StatisticsAsync(CancellationToken cancellationToken = default);
     Task<WorkflowRun?> GetWorkflowAsync(Guid runId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<JobRecord>> ListFlowJobsAsync(Guid runId, CancellationToken cancellationToken = default);
+
+    /// <summary>Up to <see cref="MaximumChildRuns"/> runs that child steps of this run started, oldest first.</summary>
+    Task<IReadOnlyList<WorkflowRun>> ChildRunsAsync(Guid runId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<WorkflowRun>>([]);
+
+    public const int MaximumChildRuns = 100;
 }
 
 /// <summary>A result reported by the owner of an attempt's lease.</summary>

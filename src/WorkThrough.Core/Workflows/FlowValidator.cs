@@ -39,9 +39,21 @@ public static class FlowValidator
                     throw new ArgumentException("A signal wait requires a timeout of one millisecond to 365 days and the built-in signal address.");
                 }
             }
+            else if (step.Child is { } child)
+            {
+                _ = new JobContractId(child.FlowKey, child.FlowVersion);
+                if (step.Contract != FlowChild.Processor || child.Timeout <= TimeSpan.Zero || child.Timeout > FlowChild.MaximumTimeout)
+                {
+                    throw new ArgumentException($"Child step {step.Id} requires the built-in child address and a timeout of up to 365 days.");
+                }
+            }
             else if (step.Contract.Key == SignalWait.Processor.Key)
             {
                 throw new ArgumentException("Use WaitForSignal to declare a durable wait.");
+            }
+            else if (step.Contract.Key == FlowChild.Processor.Key)
+            {
+                throw new ArgumentException("Use Child to run another flow.");
             }
 
             if (string.IsNullOrWhiteSpace(step.Id) || string.IsNullOrWhiteSpace(step.Queue) || step.MaxAttempts < 1)

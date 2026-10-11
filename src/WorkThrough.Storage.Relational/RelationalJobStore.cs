@@ -10,7 +10,7 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobAdministration, IWorkflowDefinitions, IJobDiagnostics, IJobSchedules, IDeploymentQueries, IProcessorRegistry
 {
     /// <summary>The schema version this package writes. Providers refuse other versions.</summary>
-    protected const int SchemaVersion = 7;
+    protected const int SchemaVersion = 8;
 
     // Version 3 added expiry, causation and terminal timestamps to existing job tables.
     private const int TerminalTimestampsVersion = 3;
@@ -73,6 +73,11 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             await AddColumnIfMissingAsync(connection, transaction, "dj_jobs", "tenant_id", "TEXT", ct);
             await AddColumnIfMissingAsync(connection, transaction, "dj_jobs", "trace_parent", "TEXT", ct);
             await AddColumnIfMissingAsync(connection, transaction, "dj_flows", "max_parallel", "INTEGER", ct);
+
+            // Schema 8 links child runs to their parent step (ADR-023).
+            await AddColumnIfMissingAsync(connection, transaction, "dj_flows", "parent_run_id", "TEXT", ct);
+            await AddColumnIfMissingAsync(connection, transaction, "dj_flows", "parent_job_id", "TEXT", ct);
+            await AddColumnIfMissingAsync(connection, transaction, "dj_flows", "depth", "INTEGER", ct);
             await AddColumnIfMissingAsync(connection, transaction, "dj_queue_controls", "weight", "INTEGER NOT NULL DEFAULT 1", ct);
 
             // Indexes on upgraded columns are created after the columns exist.
@@ -81,6 +86,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 CREATE INDEX IF NOT EXISTS ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at) WHERE partition_key IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS ix_dj_jobs_tenant ON dj_jobs(tenant_id,status,lease_expires_at) WHERE tenant_id IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS ix_dj_flows_bounded ON dj_flows(status) WHERE max_parallel IS NOT NULL;
+                CREATE INDEX IF NOT EXISTS ix_dj_flows_parent ON dj_flows(parent_run_id) WHERE parent_run_id IS NOT NULL;
                 """, ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_event_sequence(id,value) SELECT 1,COALESCE(MAX(sequence),0) FROM dj_events WHERE 1=1 ON CONFLICT DO NOTHING", ct);
             if (Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_store", ct)) == 0)

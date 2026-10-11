@@ -50,7 +50,7 @@ public static class FlowPlanner
                 }
 
                 job = Decide(step, job, predecessors, input, current);
-                if (step.ForEach is not null && job.Status == JobStatus.Queued)
+                if (step.ForEach is not null && job.Status is JobStatus.Queued or JobStatus.AwaitingSignal)
                 {
                     var expanded = Expand(step, job, current);
                     foreach (var item in expanded)
@@ -129,7 +129,7 @@ public static class FlowPlanner
             {
                 Id = Guid.NewGuid(),
                 StepId = FlowFanOut.ItemStepId(step.Id, index),
-                Status = JobStatus.Queued,
+                Status = step.Child is null ? JobStatus.Queued : JobStatus.AwaitingSignal,
                 Payload = JsonSerializer.SerializeToElement(payload, JobJson.Options),
                 Attempt = 0,
                 Output = null,
@@ -166,7 +166,7 @@ public static class FlowPlanner
 
             return job with
             {
-                Status = step.Signal is null ? JobStatus.Queued : JobStatus.AwaitingSignal,
+                Status = step.Signal is null && step.Child is null ? JobStatus.Queued : JobStatus.AwaitingSignal,
                 Payload = BindPayload(step, input, current)
             };
         }
