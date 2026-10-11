@@ -37,7 +37,12 @@ public static class ExecutionEventKinds
     public const string ChildFlowStarted = "ChildFlowStarted";
 }
 
-public sealed record ProcessorDescription(JobContractId Identity, JobContractId CanonicalIdentity, string? DisplayName);
+public sealed record ProcessorDescription(JobContractId Identity, JobContractId CanonicalIdentity, string? DisplayName)
+{
+    /// <summary>For an upcast address, the version whose job runs its stored work.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public JobContractId? UpcastTo { get; init; }
+}
 
 public sealed record WorkerHeartbeat(string WorkerId, DateTimeOffset SeenAt, IReadOnlyList<JobContractId> Processors,
     IReadOnlyList<string> Queues, int Capacity, int Running, IReadOnlyList<ProcessorDescription>? Descriptions = null)

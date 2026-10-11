@@ -80,6 +80,48 @@ public sealed class JobCatalog : IJobRegistrar
         }
     }
 
+    /// <summary>
+    /// Serves stored work at <paramref name="from"/> with the job already registered for <paramref name="to"/>, converting each stored
+    /// input first. Work keeps its stored address and input; only how this build executes it changes. Both addresses are versions of one
+    /// key, so they share admission limits. Use <see cref="JsonElement"/>
+    /// as <typeparamref name="TOld"/> once the old input type no longer exists. Upcasts chain: <paramref name="to"/> may itself be one.
+    /// </summary>
+    public void Upcast<TOld, TNew>(JobContractId from, JobDefinition<TNew> to, Func<TOld, TNew> convert)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(to);
+        ArgumentNullException.ThrowIfNull(convert);
+        if (sealedCatalog)
+        {
+            throw new InvalidOperationException("Job registration is closed after worker startup.");
+        }
+
+        // Renames across keys use registry aliases, which fence the fleet; an upcast only bridges versions of one key.
+        if (from.Key != to.Identity.Key || from.Version == to.Identity.Version)
+        {
+            throw new ArgumentException("An upcast bridges two versions of the same job key. Use a registry alias to change the key.", nameof(from));
+        }
+
+        var target = registrations.GetValueOrDefault(to.Identity)
+            ?? throw new InvalidOperationException($"Register the job for {to.Identity} before upcasting {from} to it.");
+        if (registrations.ContainsKey(from))
+        {
+            throw new InvalidOperationException($"{from} already has a job; remove it before serving that address through an upcast.");
+        }
+
+        registrations.Add(from, new(from, typeof(TOld), target.HandlerType, async (handler, payload, context, ct) =>
+        {
+            var stored = payload.Deserialize<TOld>(JobJson.Options) ?? throw new JsonException($"Null input is invalid for {from}.");
+            var converted = JsonSerializer.SerializeToElement(convert(stored), JobJson.Options);
+
+            return await target.InvokeAsync(handler, converted, context, ct).ConfigureAwait(false);
+        })
+        {
+            DisplayName = target.DisplayName,
+            UpcastTo = to.Identity
+        });
+    }
+
     public JobRegistration Get(JobContractId identity) => registrations.TryGetValue(identity, out var registration)
         ? registration : throw new InvalidOperationException($"No job is registered for {identity}.");
     public string CapacityKey(string key) => registrations.Values.FirstOrDefault(r => r.Identity.Key == key)?.CanonicalIdentity.Key ?? key;
@@ -104,4 +146,7 @@ public sealed record JobRegistration(JobContractId Identity, Type RequestType, T
 {
     public JobContractId CanonicalIdentity { get; init; } = Identity;
     public string? DisplayName { get; init; }
+
+    /// <summary>The address whose job runs this one's stored work after converting its input, for an upcast; otherwise null.</summary>
+    public JobContractId? UpcastTo { get; init; }
 }

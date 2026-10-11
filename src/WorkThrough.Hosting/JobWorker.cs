@@ -119,7 +119,8 @@ internal sealed class JobWorker(
         try
         {
             var processors = catalog.Registrations.Select(r => r.Identity).ToArray();
-            var descriptions = catalog.Registrations.Select(r => new ProcessorDescription(r.Identity, r.CanonicalIdentity, r.DisplayName)).ToArray();
+            var descriptions = catalog.Registrations
+                .Select(r => new ProcessorDescription(r.Identity, r.CanonicalIdentity, r.DisplayName) { UpcastTo = r.UpcastTo }).ToArray();
             var heartbeat = new WorkerHeartbeat(settings.WorkerId, default, processors, settings.Queues, settings.MaxConcurrentJobs, running, descriptions)
             {
                 Acquisition = status.Acquisition,

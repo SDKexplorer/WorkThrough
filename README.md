@@ -97,7 +97,7 @@ A job's address is its key and contract version. The database stores that addres
 
 Every job implements `IJob<TInput>`. Its address comes from `[JobContract("key")]` on the input type, from `[Job("key")]` on the class, or from a `JobDefinition` passed to `AddJob`. A definition suits addresses shared with producers in other services, and input types that several jobs accept. `AddJobs(assembly)` registers attributed jobs at startup; the `WorkThrough.Generators` source generator does the same at build time and reports a job without an address as a compile error.
 
-Retired addresses can be [aliased](docs/identity-evolution.md) to new ones under fleet fencing. [Deployment preflight](docs/deployment-preflight.md) checks that a proposed worker fleet covers every address, version and queue that stored work still needs.
+When an input changes, add a new version and an upcast that converts stored older inputs, so queued work, schedules and pinned flow steps run on the new job without keeping old classes ([identity evolution](docs/identity-evolution.md#change-what-an-input-means-new-version-plus-upcast)). Retired addresses can be [aliased](docs/identity-evolution.md) to new ones under fleet fencing. [Deployment preflight](docs/deployment-preflight.md) checks that a proposed worker fleet covers every address, version and queue that stored work still needs.
 
 ### Delivery
 

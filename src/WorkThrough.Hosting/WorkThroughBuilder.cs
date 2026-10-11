@@ -106,6 +106,18 @@ public sealed class WorkThroughBuilder
         return this;
     }
 
+    /// <summary>
+    /// Serves stored work at an older version of a job's address with the job registered for <paramref name="to"/>, converting each
+    /// stored input first. Register the target job before its upcasts.
+    /// </summary>
+    /// <example><c>.AddUpcast(new JobContractId("invoices.generate", 1), InvoiceJobs.Generate, (InvoiceV1 old) =&gt; new GenerateInvoice(old.Id, "EUR"))</c></example>
+    public WorkThroughBuilder AddUpcast<TOld, TNew>(JobContractId from, JobDefinition<TNew> to, Func<TOld, TNew> convert)
+    {
+        Catalog.Upcast(from, to, convert);
+
+        return this;
+    }
+
     public WorkThroughBuilder AddGeneratedJobs(Assembly assembly)
     {
         var marker = assembly.GetCustomAttribute<JobModuleAttribute>()

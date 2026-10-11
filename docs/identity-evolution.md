@@ -33,6 +33,27 @@ The shared definition belongs in a contracts project. Producers need that projec
 
 Display names describe behavior and may change independently. Permanent identities and their input/output meaning remain compatibility contracts. A new business meaning requires a new version or an explicit adapter; aliases do not transform payloads.
 
+## Change what an input means: new version plus upcast
+
+When a job's input changes shape or meaning, give the new shape a new version of the same key, and keep old stored work runnable. Queued jobs, delayed jobs, schedules and pinned flow steps keep the address they were saved with. There are two ways to serve them:
+
+- Keep the old version's job class deployed beside the new one.
+- Register an upcast, which converts each stored input and runs the new job:
+
+```csharp
+builder.Services.AddWorkThrough()
+    .AddJob<GenerateInvoiceV3, GenerateInvoiceJob>(InvoiceJobs.GenerateV3)
+    .AddUpcast(InvoiceJobs.GenerateV2.Identity, InvoiceJobs.GenerateV3, (GenerateInvoiceV2 old) => new(old.Id, old.Currency, Total: 0m))
+    .AddUpcast(new JobContractId("invoices.generate", 1), InvoiceJobs.GenerateV2,
+        (JsonElement old) => new GenerateInvoiceV2(old.GetProperty("id").GetString()!, "EUR"));
+```
+
+- **Order and chains:** register the target job first. Upcasts chain, so v1 runs as v2 and then v3.
+- **Old types:** read the input as `JsonElement` once its type is gone from the codebase.
+- **Stored identity:** the job keeps its stored address and input. Only how this build executes it changes. Each worker serves an old version its own way, so an upcast needs no registry change or fleet fencing.
+- **Admission:** an upcast bridges versions of one key, so they share the same limits. To change the key itself, use an alias, below.
+- **Rollout:** [deployment preflight](deployment-preflight.md) counts an upcast address as covered. Run it with the candidate worker before retiring the old job class. Worker heartbeats show where each upcast address runs (`upcastTo`).
+
 ## Rename an address deliberately
 
 A class move does not require this operation. When replacing an old arbitrary address with a meaningful one, retain the historical address as a direct alias:

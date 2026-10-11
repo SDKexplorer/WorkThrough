@@ -299,3 +299,10 @@ New coverage on every provider:
 
 `WorkThrough.Testing` (2026-10-11): the test host runs delayed work and retry backoff after `AdvanceAsync`, exposes typed step outputs, and describes every step when an assertion fails. `samples/Shop.Tests` runs the checkout flow through it, and the package consumer uses it from the packed NuGet package. SQLite + PostgreSQL: 341 passed, 3 skipped.
 
+Input upcasts (2026-10-11, ADR-024):
+- v1 jobs stored as JSON and v2 jobs both run on the v3 job through chained upcasts, and so does a flow step pinned to v1.
+- The stored address stays v1, and preflight counts the upcast address as covered.
+- Upcasts across keys, or onto an unregistered job, are refused.
+
+SQLite + PostgreSQL: 344 passed, 3 skipped. No storage code changed.
+
