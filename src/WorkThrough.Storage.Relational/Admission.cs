@@ -157,6 +157,44 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
     private sealed record FairQueueOrder(IReadOnlyList<string> Queues, bool Competing, long Clock);
 
     /// <summary>
+    /// A snapshot read, outside the admission lock, of whether a claim has anything to do: a sweep is due, or ready work exists in
+    /// the requested queues while fleet capacity remains. Idle or saturated workers then poll without serializing other writers.
+    /// </summary>
+    /// <remarks>Only an optimization: a stale answer delays work by one poll, and admission is still decided under the lock.</remarks>
+    private Task<bool> ClaimMayProceedAsync(ClaimRequest request, CancellationToken cancellationToken) =>
+        ReadAsync(async (connection, transaction, ct) =>
+        {
+            var now = await NowAsync(connection, transaction, ct);
+            var parameters = new List<(string, object?)> { ("now", now), ("all", AllJobsLimitKey) };
+            var queues = request.Queues.Select((queue, index) =>
+            {
+                parameters.Add(($"queue{index}", queue));
+
+                return $"@queue{index}";
+            }).ToArray();
+            await using var command = Command(connection, transaction, $"""
+                SELECT
+                  CASE WHEN EXISTS (SELECT 1 FROM dj_jobs WHERE status='Running' AND lease_expires_at<=@now)
+                    OR EXISTS (SELECT 1 FROM dj_jobs WHERE status='Queued' AND expires_at<=@now)
+                    OR EXISTS (SELECT 1 FROM dj_signal_waits w WHERE w.deadline<=@now
+                      OR EXISTS (SELECT 1 FROM dj_signals s WHERE s.run_id=w.run_id AND s.name=w.name))
+                  THEN 1 ELSE 0 END,
+                  CASE WHEN EXISTS (SELECT 1 FROM dj_jobs WHERE status='Queued' AND available_at<=@now AND queue IN ({string.Join(",", queues)}))
+                  THEN 1 ELSE 0 END,
+                  (SELECT maximum FROM dj_limits WHERE job_key=@all),
+                  (SELECT COUNT(*) FROM dj_jobs WHERE status='Running' AND lease_expires_at>@now)
+                FROM dj_registry r WHERE r.id=1
+                """, parameters.ToArray());
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            await reader.ReadAsync(ct);
+            var sweepDue = Convert.ToInt32(reader.GetValue(0)) != 0;
+            var ready = Convert.ToInt32(reader.GetValue(1)) != 0;
+            var fleetFull = !reader.IsDBNull(2) && Convert.ToInt64(reader.GetValue(3)) >= Convert.ToInt64(reader.GetValue(2));
+
+            return sweepDue || ready && !fleetFull;
+        }, cancellationToken);
+
+    /// <summary>
     /// Claim configuration read in one round trip at the start of the admission transaction, so every value is exact for this claim.
     /// Absent policy kinds are left out of the claim query: PostgreSQL re-plans every claim and unused predicates doubled its planning time.
     /// </summary>

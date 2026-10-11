@@ -199,11 +199,17 @@ public sealed class AdmissionControlTests
         Assert.Equal(2, admitted.Where(job => job.TenantId == "tenant-busy").Select(job => job.PartitionKey).Distinct().Count());
         Assert.Equal(2, admitted.Count(job => job.TenantId == "tenant-quiet"));
 
-        var waiting = (await harness.Store.ListAsync(new(Status: JobStatus.Queued))).Where(job => job.TenantId == "tenant-busy")
-            .Single(job => admitted.All(running => running.PartitionKey != job.PartitionKey));
-        var readiness = await harness.Store.ReadReadinessAsync(waiting.Id);
-        Assert.Equal(ReadinessReasons.TenantCapacity, readiness.Reason);
-        Assert.Equal((2, 2L, true), (readiness.Capacity!.TenantMaximum, readiness.Capacity.TenantAdmitted, readiness.Capacity.TenantLimited));
+        // Jobs accepted in the same millisecond start in ID order, so which partitions were admitted varies; every waiting busy job
+        // whose partition is free is held by the tenant limit alone.
+        var waiting = (await harness.Store.ListAsync(new(Status: JobStatus.Queued)))
+            .Where(job => job.TenantId == "tenant-busy" && admitted.All(running => running.PartitionKey != job.PartitionKey)).ToArray();
+        Assert.NotEmpty(waiting);
+        foreach (var job in waiting)
+        {
+            var readiness = await harness.Store.ReadReadinessAsync(job.Id);
+            Assert.Equal(ReadinessReasons.TenantCapacity, readiness.Reason);
+            Assert.Equal((2, 2L, true), (readiness.Capacity!.TenantMaximum, readiness.Capacity.TenantAdmitted, readiness.Capacity.TenantLimited));
+        }
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -325,6 +331,63 @@ public sealed class AdmissionControlTests
         Assert.All(page.Items, item => Assert.Equal(("customer", "tenant"), (item.PartitionKey, item.TenantId)));
         Assert.Equal(2, (await harness.Store.SearchExecutionsAsync(new(TenantId: "tenant"))).Items.Count);
         Assert.Empty((await harness.Store.SearchExecutionsAsync(new(TenantId: "other"))).Items);
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task A_batch_claim_applies_every_limit_as_separate_claims_would(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var store = harness.Store;
+        await store.SeedLimitsAsync([new(null, 5)]);
+        await store.SeedAdmissionPoliciesAsync([new(KeyScope.Partition, null, 1)], []);
+        var client = new JobClient(store);
+        for (var i = 0; i < 3; i++)
+        {
+            await client.EnqueueAsync(new Alpha("same"), new(PartitionKey: "customer"));
+        }
+
+        for (var i = 0; i < 6; i++)
+        {
+            await client.EnqueueAsync(new Beta($"beta-{i}"));
+        }
+
+        // Alpha is limited to one lease by its partition; the fleet limit stops the batch at five.
+        var batch = await store.ClaimBatchAsync(Claim() with { MaximumJobs = 20 });
+        Assert.Equal(5, batch.Count);
+        Assert.Single(batch, job => job.Contract == JobContractId.For<Alpha>());
+        Assert.Equal(5, batch.Select(job => job.LeaseToken).Distinct().Count());
+        Assert.Empty(await store.ClaimBatchAsync(Claim() with { MaximumJobs = 20 }));
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task A_batch_claim_stays_within_the_workers_local_budgets(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        for (var i = 0; i < 4; i++)
+        {
+            await EnqueueAsync(harness.Store, null);
+            await new JobClient(harness.Store).EnqueueAsync(new Beta($"beta-{i}"));
+        }
+
+        var batch = await harness.Store.ClaimBatchAsync(Claim() with { MaximumJobs = 6, Budgets = [new(["tests.alpha"], 2)] });
+        Assert.Equal(6, batch.Count);
+        Assert.Equal(2, batch.Count(job => job.Contract == JobContractId.For<Alpha>()));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => harness.Store.ClaimBatchAsync(Claim() with { MaximumJobs = ClaimRequest.MaximumBatch + 1 }));
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task A_batch_claim_divides_competing_queues_by_weight(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        await harness.Store.SetQueueWeightAsync("bulk", 3, 0, Command()).SucceedsAsync();
+        for (var i = 0; i < 9; i++)
+        {
+            await EnqueueAsync(harness.Store, null, "bulk");
+            await EnqueueAsync(harness.Store, null, "urgent");
+        }
+
+        var batch = await harness.Store.ClaimBatchAsync(Claim("fair", null, "bulk", "urgent") with { MaximumJobs = 8 });
+        Assert.Equal(6, batch.Count(job => job.Queue == "bulk"));
     }
 
     /// <summary>Claims and completes up to <paramref name="count"/> jobs, returning the queue of each in claim order.</summary>

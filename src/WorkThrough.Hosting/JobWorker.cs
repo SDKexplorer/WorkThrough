@@ -70,10 +70,15 @@ internal sealed class JobWorker(
 
                 var settings = options.CurrentValue;
                 await HeartbeatAsync(settings, running.Count, stoppingToken);
-                if (await ClaimAsync(settings, running.Values.Select(x => x.Job).ToArray(), stoppingToken) is { } job)
+                var claimed = await ClaimAsync(settings, running.Values.Select(x => x.Job).ToArray(), stoppingToken);
+                foreach (var job in claimed)
                 {
                     // A revoked attempt can still be physically running when a replacement is admitted.
                     running.Add(job.LeaseToken!.Value, (job, Task.Run(() => ExecuteAttemptAsync(job, settings, stoppingToken), CancellationToken.None)));
+                }
+
+                if (claimed.Count > 0)
+                {
                     continue;
                 }
 
@@ -125,21 +130,28 @@ internal sealed class JobWorker(
         nextHeartbeat = DateTimeOffset.UtcNow + HeartbeatInterval;
     }
 
-    private async Task<JobRecord?> ClaimAsync(JobWorkerOptions settings, IReadOnlyCollection<JobRecord> running, CancellationToken ct)
+    /// <summary>Claims as many jobs as there are free local slots, within each local per-job limit, in one admission transaction.</summary>
+    private async Task<IReadOnlyList<JobRecord>> ClaimAsync(JobWorkerOptions settings, IReadOnlyCollection<JobRecord> running, CancellationToken ct)
     {
         var admissible = AdmissibleProcessors(settings, running);
-        if (running.Count >= settings.MaxConcurrentJobs || admissible.Length == 0)
+        var free = Math.Min(settings.MaxConcurrentJobs - running.Count, ClaimRequest.MaximumBatch);
+        if (free <= 0 || admissible.Length == 0)
         {
-            return null;
+            return [];
         }
 
         try
         {
             acquisition = acquisition with { LastAttemptAt = DateTimeOffset.UtcNow };
-            var job = await store.ClaimAsync(new(settings.WorkerId, admissible, settings.Queues, settings.LeaseDuration, registryRevision), ct);
+            var request = new ClaimRequest(settings.WorkerId, admissible, settings.Queues, settings.LeaseDuration, registryRevision)
+            {
+                MaximumJobs = free,
+                Budgets = LocalBudgets(settings, running)
+            };
+            var jobs = await store.ClaimBatchAsync(request, ct);
             acquisition = acquisition with { LastSucceededAt = DateTimeOffset.UtcNow, ConsecutiveFailures = 0 };
 
-            return job;
+            return jobs;
         }
         catch (ProcessorRegistryChangedException exception)
         {
@@ -152,8 +164,22 @@ internal sealed class JobWorker(
             logger.LogError(exception, "Job acquisition failed; storage will be retried");
             acquisition = acquisition with { ConsecutiveFailures = Math.Min(acquisition.ConsecutiveFailures, int.MaxValue - 1) + 1 };
 
-            return null;
+            return [];
         }
+    }
+
+    /// <summary>Remaining local capacity per limited job-key group, so a batch cannot exceed <see cref="JobWorkerOptions.PerJobLimits"/>.</summary>
+    private ContractBudget[] LocalBudgets(JobWorkerOptions settings, IEnumerable<JobRecord> running)
+    {
+        var active = running.GroupBy(job => catalog.CapacityKey(job.Contract.Key)).ToDictionary(group => group.Key, group => group.Count());
+
+        return settings.PerJobLimits.GroupBy(limit => catalog.CapacityKey(limit.Key)).Select(group =>
+        {
+            var keys = catalog.Registrations.Select(registration => registration.Identity.Key)
+                .Where(key => catalog.CapacityKey(key) == group.Key).Distinct().ToArray();
+
+            return new ContractBudget(keys, group.Min(limit => limit.Value) - active.GetValueOrDefault(group.Key));
+        }).ToArray();
     }
 
     /// <summary>Processors whose local per-job limit still has room on this worker.</summary>

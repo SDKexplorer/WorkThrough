@@ -49,7 +49,19 @@ public sealed record JobFilter(string? CorrelationId = null, JobStatus? Status =
 
 public sealed record ClaimRequest(
     string WorkerId, IReadOnlyCollection<JobContractId> Contracts,
-    IReadOnlyCollection<string> Queues, TimeSpan LeaseDuration, long RegistryRevision = 0);
+    IReadOnlyCollection<string> Queues, TimeSpan LeaseDuration, long RegistryRevision = 0)
+{
+    public const int MaximumBatch = 100;
+
+    /// <summary>How many jobs one claim may lease; a worker asks for its free slots.</summary>
+    public int MaximumJobs { get; init; } = 1;
+
+    /// <summary>The worker's remaining local capacity per job-key group, applied as the batch fills.</summary>
+    public IReadOnlyList<ContractBudget> Budgets { get; init; } = [];
+}
+
+/// <summary>At most <paramref name="Remaining"/> more leases for any of these job keys in one claim.</summary>
+public sealed record ContractBudget(IReadOnlyCollection<string> JobKeys, int Remaining);
 
 /// <summary>A persisted cluster-wide admission policy. Null JobKey means all job types.</summary>
 public sealed record ConcurrencyLimit(string? JobKey, int Maximum);

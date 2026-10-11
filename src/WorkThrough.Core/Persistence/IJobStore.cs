@@ -9,6 +9,13 @@ public interface IJobStore
     Task SeedLimitsAsync(IReadOnlyList<ConcurrencyLimit> limits, CancellationToken cancellationToken = default);
     Task SetLimitAsync(ConcurrencyLimit limit, CancellationToken cancellationToken = default);
     Task<JobRecord?> ClaimAsync(ClaimRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Leases up to <see cref="ClaimRequest.MaximumJobs"/> jobs in one admission transaction, applying every shared limit and
+    /// the request's budgets before each lease. Providers without batching lease one job.
+    /// </summary>
+    async Task<IReadOnlyList<JobRecord>> ClaimBatchAsync(ClaimRequest request, CancellationToken cancellationToken = default) =>
+        await ClaimAsync(request, cancellationToken) is { } job ? [job] : [];
     Task<bool> RenewAsync(Guid jobId, Guid leaseToken, TimeSpan duration, CancellationToken cancellationToken = default);
     Task<bool> CompleteAsync(Guid jobId, Guid leaseToken, JobResult result, CancellationToken cancellationToken = default);
     Task<bool> FailAsync(Guid jobId, Guid leaseToken, string error, TimeSpan retryDelay, CancellationToken cancellationToken = default);

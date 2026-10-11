@@ -193,19 +193,42 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         ExecuteAsync(connection, transaction, UpsertSql("dj_limits", "job_key,maximum", "@key,@maximum", "job_key", replace ? "maximum" : ""), ct,
             ("key", limit.JobKey ?? AllJobsLimitKey), ("maximum", limit.Maximum));
 
-    public Task<JobRecord?> ClaimAsync(ClaimRequest request, CancellationToken cancellationToken = default)
+    public async Task<JobRecord?> ClaimAsync(ClaimRequest request, CancellationToken cancellationToken = default) =>
+        (await ClaimBatchAsync(request with { MaximumJobs = 1 }, cancellationToken)).FirstOrDefault();
+
+    /// <summary>
+    /// Leases jobs one at a time inside a single admission transaction. Each lease is visible to the next admission check, so
+    /// a batch obeys every shared limit exactly as separate claims would; sweeps and settings are paid once per batch.
+    /// </summary>
+    public Task<IReadOnlyList<JobRecord>> ClaimBatchAsync(ClaimRequest request, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.WorkerId) || request.LeaseDuration <= TimeSpan.Zero)
         {
             throw new ArgumentException("Claim requires a worker ID and positive lease duration.");
         }
 
-        if (request.Contracts.Count == 0 || request.Queues.Count == 0)
+        if (request.MaximumJobs is < 1 or > ClaimRequest.MaximumBatch)
         {
-            return Task.FromResult<JobRecord?>(null);
+            throw new ArgumentOutOfRangeException(nameof(request), $"A claim leases 1–{ClaimRequest.MaximumBatch} jobs.");
         }
 
-        return WriteAsync<JobRecord?>(async (connection, transaction, ct) =>
+        if (request.Contracts.Count == 0 || request.Queues.Count == 0)
+        {
+            return Task.FromResult<IReadOnlyList<JobRecord>>([]);
+        }
+
+        return ClaimWhenWorthwhileAsync(request, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<JobRecord>> ClaimWhenWorthwhileAsync(ClaimRequest request, CancellationToken cancellationToken)
+    {
+        if (!await ClaimMayProceedAsync(request, cancellationToken))
+        {
+            return [];
+        }
+
+        return await WriteAsync<IReadOnlyList<JobRecord>>(async (connection, transaction, ct) =>
         {
             var now = await NowAsync(connection, transaction, ct);
             var settings = await ReadClaimSettingsAsync(connection, transaction, request.WorkerId, ct);
@@ -217,35 +240,62 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             await RecoverExpiredAsync(connection, transaction, now, ct);
             await ExpireQueuedAsync(connection, transaction, now, ct);
             await DispatchSignalsCoreAsync(connection, transaction, now, SweepBatchSize, ct);
-            if (settings.Draining || await GlobalLimitReachedAsync(connection, transaction, settings.GlobalMaximum, now, ct))
+            var leased = new List<JobRecord>();
+            if (settings.Draining)
             {
-                return null;
-            }
-
-            var order = await FairQueueOrderAsync(connection, transaction, request, now, ct);
-            foreach (var queue in order.Queues)
-            {
-                if (await FindClaimableAsync(connection, transaction, request, queue, settings, now, ct) is not { } candidate)
-                {
-                    continue;
-                }
-
-                if (order.Competing)
-                {
-                    await AdvanceQueueTurnAsync(connection, transaction, queue, order.Clock, ct);
-                }
-
-                var leased = await LeaseAsync(connection, transaction, candidate, request, now, ct);
-                if (settings.HasRateLimits)
-                {
-                    await RecordRateStartAsync(connection, transaction, leased.Id, now, ct);
-                }
-
                 return leased;
             }
 
-            return null;
+            var budgets = request.Budgets.Select(budget => (Keys: budget.JobKeys.ToHashSet(StringComparer.Ordinal), budget.Remaining)).ToList();
+            while (leased.Count < request.MaximumJobs && !await GlobalLimitReachedAsync(connection, transaction, settings.GlobalMaximum, now, ct))
+            {
+                var contracts = request.Contracts.Where(contract => budgets.All(budget => budget.Remaining > 0 || !budget.Keys.Contains(contract.Key))).ToArray();
+                if (contracts.Length == 0 || await LeaseNextAsync(connection, transaction, request with { Contracts = contracts }, settings, now, ct) is not { } job)
+                {
+                    break;
+                }
+
+                leased.Add(job);
+                for (var index = 0; index < budgets.Count; index++)
+                {
+                    if (budgets[index].Keys.Contains(job.Contract.Key))
+                    {
+                        budgets[index] = budgets[index] with { Remaining = budgets[index].Remaining - 1 };
+                    }
+                }
+            }
+
+            return leased;
         }, cancellationToken);
+    }
+
+    /// <summary>Leases the next admissible job from the worker's queues in fair-share order, or returns null.</summary>
+    private async Task<JobRecord?> LeaseNextAsync(DbConnection connection, DbTransaction transaction, ClaimRequest request, ClaimSettings settings,
+        long now, CancellationToken ct)
+    {
+        var order = await FairQueueOrderAsync(connection, transaction, request, now, ct);
+        foreach (var queue in order.Queues)
+        {
+            if (await FindClaimableAsync(connection, transaction, request, queue, settings, now, ct) is not { } candidate)
+            {
+                continue;
+            }
+
+            if (order.Competing)
+            {
+                await AdvanceQueueTurnAsync(connection, transaction, queue, order.Clock, ct);
+            }
+
+            var leased = await LeaseAsync(connection, transaction, candidate, request, now, ct);
+            if (settings.HasRateLimits)
+            {
+                await RecordRateStartAsync(connection, transaction, leased.Id, now, ct);
+            }
+
+            return leased;
+        }
+
+        return null;
     }
 
     private async Task<bool> GlobalLimitReachedAsync(DbConnection connection, DbTransaction transaction, long? maximum, long now, CancellationToken ct)
