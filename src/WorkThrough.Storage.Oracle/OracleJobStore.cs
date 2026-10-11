@@ -85,6 +85,10 @@ public sealed partial class OracleJobStore : RelationalJobStore
     protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
+    /// <summary>Owned-row writes do not lock the admission row; their lease token or worker ID fences them.</summary>
+    protected override async Task<DbTransaction> BeginOwnedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {
         var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
@@ -122,6 +126,9 @@ public sealed partial class OracleJobStore : RelationalJobStore
     // Match only bind markers outside SQL string literals. Caller business SQL never passes through this method.
     private static readonly Regex BindTokens = new("'(?:''|[^'])*'|@[A-Za-z][A-Za-z0-9_]*", RegexOptions.Compiled);
 
+    /// <summary>Oracle commands carry one statement; an anonymous block runs several in one round trip.</summary>
+    protected override string BatchSql(IReadOnlyList<string> statements) => $"BEGIN\n{string.Join(";\n", statements)};\nEND;";
+
     protected override DbCommand Command(DbConnection connection, DbTransaction? transaction, string sql, params (string Name, object? Value)[] values)
     {
         var supplied = values.ToDictionary(value => value.Name, value => value.Value, StringComparer.Ordinal);
@@ -141,7 +148,7 @@ public sealed partial class OracleJobStore : RelationalJobStore
 
             if (value is string { Length: 0 })
             {
-                if (name is "error" or "description" or "message" or "stack" or "handler" or "type")
+                if (BaseParameterName(name) is "error" or "description" or "message" or "stack" or "handler" or "type")
                 {
                     return "EMPTY_CLOB()";
                 }
@@ -165,8 +172,8 @@ public sealed partial class OracleJobStore : RelationalJobStore
                 int => OracleDbType.Int32,
                 long => OracleDbType.Int64,
                 string text when text.Length > 2000 => OracleDbType.Clob,
-                null when name is "failure" or "expiry" or "deadline" or "timeout" or "next" => OracleDbType.Int64,
-                null when name is "output" or "error" or "description" or "stack" => OracleDbType.Clob,
+                null when BaseParameterName(name) is "failure" or "expiry" or "deadline" or "timeout" or "next" => OracleDbType.Int64,
+                null when BaseParameterName(name) is "output" or "error" or "description" or "stack" => OracleDbType.Clob,
                 _ => OracleDbType.Varchar2
             };
             command.Parameters.Add(new OracleParameter("wt_" + name, type) { Value = value ?? DBNull.Value });

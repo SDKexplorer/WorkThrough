@@ -27,6 +27,7 @@ public sealed class SqliteJobStore : RelationalJobStore
         $"json_extract(CASE WHEN LENGTH(a.actor)<=16384 THEN a.actor ELSE '{{}}' END,'$.{field}')";
     private readonly string connectionString;
     private readonly bool useWriteAheadLogging;
+    private readonly int busyTimeoutMilliseconds;
 
     public SqliteJobStore(string connectionString) : this(connectionString, new SqliteStorageOptions())
     {
@@ -42,6 +43,7 @@ public sealed class SqliteJobStore : RelationalJobStore
             throw new ArgumentException("Durable storage requires a file-backed SQLite database.", nameof(connectionString));
         }
 
+        busyTimeoutMilliseconds = checked(builder.DefaultTimeout * 1000);
         this.connectionString = builder.ToString();
     }
 
@@ -68,7 +70,9 @@ public sealed class SqliteJobStore : RelationalJobStore
         try
         {
             await using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA synchronous=FULL";
+            // SQLite's own busy handler waits in small steps for the single write lock; without it the driver retries a busy
+            // statement after long fixed sleeps, which collapses throughput as soon as processes contend.
+            command.CommandText = $"PRAGMA synchronous=FULL; PRAGMA busy_timeout={busyTimeoutMilliseconds}";
             await command.ExecuteNonQueryAsync(ct);
 
             return connection;

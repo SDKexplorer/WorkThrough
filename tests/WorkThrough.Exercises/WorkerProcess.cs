@@ -35,7 +35,7 @@ internal sealed class WorkerProcess : IDisposable
         }
     }
 
-    public WorkerProcess(ExerciseDatabase database, IReadOnlyList<string>? queues = null, bool crashRecovery = false)
+    public WorkerProcess(ExerciseDatabase database, IReadOnlyList<string>? queues = null, bool crashRecovery = false, int? slots = null)
     {
         var start = new ProcessStartInfo(Environment.ProcessPath!) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         // Invoked using dotnet so children use the exact same runtime as the parent.
@@ -47,6 +47,7 @@ internal sealed class WorkerProcess : IDisposable
         start.ArgumentList.Add("worker");
         start.Environment["WT_EXERCISE_CRASH"] = crashRecovery ? "1" : "0";
         start.Environment["WT_EXERCISE_QUEUES"] = queues is null ? "" : string.Join(',', queues);
+        start.Environment["WT_EXERCISE_SLOTS"] = slots?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
         start.Environment["WT_EXERCISE_PROVIDER"] = database.Provider;
         start.Environment["WT_EXERCISE_CONNECTION"] = database.ConnectionString;
         start.Environment["WT_EXERCISE_EFFECTS"] = Path.Combine(database.DirectoryPath, "effects.db");

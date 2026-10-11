@@ -47,7 +47,7 @@ internal static class Workload
             {
                 options.WorkerId = $"exercise-{Environment.ProcessId}";
                 options.Queues = Environment.GetEnvironmentVariable("WT_EXERCISE_QUEUES") is { Length: > 0 } queues ? queues.Split(',') : [Queue];
-                options.MaxConcurrentJobs = LocalSlots;
+                options.MaxConcurrentJobs = int.TryParse(Environment.GetEnvironmentVariable("WT_EXERCISE_SLOTS"), out var slots) ? slots : LocalSlots;
                 options.PerJobLimits[Limited.Identity.Key] = 2;
                 options.PollInterval = TimeSpan.FromMilliseconds(PollMilliseconds);
                 options.LeaseDuration = Environment.GetEnvironmentVariable("WT_EXERCISE_CRASH") == "1" ? TimeSpan.FromSeconds(2) : Lease;

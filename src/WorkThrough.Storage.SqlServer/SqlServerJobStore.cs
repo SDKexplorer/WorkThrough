@@ -43,7 +43,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
 
         var assignments = string.Join(",", updates.Split(',').Select(column => $"{column}={supplied[column]}"));
 
-        // All callers already hold the same transaction-owned exclusive store lock.
+        // Callers hold the exclusive store lock, or write a key only its owner writes (a worker's heartbeat, an attempt's progress).
         return $"UPDATE {table} SET {assignments} WHERE {predicate}; IF @@ROWCOUNT=0 {insert}";
     }
 
@@ -51,7 +51,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
     {
         foreach (var (name, value) in values)
         {
-            if (value is string text && IsIdentityParameter(name) && text.EndsWith(' '))
+            if (value is string text && IsIdentityParameter(BaseParameterName(name)) && text.EndsWith(' '))
             {
                 throw new ArgumentException($"SQL Server identity parameter '{name}' cannot end in a space. No identity is trimmed or normalized.");
             }
@@ -77,6 +77,10 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
 
     protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(IsolationLevel.Snapshot, cancellationToken);
+
+    /// <summary>Owned-row writes take no application lock; their lease token or worker ID fences them.</summary>
+    protected override async Task<DbTransaction> BeginOwnedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
 
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {

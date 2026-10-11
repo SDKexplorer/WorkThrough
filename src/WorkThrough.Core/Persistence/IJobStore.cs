@@ -18,6 +18,18 @@ public interface IJobStore
         await ClaimAsync(request, cancellationToken) is { } job ? [job] : [];
     Task<bool> RenewAsync(Guid jobId, Guid leaseToken, TimeSpan duration, CancellationToken cancellationToken = default);
     Task<bool> CompleteAsync(Guid jobId, Guid leaseToken, JobResult result, CancellationToken cancellationToken = default);
+
+    /// <summary>Settles several attempts at once, each under its own lease check. Providers without batching settle one by one.</summary>
+    async Task<IReadOnlyList<bool>> CompleteBatchAsync(IReadOnlyList<AttemptCompletion> completions, CancellationToken cancellationToken = default)
+    {
+        var settled = new bool[completions.Count];
+        for (var index = 0; index < completions.Count; index++)
+        {
+            settled[index] = await CompleteAsync(completions[index].JobId, completions[index].LeaseToken, completions[index].Result, cancellationToken);
+        }
+
+        return settled;
+    }
     Task<bool> FailAsync(Guid jobId, Guid leaseToken, string error, TimeSpan retryDelay, CancellationToken cancellationToken = default);
     Task<bool> RejectAsync(Guid jobId, Guid leaseToken, JobFailure failure, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("This provider does not implement permanent rejection.");
@@ -45,3 +57,6 @@ public interface IJobQueries
     Task<WorkflowRun?> GetWorkflowAsync(Guid runId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<JobRecord>> ListFlowJobsAsync(Guid runId, CancellationToken cancellationToken = default);
 }
+
+/// <summary>A result reported by the owner of an attempt's lease.</summary>
+public sealed record AttemptCompletion(Guid JobId, Guid LeaseToken, JobResult Result);

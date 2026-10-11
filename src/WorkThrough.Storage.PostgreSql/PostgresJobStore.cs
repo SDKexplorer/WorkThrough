@@ -58,6 +58,10 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
 
     private const long AdmissionLockKey = 68491730251;
 
+    /// <summary>Owned-row writes take no advisory lock; their lease token or worker ID fences them.</summary>
+    protected override async Task<DbTransaction> BeginOwnedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(cancellationToken);
+
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {
         var transaction = await connection.BeginTransactionAsync(cancellationToken);

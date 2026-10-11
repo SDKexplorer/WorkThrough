@@ -30,6 +30,13 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     protected abstract string ClockSql { get; }
     protected abstract Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// A transaction for writes confined to rows an attempt or worker owns, fenced by its lease token or worker ID: renewal,
+    /// handler and progress records, heartbeats. They need no admission lock; providers that can run them concurrently override this.
+    /// </summary>
+    protected virtual Task<DbTransaction> BeginOwnedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        BeginWriteAsync(connection, cancellationToken);
+
     public virtual async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         await WriteAsync(async (connection, transaction, ct) =>
@@ -223,23 +230,29 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
     private async Task<IReadOnlyList<JobRecord>> ClaimWhenWorthwhileAsync(ClaimRequest request, CancellationToken cancellationToken)
     {
-        if (!await ClaimMayProceedAsync(request, cancellationToken))
+        var outlook = await ClaimOutlookAsync(request, cancellationToken);
+        if (!outlook.Proceed)
         {
             return [];
         }
 
         return await WriteAsync<IReadOnlyList<JobRecord>>(async (connection, transaction, ct) =>
         {
-            var now = await NowAsync(connection, transaction, ct);
             var settings = await ReadClaimSettingsAsync(connection, transaction, request.WorkerId, ct);
+            var now = settings.Now;
             if (settings.RegistryRevision != request.RegistryRevision)
             {
                 throw new ProcessorRegistryChangedException();
             }
 
-            await RecoverExpiredAsync(connection, transaction, now, ct);
-            await ExpireQueuedAsync(connection, transaction, now, ct);
-            await DispatchSignalsCoreAsync(connection, transaction, now, SweepBatchSize, ct);
+            // Sweeps run when the snapshot saw something to sweep; anything newer is swept by the next claim.
+            if (outlook.SweepDue)
+            {
+                await RecoverExpiredAsync(connection, transaction, now, ct);
+                await ExpireQueuedAsync(connection, transaction, now, ct);
+                await DispatchSignalsCoreAsync(connection, transaction, now, SweepBatchSize, ct);
+            }
+
             var leased = new List<JobRecord>();
             if (settings.Draining)
             {
@@ -360,15 +373,18 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             LeaseToken = token,
             LeaseExpiresAt = DateTimeOffset.FromUnixTimeMilliseconds(expires)
         };
-        await ExecuteAsync(connection, transaction, """
-            UPDATE dj_jobs SET status='Running',attempt=attempt+1,worker_id=@worker,
-            lease_token=@token,lease_expires_at=@expires,error=NULL WHERE id=@id
-            """, ct, ("id", candidate.Id.ToString()), ("worker", request.WorkerId), ("token", token.ToString()), ("expires", expires));
-        await ExecuteAsync(connection, transaction, $"""
-            INSERT INTO dj_attempts(job_id,{AttemptNumberSql},worker_id,started_at,status)
-            VALUES (@id,@number,@worker,@now,@status)
-            """, ct, ("id", candidate.Id.ToString()), ("number", leased.Attempt), ("worker", request.WorkerId), ("now", now), ("status", nameof(AttemptStatus.Running)));
-        await JournalAsync(connection, transaction, leased, now, ExecutionEventKinds.Started, ct);
+        await ExecuteBatchAsync(connection, transaction, ct,
+        [
+            new("""
+                UPDATE dj_jobs SET status='Running',attempt=attempt+1,worker_id=@worker,
+                lease_token=@token,lease_expires_at=@expires,error=NULL WHERE id=@id
+                """, ("id", candidate.Id.ToString()), ("worker", request.WorkerId), ("token", token.ToString()), ("expires", expires)),
+            new($"""
+                INSERT INTO dj_attempts(job_id,{AttemptNumberSql},worker_id,started_at,status)
+                VALUES (@id,@number,@worker,@now,@status)
+                """, ("id", candidate.Id.ToString()), ("number", leased.Attempt), ("worker", request.WorkerId), ("now", now), ("status", nameof(AttemptStatus.Running))),
+            .. JournalStatements(leased, now, ExecutionEventKinds.Started)
+        ]);
 
         return leased;
     }
@@ -380,7 +396,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             throw new ArgumentOutOfRangeException(nameof(duration));
         }
 
-        return WriteAsync(async (connection, transaction, ct) =>
+        return OwnedWriteAsync(async (connection, transaction, ct) =>
         {
             var now = await NowAsync(connection, transaction, ct);
 
@@ -408,48 +424,80 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
     private Task<bool> SettleAsync(Guid jobId, Guid token, Settlement settlement, CancellationToken cancellationToken) =>
         WriteAsync(async (connection, transaction, ct) =>
+            await SettleCoreAsync(connection, transaction, jobId, token, settlement, await NowAsync(connection, transaction, ct), ct), cancellationToken);
+
+    /// <summary>
+    /// Settles successful attempts in one write transaction: one lock acquisition and one commit for the batch. Each item keeps
+    /// its own lease check; a stale item reports false without affecting the others.
+    /// </summary>
+    public Task<IReadOnlyList<bool>> CompleteBatchAsync(IReadOnlyList<AttemptCompletion> completions, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(completions);
+        foreach (var completion in completions)
+        {
+            completion.Result.Validate();
+        }
+
+        return WriteAsync<IReadOnlyList<bool>>(async (connection, transaction, ct) =>
         {
             var now = await NowAsync(connection, transaction, ct);
-            var job = (await ReadJobsAsync(connection, transaction,
-                "SELECT * FROM dj_jobs WHERE id=@id AND lease_token=@token AND status='Running' AND lease_expires_at>@now", ct,
-                ("id", jobId.ToString()), ("token", token.ToString()), ("now", now))).SingleOrDefault();
-            if (job is null)
+            var settled = new bool[completions.Count];
+            for (var index = 0; index < completions.Count; index++)
             {
-                return false;
+                var completion = completions[index];
+                settled[index] = await SettleCoreAsync(connection, transaction, completion.JobId, completion.LeaseToken, new(Result: completion.Result), now, ct);
             }
 
-            settlement.Result?.Validate();
-            var attempt = SettledAttempt(settlement);
-            var deferred = attempt == AttemptStatus.Deferred;
-            var delay = deferred ? settlement.Result!.RetryAfter!.Value : settlement.Delay;
-            var error = settlement.Error ?? settlement.Result?.Reason;
-            var status = SettledJob(attempt, job);
-            if (status == JobStatus.Queued && !await WorkflowAllowsRetryAsync(connection, transaction, job, ct))
-            {
-                status = JobStatus.Skipped;
-            }
+            return settled;
+        }, cancellationToken);
+    }
 
-            // Interruption and deferral are not failures, so they grant back the attempt they consumed.
-            var grantedAttempts = attempt is AttemptStatus.Interrupted or AttemptStatus.Deferred ? 1 : 0;
-            await ExecuteAsync(connection, transaction, """
+    private async Task<bool> SettleCoreAsync(DbConnection connection, DbTransaction transaction, Guid jobId, Guid token, Settlement settlement, long now,
+        CancellationToken ct)
+    {
+        var job = (await ReadJobsAsync(connection, transaction,
+            "SELECT * FROM dj_jobs WHERE id=@id AND lease_token=@token AND status='Running' AND lease_expires_at>@now", ct,
+            ("id", jobId.ToString()), ("token", token.ToString()), ("now", now))).SingleOrDefault();
+        if (job is null)
+        {
+            return false;
+        }
+
+        settlement.Result?.Validate();
+        var attempt = SettledAttempt(settlement);
+        var deferred = attempt == AttemptStatus.Deferred;
+        var delay = deferred ? settlement.Result!.RetryAfter!.Value : settlement.Delay;
+        var error = settlement.Error ?? settlement.Result?.Reason;
+        var status = SettledJob(attempt, job);
+        if (status == JobStatus.Queued && !await WorkflowAllowsRetryAsync(connection, transaction, job, ct))
+        {
+            status = JobStatus.Skipped;
+        }
+
+        // Interruption and deferral are not failures, so they grant back the attempt they consumed.
+        var grantedAttempts = attempt is AttemptStatus.Interrupted or AttemptStatus.Deferred ? 1 : 0;
+        await ExecuteBatchAsync(connection, transaction, ct,
+        [
+            new("""
                 UPDATE dj_jobs SET status=@status,output=@output,error=@error,available_at=@available,max_attempts=max_attempts+@granted,
                 lease_token=NULL,lease_expires_at=NULL,worker_id=NULL WHERE id=@id
-                """, ct, ("status", status.ToString()), ("output", status == JobStatus.Succeeded ? settlement.Result?.Output.GetRawText() : null),
+                """, ("status", status.ToString()), ("output", status == JobStatus.Succeeded ? settlement.Result?.Output.GetRawText() : null),
                 ("error", Clip(error, JobLimits.MaximumMessageLength)), ("available", checked(now + Math.Max(0, (long)delay.TotalMilliseconds))),
-                ("granted", grantedAttempts), ("id", jobId.ToString()));
-            await FinishAttemptAsync(connection, transaction, job, now, attempt, error, ct);
-            if (settlement.Failure is { } failure)
-            {
-                await SaveFailureAsync(connection, transaction, job, failure, ct);
-            }
+                ("granted", grantedAttempts), ("id", jobId.ToString())),
+            .. FinishAttemptStatements(job, now, attempt, error)
+        ]);
+        if (settlement.Failure is { } failure)
+        {
+            await SaveFailureAsync(connection, transaction, job, failure, ct);
+        }
 
-            if (job.WorkflowRunId is { } flowId)
-            {
-                await AdvanceWorkflowAsync(connection, transaction, flowId, ct);
-            }
+        if (job.WorkflowRunId is { } flowId)
+        {
+            await AdvanceWorkflowAsync(connection, transaction, flowId, ct);
+        }
 
-            return true;
-        }, cancellationToken);
+        return true;
+    }
 
     private static AttemptStatus SettledAttempt(Settlement settlement) => settlement switch
     {
@@ -521,7 +569,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         return true;
     }
 
-    public Task RecordHandlerAsync(Guid jobId, Guid leaseToken, string handler, CancellationToken cancellationToken = default) => WriteAsync(async (connection, transaction, ct) =>
+    public Task RecordHandlerAsync(Guid jobId, Guid leaseToken, string handler, CancellationToken cancellationToken = default) => OwnedWriteAsync(async (connection, transaction, ct) =>
     {
         await ExecuteAsync(connection, transaction, $"""
             UPDATE dj_attempts SET handler=@handler WHERE job_id=@id AND status='Running'
@@ -543,10 +591,17 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 status = JobStatus.Skipped;
             }
 
-            await ExecuteAsync(connection, transaction, """
+            // Renewal runs without the admission lock, so the lease must still be expired and unchanged when it is revoked.
+            if (await ExecuteAsync(connection, transaction, """
                 UPDATE dj_jobs SET status=@status,error=@error,available_at=@now,
-                lease_token=NULL,lease_expires_at=NULL,worker_id=NULL WHERE id=@id
-                """, ct, ("status", status.ToString()), ("error", LeaseExpiredError), ("now", now), ("id", job.Id.ToString()));
+                lease_token=NULL,lease_expires_at=NULL,worker_id=NULL
+                WHERE id=@id AND status='Running' AND lease_token=@token AND lease_expires_at<=@now
+                """, ct, ("status", status.ToString()), ("error", LeaseExpiredError), ("now", now), ("id", job.Id.ToString()),
+                ("token", job.LeaseToken?.ToString())) == 0)
+            {
+                continue;
+            }
+
             await FinishAttemptAsync(connection, transaction, job, now, AttemptStatus.Abandoned, LeaseExpiredError, ct);
             if (job.WorkflowRunId is { } flowId && status == JobStatus.Failed)
             {
@@ -564,25 +619,67 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             ? Enum.Parse<FlowStatus>(status)
             : null;
 
-    private async Task FinishAttemptAsync(DbConnection connection, DbTransaction transaction, JobRecord job, long now, AttemptStatus status, string? error, CancellationToken ct)
-    {
-        await ExecuteAsync(connection, transaction,
-            $"UPDATE dj_attempts SET finished_at=@now,status=@status,error=@error WHERE job_id=@id AND {AttemptNumberSql}=@number AND status='Running'", ct,
-            ("now", now), ("status", status.ToString()), ("error", Clip(error, JobLimits.MaximumMessageLength)), ("id", job.Id.ToString()), ("number", job.Attempt));
-        await JournalAsync(connection, transaction, job, now, status.ToString(), ct);
-    }
+    private Task FinishAttemptAsync(DbConnection connection, DbTransaction transaction, JobRecord job, long now, AttemptStatus status, string? error, CancellationToken ct) =>
+        ExecuteBatchAsync(connection, transaction, ct, FinishAttemptStatements(job, now, status, error));
 
-    private async Task<int> JournalAsync(DbConnection connection, DbTransaction transaction, JobRecord job, long now, string kind, CancellationToken ct)
-    {
-        await ExecuteAsync(connection, transaction, "UPDATE dj_event_sequence SET value=value+1 WHERE id=1", ct);
-        await ExecuteAsync(connection, transaction, """
+    private Statement[] FinishAttemptStatements(JobRecord job, long now, AttemptStatus status, string? error) =>
+    [
+        new($"UPDATE dj_attempts SET finished_at=@now,status=@status,error=@error WHERE job_id=@id AND {AttemptNumberSql}=@number AND status='Running'",
+            ("now", now), ("status", status.ToString()), ("error", Clip(error, JobLimits.MaximumMessageLength)), ("id", job.Id.ToString()), ("number", job.Attempt)),
+        .. JournalStatements(job, now, status.ToString())
+    ];
+
+    private Task JournalAsync(DbConnection connection, DbTransaction transaction, JobRecord job, long now, string kind, CancellationToken ct) =>
+        ExecuteBatchAsync(connection, transaction, ct, JournalStatements(job, now, kind));
+
+    /// <summary>Appends one event under the next global sequence number and refreshes the job's terminal timestamp.</summary>
+    private static Statement[] JournalStatements(JobRecord job, long now, string kind) =>
+    [
+        new("UPDATE dj_event_sequence SET value=value+1 WHERE id=1"),
+        new("""
             UPDATE dj_jobs SET terminal_at=CASE WHEN status IN ('Succeeded','Failed','Skipped','Cancelled','Rejected','Expired') THEN @now ELSE NULL END
             WHERE id=@id
-            """, ct, ("now", now), ("id", job.Id.ToString()));
+            """, ("now", now), ("id", job.Id.ToString())),
+        new("INSERT INTO dj_events(sequence,job_id,run_id,at,kind,attempt) SELECT value,@id,@run,@now,@kind,@attempt FROM dj_event_sequence WHERE id=1",
+            ("id", job.Id.ToString()), ("run", job.WorkflowRunId?.ToString()), ("now", now), ("kind", kind), ("attempt", job.Attempt))
+    ];
 
-        return await ExecuteAsync(connection, transaction, "INSERT INTO dj_events(sequence,job_id,run_id,at,kind,attempt) SELECT value,@id,@run,@now,@kind,@attempt FROM dj_event_sequence WHERE id=1", ct,
-            ("id", job.Id.ToString()), ("run", job.WorkflowRunId?.ToString()), ("now", now), ("kind", kind), ("attempt", job.Attempt));
+    /// <summary>One SQL statement and its parameters, for sending several in a single round trip.</summary>
+    private sealed record Statement(string Sql, params (string Name, object? Value)[] Values);
+
+    /// <summary>Suffix that keeps each batched statement's parameters distinct; providers strip it to recover the original name.</summary>
+    protected const string BatchParameterSuffix = "__b";
+
+    protected static string BaseParameterName(string name) =>
+        name.IndexOf(BatchParameterSuffix, StringComparison.Ordinal) is var index and >= 0 ? name[..index] : name;
+
+    /// <summary>Joins statements that run in order in one command; providers without multi-statement commands wrap them.</summary>
+    protected virtual string BatchSql(IReadOnlyList<string> statements) => string.Join(";\n", statements);
+
+    /// <summary>
+    /// Sends consecutive statements of the current transaction in one round trip. Admission holds the write lock while they
+    /// run, so every round trip saved shortens the serialized section for all writers.
+    /// </summary>
+    private Task<int> ExecuteBatchAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct, params Statement[] statements)
+    {
+        if (statements.Length == 1)
+        {
+            return ExecuteAsync(connection, transaction, statements[0].Sql, ct, statements[0].Values);
+        }
+
+        var sql = new string[statements.Length];
+        var values = new List<(string, object?)>();
+        for (var index = 0; index < statements.Length; index++)
+        {
+            var suffix = BatchParameterSuffix + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            sql[index] = BatchParameters.Replace(statements[index].Sql, match => match.Value + suffix);
+            values.AddRange(statements[index].Values.Select(value => (value.Name + suffix, value.Value)));
+        }
+
+        return ExecuteAsync(connection, transaction, BatchSql(sql), ct, values.ToArray());
     }
+
+    private static readonly System.Text.RegularExpressions.Regex BatchParameters = new("@[A-Za-z][A-Za-z0-9_]*", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static string? Clip(string? value, int maximum) => value is not null && value.Length > maximum ? value[..maximum] : value;
 
@@ -606,6 +703,17 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     {
         await using var connection = await OpenAsync(ct).ConfigureAwait(false);
         await using var transaction = await BeginWriteAsync(connection, ct).ConfigureAwait(false);
+        var result = await action(connection, transaction, ct).ConfigureAwait(false);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+
+        return result;
+    }
+
+    /// <summary>Runs writes confined to owned rows; see <see cref="BeginOwnedWriteAsync"/>.</summary>
+    protected async Task<T> OwnedWriteAsync<T>(Func<DbConnection, DbTransaction, CancellationToken, Task<T>> action, CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct).ConfigureAwait(false);
+        await using var transaction = await BeginOwnedWriteAsync(connection, ct).ConfigureAwait(false);
         var result = await action(connection, transaction, ct).ConfigureAwait(false);
         await transaction.CommitAsync(ct).ConfigureAwait(false);
 

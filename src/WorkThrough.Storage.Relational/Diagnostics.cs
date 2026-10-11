@@ -24,7 +24,7 @@ public abstract partial class RelationalJobStore
             throw new ArgumentOutOfRangeException(nameof(progressTimeout));
         }
 
-        return WriteAsync(async (connection, transaction, ct) =>
+        return OwnedWriteAsync(async (connection, transaction, ct) =>
         {
             var now = await NowAsync(connection, transaction, ct);
             if (!await OwnsAsync(connection, transaction, id, leaseToken, now, ct))
@@ -43,7 +43,7 @@ public abstract partial class RelationalJobStore
     }
 
     public Task<bool> ReportProgressAsync(Guid id, Guid leaseToken, string? description, CancellationToken cancellationToken = default) =>
-        WriteAsync(async (connection, transaction, ct) =>
+        OwnedWriteAsync(async (connection, transaction, ct) =>
         {
             var now = await NowAsync(connection, transaction, ct);
             if (!await OwnsAsync(connection, transaction, id, leaseToken, now, ct))
@@ -110,7 +110,7 @@ public abstract partial class RelationalJobStore
         }, cancellationToken);
     }
 
-    public Task HeartbeatAsync(WorkerHeartbeat worker, CancellationToken cancellationToken = default) => WriteAsync(async (connection, transaction, ct) =>
+    public Task HeartbeatAsync(WorkerHeartbeat worker, CancellationToken cancellationToken = default) => OwnedWriteAsync(async (connection, transaction, ct) =>
     {
         var now = await NowAsync(connection, transaction, ct);
         var observed = worker with { SeenAt = DateTimeOffset.FromUnixTimeMilliseconds(now) };

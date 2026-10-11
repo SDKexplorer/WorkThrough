@@ -161,7 +161,7 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
     /// the requested queues while fleet capacity remains. Idle or saturated workers then poll without serializing other writers.
     /// </summary>
     /// <remarks>Only an optimization: a stale answer delays work by one poll, and admission is still decided under the lock.</remarks>
-    private Task<bool> ClaimMayProceedAsync(ClaimRequest request, CancellationToken cancellationToken) =>
+    private Task<ClaimOutlook> ClaimOutlookAsync(ClaimRequest request, CancellationToken cancellationToken) =>
         ReadAsync(async (connection, transaction, ct) =>
         {
             var now = await NowAsync(connection, transaction, ct);
@@ -191,17 +191,19 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
             var ready = Convert.ToInt32(reader.GetValue(1)) != 0;
             var fleetFull = !reader.IsDBNull(2) && Convert.ToInt64(reader.GetValue(3)) >= Convert.ToInt64(reader.GetValue(2));
 
-            return sweepDue || ready && !fleetFull;
+            return new ClaimOutlook(sweepDue || ready && !fleetFull, sweepDue);
         }, cancellationToken);
 
+    private sealed record ClaimOutlook(bool Proceed, bool SweepDue);
+
     /// <summary>
-    /// Claim configuration read in one round trip at the start of the admission transaction, so every value is exact for this claim.
+    /// Claim configuration and the database clock, read in one round trip at the start of the admission transaction, so every value is exact for this claim.
     /// Absent policy kinds are left out of the claim query: PostgreSQL re-plans every claim and unused predicates doubled its planning time.
     /// </summary>
     private async Task<ClaimSettings> ReadClaimSettingsAsync(DbConnection connection, DbTransaction transaction, string workerId, CancellationToken ct)
     {
         await using var command = Command(connection, transaction, $"""
-            SELECT r.revision,
+            SELECT ({ClockSql}),r.revision,
               (SELECT COUNT(*) FROM dj_worker_controls WHERE worker_id=@worker AND draining=1),
               (SELECT maximum FROM dj_limits WHERE job_key=@all),
               (SELECT COUNT(*) FROM dj_keyed_limits WHERE key_scope={(int)KeyScope.Partition}),
@@ -213,13 +215,13 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
         await using var reader = await command.ExecuteReaderAsync(ct);
         await reader.ReadAsync(ct);
 
-        return new(Convert.ToInt64(reader.GetValue(0)), Convert.ToInt64(reader.GetValue(1)) > 0,
-            reader.IsDBNull(2) ? null : Convert.ToInt64(reader.GetValue(2)),
-            HasPartitionLimits: Convert.ToInt64(reader.GetValue(3)) > 0, HasTenantLimits: Convert.ToInt64(reader.GetValue(4)) > 0,
-            HasRateLimits: Convert.ToInt64(reader.GetValue(5)) > 0, HasBoundedFlows: Convert.ToInt64(reader.GetValue(6)) > 0);
+        return new(Convert.ToInt64(reader.GetValue(0)), Convert.ToInt64(reader.GetValue(1)), Convert.ToInt64(reader.GetValue(2)) > 0,
+            reader.IsDBNull(3) ? null : Convert.ToInt64(reader.GetValue(3)),
+            HasPartitionLimits: Convert.ToInt64(reader.GetValue(4)) > 0, HasTenantLimits: Convert.ToInt64(reader.GetValue(5)) > 0,
+            HasRateLimits: Convert.ToInt64(reader.GetValue(6)) > 0, HasBoundedFlows: Convert.ToInt64(reader.GetValue(7)) > 0);
     }
 
-    private sealed record ClaimSettings(long RegistryRevision, bool Draining, long? GlobalMaximum, bool HasPartitionLimits,
+    private sealed record ClaimSettings(long Now, long RegistryRevision, bool Draining, long? GlobalMaximum, bool HasPartitionLimits,
         bool HasTenantLimits, bool HasRateLimits, bool HasBoundedFlows);
 
     public Task<AdmissionPolicies> AdmissionPoliciesAsync(CancellationToken cancellationToken = default) =>

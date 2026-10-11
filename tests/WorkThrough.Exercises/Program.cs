@@ -30,6 +30,10 @@ else if (args[0] == "investigation")
         int.Parse(args.ElementAtOrDefault(3) ?? "100000"), int.Parse(args.ElementAtOrDefault(4) ?? "60"),
         int.Parse(args.ElementAtOrDefault(5) ?? "120"));
 }
+else if (args[0] == "throughput")
+{
+    await ThroughputSuite.RunAsync(args[1], int.Parse(args.ElementAtOrDefault(2) ?? "5000"));
+}
 else if (args[0] == "soak")
 {
     await SoakSuite.RunAsync(args[1], int.Parse(args.ElementAtOrDefault(2) ?? "120"), args.ElementAtOrDefault(3) ?? "soak.json");

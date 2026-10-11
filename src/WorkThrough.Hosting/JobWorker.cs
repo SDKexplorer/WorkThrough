@@ -23,6 +23,7 @@ internal sealed class JobWorker(
     private const string DeadlineMessage = "The configured execution deadline elapsed.";
 
     private long registryRevision;
+    private CompletionBatcher? completions;
     private DateTimeOffset nextHeartbeat = DateTimeOffset.MinValue;
     private WorkerAcquisition acquisition = new(null, null, 0);
 
@@ -57,6 +58,8 @@ internal sealed class JobWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Disposed after every running attempt below has been observed, so shutdown settlements still commit.
+        await using var batcher = completions = new CompletionBatcher(store, SettlementTimeout);
         var running = new Dictionary<Guid, (JobRecord Job, Task Task)>();
         try
         {
@@ -325,7 +328,8 @@ internal sealed class JobWorker(
     private async Task<AttemptOutcome> SettleResultAsync(IServiceProvider services, JobRecord job, JobResult result)
     {
         using var timeout = new CancellationTokenSource(SettlementTimeout);
-        if (!await store.CompleteAsync(job.Id, job.LeaseToken!.Value, result, timeout.Token))
+        var completion = new AttemptCompletion(job.Id, job.LeaseToken!.Value, result);
+        if (!await (completions?.CompleteAsync(completion, timeout.Token) ?? store.CompleteAsync(completion.JobId, completion.LeaseToken, result, timeout.Token)))
         {
             logger.LogWarning("Job {JobId} lost ownership before completion; its result was not committed", job.Id);
 

@@ -34,6 +34,30 @@ public sealed class StorageConformanceTests
 
     /// <summary>Plain job reads ran outside a snapshot and were chosen as deadlock victims by SQL Server under settlement load.</summary>
     [Theory, MemberData(nameof(Providers))]
+    public async Task A_completion_batch_settles_each_attempt_under_its_own_lease(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var client = new JobClient(harness.Store);
+        for (var i = 0; i < 3; i++)
+        {
+            await client.EnqueueAsync(new Alpha($"batch-{i}"));
+        }
+
+        var claimed = await harness.Store.ClaimBatchAsync(new ClaimRequest("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1)) { MaximumJobs = 3 });
+        Assert.Equal(3, claimed.Count);
+        var settled = await harness.Store.CompleteBatchAsync([
+            new(claimed[0].Id, claimed[0].LeaseToken!.Value, JobResult.Done()),
+            new(claimed[1].Id, Guid.NewGuid(), JobResult.Done()),
+            new(claimed[2].Id, claimed[2].LeaseToken!.Value, JobResult.From("output"))
+        ]);
+
+        Assert.Equal([true, false, true], settled);
+        Assert.Equal(JobStatus.Succeeded, (await harness.Store.GetAsync(claimed[0].Id))!.Status);
+        Assert.Equal(JobStatus.Running, (await harness.Store.GetAsync(claimed[1].Id))!.Status);
+        Assert.Equal("output", (await harness.Store.GetAsync(claimed[2].Id))!.Output!.Value.GetString());
+    }
+
+    [Theory, MemberData(nameof(Providers))]
     public async Task Job_reads_do_not_fail_while_workers_settle_flows(string provider)
     {
         const int runs = 60;
