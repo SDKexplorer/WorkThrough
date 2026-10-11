@@ -213,7 +213,8 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
               (SELECT COUNT(*) FROM dj_keyed_limits WHERE key_scope={(int)KeyScope.Partition}),
               (SELECT COUNT(*) FROM dj_keyed_limits WHERE key_scope={(int)KeyScope.Tenant}),
               (SELECT COUNT(*) FROM dj_rate_limits),
-              (SELECT COUNT(*) FROM dj_flows WHERE max_parallel IS NOT NULL AND status='Running')
+              (SELECT COUNT(*) FROM dj_flows WHERE max_parallel IS NOT NULL AND status='Running'),
+              (SELECT protocol FROM dj_compatibility WHERE id=1)
             FROM dj_registry r WHERE r.id=1
             """, ("worker", workerId), ("all", AllJobsLimitKey));
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -222,12 +223,27 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
         return new(Convert.ToInt64(reader.GetValue(0)), Convert.ToInt64(reader.GetValue(1)), Convert.ToInt64(reader.GetValue(2)) > 0,
             reader.IsDBNull(3) ? null : Convert.ToInt64(reader.GetValue(3)), HasTypeLimits: Convert.ToInt64(reader.GetValue(4)) > 0,
             HasPartitionLimits: Convert.ToInt64(reader.GetValue(5)) > 0, HasTenantLimits: Convert.ToInt64(reader.GetValue(6)) > 0,
-            HasRateLimits: Convert.ToInt64(reader.GetValue(7)) > 0, HasBoundedFlows: Convert.ToInt64(reader.GetValue(8)) > 0);
+            HasRateLimits: Convert.ToInt64(reader.GetValue(7)) > 0, HasBoundedFlows: Convert.ToInt64(reader.GetValue(8)) > 0,
+            Protocol: Convert.ToInt32(reader.GetValue(9)));
     }
 
     private sealed record ClaimSettings(long Now, long RegistryRevision, bool Draining, long? GlobalMaximum, bool HasTypeLimits, bool HasPartitionLimits,
-        bool HasTenantLimits, bool HasRateLimits, bool HasBoundedFlows)
+        bool HasTenantLimits, bool HasRateLimits, bool HasBoundedFlows, int Protocol)
     {
+        /// <summary>Refuses a claim this build cannot serve, before it leases anything.</summary>
+        public void RequireClaimable(ClaimRequest request)
+        {
+            if (Protocol > EngineProtocol.Supported)
+            {
+                throw new EngineProtocolException(Protocol);
+            }
+
+            if (RegistryRevision != request.RegistryRevision)
+            {
+                throw new ProcessorRegistryChangedException();
+            }
+        }
+
         /// <summary>No limit, rate or bounded flow constrains admission, so claims need no shared view of running work.</summary>
         public bool Unrestricted => GlobalMaximum is null && !HasTypeLimits && !HasPartitionLimits && !HasTenantLimits && !HasRateLimits && !HasBoundedFlows;
     }

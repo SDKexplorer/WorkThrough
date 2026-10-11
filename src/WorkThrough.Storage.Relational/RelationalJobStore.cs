@@ -10,7 +10,7 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobAdministration, IWorkflowDefinitions, IJobDiagnostics, IJobSchedules, IDeploymentQueries, IProcessorRegistry
 {
     /// <summary>The schema version this package writes. Providers refuse other versions.</summary>
-    protected const int SchemaVersion = 5;
+    protected const int SchemaVersion = 6;
 
     // Version 3 added expiry, causation and terminal timestamps to existing job tables.
     private const int TerminalTimestampsVersion = 3;
@@ -48,9 +48,14 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             await ExecuteAsync(connection, transaction, "CREATE TABLE IF NOT EXISTS dj_schema (version INTEGER NOT NULL PRIMARY KEY)", ct);
             var stored = await ScalarAsync(connection, transaction, "SELECT MAX(version) FROM dj_schema", ct);
             int? version = stored is null or DBNull ? null : Convert.ToInt32(stored);
-            if (version is < 1 or > SchemaVersion)
+            if (version is < 1)
             {
                 throw new InvalidOperationException("Unsupported WorkThrough schema version. Use a compatible package and migration.");
+            }
+
+            if (version is { } existing && await UsesNewerSchemaAsync(connection, transaction, existing, ct))
+            {
+                return true;
             }
 
             await ExecuteAsync(connection, transaction, Schema, ct);
@@ -83,6 +88,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 await ExecuteAsync(connection, transaction, "INSERT INTO dj_store(id) VALUES (@id)", ct, ("id", Guid.NewGuid().ToString("N")));
             }
 
+            await SeedCompatibilityAsync(connection, transaction, newStore: version is null, ct);
             await ExecuteAsync(connection, transaction, """
                 INSERT INTO dj_definition_lifecycle(flow_key,version,definition,status,revision)
                 SELECT flow_key,version,definition,'Published',1 FROM dj_definitions WHERE 1=1 ON CONFLICT DO NOTHING;
@@ -251,10 +257,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         {
             var settings = await ReadClaimSettingsAsync(connection, transaction, request.WorkerId, ct);
             var now = settings.Now;
-            if (settings.RegistryRevision != request.RegistryRevision)
-            {
-                throw new ProcessorRegistryChangedException();
-            }
+            settings.RequireClaimable(request);
 
             // Sweeps run when the snapshot saw something to sweep; anything newer is swept by the next claim.
             if (outlook.SweepDue)
@@ -296,10 +299,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         RowLockedWriteAsync<IReadOnlyList<JobRecord>?>(async (connection, transaction, ct) =>
         {
             var settings = await ReadClaimSettingsAsync(connection, transaction, request.WorkerId, ct);
-            if (settings.RegistryRevision != request.RegistryRevision)
-            {
-                throw new ProcessorRegistryChangedException();
-            }
+            settings.RequireClaimable(request);
 
             if (settings.Draining)
             {
@@ -641,6 +641,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
     private async Task<bool> RetryJobCoreAsync(DbConnection connection, DbTransaction transaction, Guid jobId, CancellationToken ct)
     {
+        await RequireProtocolAsync(connection, transaction, ct);
         var now = await NowAsync(connection, transaction, ct);
 
         // Keep the attempt history and grant one more attempt. Flow migration/replay is a separate operation.
@@ -655,6 +656,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
     private async Task<bool> CancelJobCoreAsync(DbConnection connection, DbTransaction transaction, Guid jobId, CancellationToken ct)
     {
+        await RequireProtocolAsync(connection, transaction, ct);
         var job = await ReadJobForUpdateAsync(connection, transaction, jobId, ct);
         if (job is null || job.Status.IsTerminal())
         {

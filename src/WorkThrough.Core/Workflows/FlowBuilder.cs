@@ -53,6 +53,26 @@ public sealed class FlowBuilder
         return this;
     }
 
+    /// <summary>
+    /// Adds a step that runs <paramref name="processor"/> once per element of the array <paramref name="sourceProperty"/> in
+    /// <paramref name="sourceStep"/>'s output. Each item step receives its element in <paramref name="itemProperty"/> of
+    /// <paramref name="input"/>. Steps after this one wait for every item; see <see cref="FlowFanOut"/>.
+    /// </summary>
+    public FlowBuilder ForEach(string id, JobContractId processor, string sourceStep, string sourceProperty, string itemProperty, object? input = null,
+        string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
+    {
+        Step(id, processor, input, queue, maxAttempts);
+
+        return Change(step => step with { After = [.. step.After.Append(sourceStep).Distinct()], ForEach = new(sourceStep, sourceProperty, itemProperty) });
+    }
+
+    /// <summary>Typed form of <see cref="ForEach(string, JobContractId, string, string, string, object?, string, int)"/>, resolved to JSON names now.</summary>
+    /// <example><c>.ForEach("ship", Shipping.Ship.Identity, "pick", (PickList list) => list.Parcels, (ShipParcel ship) => ship.Parcel)</c></example>
+    public FlowBuilder ForEach<TSource, TItem, TInput>(string id, JobContractId processor, string sourceStep,
+        Expression<Func<TSource, IEnumerable<TItem>>> items, Expression<Func<TInput, TItem>> item, object? input = null,
+        string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts) =>
+        ForEach(id, processor, sourceStep, JsonField.Of(items), JsonField.Of(item), input, queue, maxAttempts);
+
     /// <summary>Persists a signal wait without invoking a processor or holding a worker lease.</summary>
     public FlowBuilder WaitForSignal<TInput>(string id, SignalDefinition<TInput> signal, TimeSpan timeout)
     {

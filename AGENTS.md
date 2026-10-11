@@ -32,6 +32,7 @@ Read `README.md`, `docs/architecture.md`, and `docs/plan.md` before changing beh
 
 - Enable nullable references and forward cancellation tokens through I/O.
 - Keep persisted schema and API changes additive where practical. Write an ADR for changes to compatibility or delivery guarantees.
+- Follow ADR-021 for upgrades. State whether each migration is additive for older readers; raise `reader_minimum` only when it is not. Ship any change to semantics that all hosts share as a new engine protocol level, keeping the old behaviour until that level is active.
 - Add tests for observable failure modes, especially restarts, multiple independent hosts, expired ownership, and published artifact composition.
 - Never claim a provider is supported based only on compilation or an in-memory substitute.
 - Never claim a runtime is supported based only on adding a TFM. Execute package consumers on the advertised runtime and check the oldest supported compiler for generators.

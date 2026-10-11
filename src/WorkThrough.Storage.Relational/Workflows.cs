@@ -49,6 +49,7 @@ public abstract partial class RelationalJobStore
                 }
             }
 
+            await RequireDefinitionProtocolAsync(connection, transaction, definition, ct);
             var lifecycle = await ReadDefinitionAsync(connection, transaction, definition.Key, definition.Version, ct);
             if (lifecycle is not null && lifecycle.Status != DefinitionStatus.Published)
             {
@@ -132,10 +133,11 @@ public abstract partial class RelationalJobStore
             {
                 // A claim may lease a queued step that a failing flow is skipping; the lease then stands, as if it came first.
                 if (await ExecuteAsync(connection, transaction, """
-                    UPDATE dj_jobs SET status=@status,payload=@payload,error=@error,available_at=CASE WHEN @status='Queued' THEN @now ELSE available_at END
+                    UPDATE dj_jobs SET status=@status,payload=@payload,error=@error,output=@output,
+                    available_at=CASE WHEN @status='Queued' THEN @now ELSE available_at END
                     WHERE id=@id AND status=@read
                     """, ct, ("status", change.Status.ToString()), ("payload", change.Payload.GetRawText()), ("error", change.Error), ("id", change.Id.ToString()),
-                    ("now", now), ("read", read[change.Id].ToString())) == 0)
+                    ("now", now), ("read", read[change.Id].ToString()), ("output", change.Output?.GetRawText())) == 0)
                 {
                     continue;
                 }
@@ -148,6 +150,14 @@ public abstract partial class RelationalJobStore
                 }
 
                 await JournalAsync(connection, transaction, change, now, change.Status.ToString(), ct);
+            }
+
+            // Item steps of a fan-out are created queued; the flow row lock keeps a second expansion out.
+            foreach (var item in plan.Added)
+            {
+                var created = DateTimeOffset.FromUnixTimeMilliseconds(now);
+                await InsertJobAsync(connection, transaction, item with { CreatedAt = created, AvailableAt = created }, ct);
+                await JournalAsync(connection, transaction, item, now, item.Status.ToString(), ct);
             }
 
             await SetFlowStatusAsync(connection, transaction, runId, plan.Status, ct, plan.Error);

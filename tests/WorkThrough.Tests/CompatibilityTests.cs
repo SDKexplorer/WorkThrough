@@ -27,7 +27,10 @@ public sealed class CompatibilityTests
         var claim = (await harness.Store.ClaimAsync(new("new-worker", [job.Contract], ["default"], TimeSpan.FromSeconds(30))))!;
         Assert.Equal(job.Id, claim.Id);
         Assert.True(await harness.Store.CompleteAsync(job.Id, claim.LeaseToken!.Value, JobResult.Done()));
+        // A newer schema that no longer accepts this build as a reader is refused.
         query.CommandText = "INSERT INTO dj_schema(version) VALUES (999)";
+        await query.ExecuteNonQueryAsync();
+        query.CommandText = "UPDATE dj_compatibility SET reader_minimum=999";
         await query.ExecuteNonQueryAsync();
         await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Store.InitializeAsync());
     }
@@ -53,6 +56,9 @@ public sealed class CompatibilityTests
         Assert.Equal("customer", (await harness.Store.GetAsync(partitioned))!.PartitionKey);
         var claims = new[] { await harness.Store.ClaimAsync(Claim()), await harness.Store.ClaimAsync(Claim()) };
         Assert.Equal(new[] { existing.Id, partitioned }.Order(), claims.Select(job => job!.Id).Order());
+
+        // Writers of the old schema may still be running, so the upgraded store keeps the baseline protocol until its fleet allows more.
+        Assert.Equal(EngineProtocol.Baseline, (await harness.Store.EngineProtocolAsync()).Active);
     }
 
     private static ClaimRequest Claim() => new("upgraded", [new("tests.alpha", 1)], ["default"], TimeSpan.FromSeconds(30));

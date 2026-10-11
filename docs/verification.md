@@ -232,3 +232,31 @@ New coverage, run on every provider and on SQL Server both ways:
 - the event journal stays gap-free under all three.
 
 The multi-process admission exercise holds every limit on PostgreSQL (three runs) and SQLite. It first failed on PostgreSQL: recorded attempt intervals overlapped beyond a tenant limit, because claims timed attempts from before their admission counts while settlements committed concurrently. Claims now start attempts on a clock read after those counts; reverting that change fails the exercise three times out of three. The one-file quick start runs in `verify.sh`, and the package consumer checks that `AddJobs` registers the same jobs as the source generator.
+
+Rolling upgrades and fan-out (2026-10-11, ADR-021, schema 6, engine protocol 2), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 321 | 3 |
+| SQL Server 2022 (emulated), with and without `READ_COMMITTED_SNAPSHOT` | 323 | 3 |
+| Oracle Free 26ai | 321 | 0 |
+
+New coverage on every provider:
+
+- **Schema compatibility:**
+  - a newer schema that still accepts this build is used without migrating;
+  - one that raised `reader_minimum` past it is refused;
+  - an upgraded store keeps the baseline protocol;
+  - a new store starts at this build's protocol.
+- **Protocol enforcement and activation:**
+  - a store above this build's protocol refuses claims, cancellation and signals;
+  - activation waits for live older workers and for leases held by workers that never reported a level;
+  - a fan-out flow cannot start until protocol 2 is active.
+- **Fan-out:**
+  - items receive their elements and run as separate steps;
+  - the join receives every output in order;
+  - an empty array completes immediately and an array over 1,000 items fails the step;
+  - a failed item becomes an incident and recovery resumes the join;
+  - items settled concurrently in mixed batches complete the step once. On SQL Server this runs both ways.
+
+The `dotnet new` templates build with every provider, and their SQLite projects run, in `scripts/check-templates.sh`.

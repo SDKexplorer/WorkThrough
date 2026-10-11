@@ -25,6 +25,8 @@ internal sealed class JobWorker(
     private long registryRevision;
     private CompletionBatcher? completions;
     private DateTimeOffset nextHeartbeat = DateTimeOffset.MinValue;
+    private bool protocolCurrent;
+    private string? reportedBlockers;
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -120,9 +122,11 @@ internal sealed class JobWorker(
             var descriptions = catalog.Registrations.Select(r => new ProcessorDescription(r.Identity, r.CanonicalIdentity, r.DisplayName)).ToArray();
             var heartbeat = new WorkerHeartbeat(settings.WorkerId, default, processors, settings.Queues, settings.MaxConcurrentJobs, running, descriptions)
             {
-                Acquisition = status.Acquisition
+                Acquisition = status.Acquisition,
+                Protocol = EngineProtocol.Supported
             };
             await diagnostics.HeartbeatAsync(heartbeat, ct);
+            await ActivateProtocolAsync(ct);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)
         {
@@ -130,6 +134,32 @@ internal sealed class JobWorker(
         }
 
         nextHeartbeat = DateTimeOffset.UtcNow + HeartbeatInterval;
+    }
+
+    /// <summary>
+    /// Raises the store to this build's protocol once the fleet allows it (ADR-021). Until then the worker keeps the active semantics,
+    /// and reports the workers that still block the upgrade whenever that set changes.
+    /// </summary>
+    private async Task ActivateProtocolAsync(CancellationToken ct)
+    {
+        if (protocolCurrent || store is not IEngineProtocol protocols)
+        {
+            return;
+        }
+
+        var state = await protocols.ActivateEngineProtocolAsync(EngineProtocol.Supported, ct);
+        protocolCurrent = state.Active >= EngineProtocol.Supported;
+        var blockers = string.Join(", ", state.Blockers);
+        if (protocolCurrent)
+        {
+            logger.LogInformation("Engine protocol {Protocol} is active", state.Active);
+        }
+        else if (blockers != reportedBlockers)
+        {
+            logger.LogInformation("Engine protocol stays at {Active} until these workers upgrade or stop: {Blockers}", state.Active, blockers);
+        }
+
+        reportedBlockers = blockers;
     }
 
     /// <summary>Claims as many jobs as there are free local slots, within each local per-job limit, in one admission transaction.</summary>
@@ -160,6 +190,13 @@ internal sealed class JobWorker(
             // Retrying cannot succeed. Running attempts finish, then the failed service stops the host for a restart.
             logger.LogCritical(exception, "Processor mappings changed after this worker started; it stopped acquiring work");
             status.Stopped = "Processor mappings changed after this worker started.";
+            throw;
+        }
+        catch (EngineProtocolException exception)
+        {
+            // An older build would misread work under the newer protocol. Running attempts finish, then the host stops.
+            logger.LogCritical(exception, "The store requires a newer WorkThrough; this worker stopped acquiring work");
+            status.Stopped = exception.Message;
             throw;
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)

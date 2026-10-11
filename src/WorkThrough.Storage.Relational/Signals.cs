@@ -21,6 +21,7 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
+            await RequireProtocolAsync(connection, transaction, ct);
             var receipt = await ScalarAsync(connection, transaction, "SELECT fingerprint FROM dj_signal_receipts WHERE run_id=@run AND idempotency_key=@key", ct, ("run", runId.ToString()), ("key", idempotencyKey));
             if (receipt is string prior)
             {

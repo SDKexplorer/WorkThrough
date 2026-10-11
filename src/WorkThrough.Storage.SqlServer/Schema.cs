@@ -162,6 +162,12 @@ public sealed partial class SqlServerJobStore
                 revision BIGINT NOT NULL
             );
         IF NOT EXISTS(SELECT 1 FROM dj_registry WHERE id=1) INSERT INTO dj_registry(id,revision) VALUES (1,0);
+        IF OBJECT_ID(N'dj_compatibility',N'U') IS NULL
+            CREATE TABLE dj_compatibility (
+                id int PRIMARY KEY,
+                reader_minimum int NOT NULL,
+                protocol int NOT NULL
+            );
         IF OBJECT_ID(N'dj_processor_aliases',N'U') IS NULL
             CREATE TABLE dj_processor_aliases (
                 alias_key nvarchar(120) COLLATE Latin1_General_100_BIN2 NOT NULL,

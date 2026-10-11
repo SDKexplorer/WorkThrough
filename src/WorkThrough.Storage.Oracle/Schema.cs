@@ -261,11 +261,26 @@ public sealed partial class OracleJobStore
             """),
     ];
 
-    private static readonly SchemaStep[] OracleSchemaSteps = [.. OracleSchema, .. OracleAdmissionSchema];
+    /// <summary>Schema 6 additions (ADR-021), applied after the schema-5 steps.</summary>
+    private static readonly SchemaStep[] OracleCompatibilitySchema =
+    [
+        new("DJ_COMPATIBILITY", false, """
+            CREATE TABLE dj_compatibility (id NUMBER(10) PRIMARY KEY,reader_minimum NUMBER(10) NOT NULL,protocol NUMBER(10) NOT NULL)
+            SEGMENT CREATION IMMEDIATE
+            """),
+    ];
+
+    private static readonly SchemaStep[] OracleSchemaSteps = [.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema];
 
     /// <summary>Identifies the installed step list; any edit to a step's SQL changes it.</summary>
     private static readonly string SchemaFingerprint = Fingerprint(OracleSchemaSteps);
-    private static readonly string PredecessorFingerprint = Fingerprint(OracleSchema);
+
+    /// <summary>Completed earlier installations that this schema extends by resuming after their last step.</summary>
+    private static readonly (int Version, int Steps, string Fingerprint)[] Predecessors =
+    [
+        (4, OracleSchema.Length, Fingerprint(OracleSchema)),
+        (5, OracleSchema.Length + OracleAdmissionSchema.Length, Fingerprint([.. OracleSchema, .. OracleAdmissionSchema]))
+    ];
 
     private static string Fingerprint(IEnumerable<SchemaStep> steps) => Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(string.Join("\n", steps.Select(step => step.Sql.ReplaceLineEndings("\n"))))));

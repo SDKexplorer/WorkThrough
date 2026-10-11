@@ -9,8 +9,6 @@ public sealed partial class OracleJobStore
     private const string MigrationInstalling = "Installing";
     private const string MigrationReady = "Ready";
 
-    private const int PartitionedSchemaPredecessor = 4;
-
     /// <summary>Resumes an interrupted schema installation under a session lock that survives Oracle DDL commits.</summary>
     /// <remarks>Migration credentials require DDL privileges and EXECUTE on SYS.DBMS_LOCK. Runtime credentials do not.</remarks>
     public override async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -45,8 +43,14 @@ public sealed partial class OracleJobStore
         }
         else if (state.IsCompletedPredecessor)
         {
-            await StartAdmissionUpgradeAsync(connection, cancellationToken);
+            await StartUpgradeAsync(connection, state.Version, cancellationToken);
             checkpoint = state.Step;
+        }
+        else if (state.Version > SchemaVersion && state.Status == MigrationReady)
+        {
+            await UsesNewerSchemaAsync(connection, null, state.Version, cancellationToken);
+
+            return;
         }
         else
         {
@@ -96,6 +100,7 @@ public sealed partial class OracleJobStore
 
         await ExecuteAsync(connection, transaction,
             "INSERT INTO dj_store(id) SELECT @id FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_store)", cancellationToken, ("id", Guid.NewGuid().ToString("N")));
+        await SeedCompatibilityAsync(connection, transaction, newStore: state is null, cancellationToken);
         await ExecuteAsync(connection, transaction, "UPDATE dj_schema SET status=@status WHERE version=@version AND step=@step", cancellationToken,
             ("status", MigrationReady), ("version", SchemaVersion), ("step", OracleSchemaSteps.Length));
         await transaction.CommitAsync(cancellationToken);
@@ -103,9 +108,8 @@ public sealed partial class OracleJobStore
 
     private sealed record MigrationState(int Version, string Status, int Step, string Fingerprint)
     {
-        /// <summary>A finished schema-4 installation, which schema 5 extends by resuming after its last step.</summary>
-        public bool IsCompletedPredecessor => Version == PartitionedSchemaPredecessor && Status == MigrationReady
-            && Step == OracleSchema.Length && Fingerprint == PredecessorFingerprint;
+        /// <summary>A finished earlier installation, which this schema extends by resuming after its last step.</summary>
+        public bool IsCompletedPredecessor => Status == MigrationReady && Predecessors.Contains((Version, Step, Fingerprint));
     }
 
     private async Task<MigrationState?> ReadMigrationStateAsync(OracleConnection connection, CancellationToken ct)
@@ -126,11 +130,11 @@ public sealed partial class OracleJobStore
         return state;
     }
 
-    // Stop schema-4 writers first: they would ignore the new admission policies.
-    private Task StartAdmissionUpgradeAsync(OracleConnection connection, CancellationToken ct) => MigrationWriteAsync(connection, """
+    // Stop schema-4 and schema-5 writers first: they predate the compatibility record and would ignore newer semantics.
+    private Task StartUpgradeAsync(OracleConnection connection, int previous, CancellationToken ct) => MigrationWriteAsync(connection, """
         UPDATE dj_schema SET version=@version,status=@status,definition_hash=@hash WHERE version=@previous AND status=@ready
         """, ct, ("version", SchemaVersion), ("status", MigrationInstalling), ("hash", SchemaFingerprint),
-        ("previous", PartitionedSchemaPredecessor), ("ready", MigrationReady));
+        ("previous", previous), ("ready", MigrationReady));
 
     private async Task<bool> SchemaStepAppliedAsync(OracleConnection connection, SchemaStep step, CancellationToken ct) => step.Column is null
         ? await SchemaObjectExistsAsync(connection, step.Name, step.Index, ct)

@@ -49,6 +49,12 @@ public static class FlowValidator
                 throw new ArgumentException("Steps require an ID, queue, and positive retry count.");
             }
 
+            // Item steps of a fan-out are named id[index], so brackets would make step IDs ambiguous.
+            if (step.Id.IndexOfAny(['[', ']']) >= 0)
+            {
+                throw new ArgumentException($"Step ID {step.Id} must not contain brackets.");
+            }
+
             if (step.Input.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
             {
                 throw new ArgumentException($"Input for {step.Id} must not be null.");
@@ -59,9 +65,17 @@ public static class FlowValidator
                 throw new ArgumentException($"Input bindings for {step.Id} require a JSON object.");
             }
 
+            if (step.ForEach is { } forEach)
+            {
+                if (step.Signal is not null || step.Input.ValueKind != JsonValueKind.Object || step.Bindings.Any(x => x.TargetProperty == forEach.TargetProperty))
+                {
+                    throw new ArgumentException($"Fan-out step {step.Id} needs a processor, an object input, and an item property no binding sets.");
+                }
+            }
+
             var ancestors = new HashSet<string>();
             Collect(step.Id);
-            foreach (var reference in step.Bindings.Select(x => x.SourceStep).Append(step.Condition?.SourceStep).OfType<string>())
+            foreach (var reference in step.Bindings.Select(x => x.SourceStep).Append(step.Condition?.SourceStep).Append(step.ForEach?.SourceStep).OfType<string>())
             {
                 if (!ancestors.Contains(reference))
                 {
@@ -135,7 +149,9 @@ public static class FlowValidator
             }
 
             if (step is null || step.Contract is null || step.After is null || step.Bindings is null
-                || step.After.Any(string.IsNullOrWhiteSpace) || step.Bindings.Any(b => b is null || string.IsNullOrWhiteSpace(b.TargetProperty) || string.IsNullOrWhiteSpace(b.SourceProperty)))
+                || step.After.Any(string.IsNullOrWhiteSpace) || step.Bindings.Any(b => b is null || string.IsNullOrWhiteSpace(b.TargetProperty) || string.IsNullOrWhiteSpace(b.SourceProperty))
+                || step.ForEach is { } forEach && (string.IsNullOrWhiteSpace(forEach.SourceStep) || string.IsNullOrWhiteSpace(forEach.SourceProperty)
+                    || string.IsNullOrWhiteSpace(forEach.TargetProperty)))
             {
                 throw new ArgumentException("Steps require a processor, dependency array, and valid binding array.");
             }

@@ -134,16 +134,23 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
         }
 
         await ExecuteAsync(connection, transaction, "IF OBJECT_ID(N'dj_schema',N'U') IS NULL CREATE TABLE dj_schema(version int NOT NULL PRIMARY KEY)", ct);
-        var version = await ScalarAsync(connection, transaction, "SELECT MAX(version) FROM dj_schema", ct);
-        // Schema 4 stores upgrade in place; stop schema-4 writers first because they ignore the new admission policies.
-        if (version is not null and not DBNull && Convert.ToInt32(version) is not (PartitionedSchemaPredecessor or SchemaVersion))
+        var stored = await ScalarAsync(connection, transaction, "SELECT MAX(version) FROM dj_schema", ct);
+        int? version = stored is null or DBNull ? null : Convert.ToInt32(stored);
+        // Schema 4 and 5 stores upgrade in place; stop their writers first, because they predate the compatibility record.
+        if (version < PartitionedSchemaPredecessor)
         {
             throw new InvalidOperationException("Unsupported SQL Server WorkThrough schema version. Stop writers and use a compatible migration.");
+        }
+
+        if (version is { } existing && await UsesNewerSchemaAsync(connection, transaction, existing, ct))
+        {
+            return true;
         }
 
         await ExecuteAsync(connection, transaction, SqlServerSchema, ct);
         await ExecuteAsync(connection, transaction, SqlServerAdmissionSchema, ct);
         await ExecuteAsync(connection, transaction, SqlServerAdmissionIndexes, ct);
+        await SeedCompatibilityAsync(connection, transaction, newStore: version is null, ct);
         await ExecuteAsync(connection, transaction, """
             IF NOT EXISTS(SELECT 1 FROM dj_store) INSERT INTO dj_store(id) VALUES (@id);
             IF NOT EXISTS(SELECT 1 FROM dj_schema WHERE version=@version) INSERT INTO dj_schema(version) VALUES (@version);

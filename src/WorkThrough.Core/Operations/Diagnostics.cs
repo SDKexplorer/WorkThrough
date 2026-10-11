@@ -43,6 +43,9 @@ public sealed record WorkerHeartbeat(string WorkerId, DateTimeOffset SeenAt, IRe
     public static TimeSpan Freshness { get; } = TimeSpan.FromSeconds(60);
 
     public WorkerAcquisition? Acquisition { get; init; }
+
+    /// <summary>The highest <see cref="EngineProtocol"/> level the worker understands. Heartbeats from releases before protocols report the baseline.</summary>
+    public int Protocol { get; init; } = EngineProtocol.Baseline;
 }
 
 /// <summary>Worker-reported acquisition observations. A successful empty poll also resets consecutive failures.</summary>

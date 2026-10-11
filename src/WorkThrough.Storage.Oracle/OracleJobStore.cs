@@ -66,14 +66,29 @@ public sealed partial class OracleJobStore : RelationalJobStore
 
     private async Task RequireReadyAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
     {
-        await using var command = Command(connection, transaction, "SELECT version,status,step,definition_hash FROM dj_schema");
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct) || reader.GetInt32(0) != SchemaVersion || reader.GetString(1) != MigrationReady ||
-            reader.GetInt32(2) != OracleSchemaSteps.Length || reader.GetString(3) != SchemaFingerprint || await reader.ReadAsync(ct))
+        int version;
+        await using (var command = Command(connection, transaction, "SELECT version,status,step,definition_hash FROM dj_schema"))
         {
-            throw new InvalidOperationException("The Oracle WorkThrough schema is incomplete or incompatible. Complete initialization before starting runtime hosts.");
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+            {
+                throw IncompleteSchema();
+            }
+
+            version = reader.GetInt32(0);
+            var current = version == SchemaVersion && reader.GetInt32(2) == OracleSchemaSteps.Length && reader.GetString(3) == SchemaFingerprint;
+            if (reader.GetString(1) != MigrationReady || !current && version <= SchemaVersion || await reader.ReadAsync(ct))
+            {
+                throw IncompleteSchema();
+            }
         }
+
+        // A newer schema is usable when it still declares this build a compatible reader.
+        await UsesNewerSchemaAsync(connection, transaction, version, ct);
     }
+
+    private static InvalidOperationException IncompleteSchema() =>
+        new("The Oracle WorkThrough schema is incomplete or incompatible. Complete initialization before starting runtime hosts.");
 
     // ORA-08177 can surface wrapped in ORA-00604 when recursive dictionary SQL meets concurrent DDL.
     private const int SerializationConflict = 8177;

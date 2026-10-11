@@ -79,6 +79,7 @@ public abstract partial class RelationalJobStore
                 }
             }
 
+            await RequireProtocolAsync(connection, transaction, ct);
             var result = await change(connection, transaction, ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_commands(id,fingerprint,result) VALUES (@id,@fingerprint,@result)", ct,
                 ("id", command.Id.ToString()), ("fingerprint", fingerprint), ("result", JsonSerializer.Serialize(result, JobJson.Options)));

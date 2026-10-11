@@ -101,14 +101,14 @@ Gaps found when reviewing WorkThrough as an adopter would. None blocks the curre
 
 - [x] Propagate W3C trace context from enqueue, flow start and outbox delivery to attempt activities, so a producer's trace continues into job execution.
 - [x] ASP.NET Core health checks for storage reachability and worker acquisition failures (`AddHealthChecks().AddWorkThrough()`).
-- [ ] Dynamic fan-out: a step that expands into N child steps from its output, joined afterwards. Flows are static graphs today; `MaxParallelSteps` already bounds wide stages.
+- [x] Dynamic fan-out: `ForEach` expands a step into one item step per element of an earlier output, joined afterwards, under engine protocol 2 (ADR-021).
 - [ ] Payload protection: encryption at rest or a supported secret-reference pattern for sensitive inputs. Today inputs are stored as JSON, protected by database access and the payload permission.
 - [ ] MySQL/MariaDB provider, a common request from Hangfire users.
 - [x] One programming model: `IJob<TInput>` with `ExecuteAsync`, replacing `IProcessor<T>` and `IJobHandler<T>`. Addresses come from a `JobDefinition`, `[Job]` on the class, or `[JobContract]` on the input type; `AddJob` registers all three.
 - [x] Typed flow bindings and conditions (`BindInput((Target t) => t.X, (Source s) => s.Y)`) and a [testing guide](testing.md).
 - [x] An easier first job: `AddJobs(assembly)` registers attributed jobs without the generator, storage registration needs no extra `using`, and `QuickStart` and `QuickStart.Web` samples sit beside Shop.
 - [x] `dotnet new workthrough-worker` and `workthrough-web` templates for every storage provider, checked in `verify.sh`.
-- [ ] Rolling (zero-downtime) schema upgrades.
+- [x] Rolling upgrades from schema 6: schema reader ranges and engine protocol levels (ADR-021).
 
 ## Exit criteria for the initial repository
 

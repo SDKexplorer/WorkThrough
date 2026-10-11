@@ -138,4 +138,29 @@ public sealed class CoreTests
 
         Assert.Equal(System.Text.Json.JsonSerializer.Serialize(named, JobJson.Options), System.Text.Json.JsonSerializer.Serialize(typed, JobJson.Options));
     }
+
+    private sealed record PickList(IReadOnlyList<string> Parcels);
+
+    [Fact]
+    public void A_fan_out_saves_json_names_depends_on_its_source_and_requires_its_protocol()
+    {
+        var typed = new FlowBuilder("tests.fan-out", 1)
+            .Step("pick", JobContractId.For<Alpha>())
+            .ForEach("ship", JobContractId.For<Beta>(), "pick", (PickList list) => list.Parcels, (Beta beta) => beta.Value)
+            .Build();
+        var named = new FlowBuilder("tests.fan-out", 1)
+            .Step("pick", JobContractId.For<Alpha>())
+            .ForEach("ship", JobContractId.For<Beta>(), "pick", "parcels", "value")
+            .Build();
+
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(named, JobJson.Options), System.Text.Json.JsonSerializer.Serialize(typed, JobJson.Options));
+        Assert.Equal(["pick"], typed.Steps[1].After);
+        Assert.Equal(EngineProtocol.FanOut, typed.RequiredProtocol);
+        Assert.Equal(EngineProtocol.Baseline, new FlowBuilder("tests.plain", 1).Step("only", JobContractId.For<Alpha>()).Build().RequiredProtocol);
+        Assert.Throws<ArgumentException>(() => new FlowBuilder("tests.brackets", 1).Step("ship[0]", JobContractId.For<Alpha>()).Build());
+        Assert.Throws<ArgumentException>(() => new FlowBuilder("tests.collision", 1)
+            .Step("pick", JobContractId.For<Alpha>())
+            .ForEach("ship", JobContractId.For<Beta>(), "pick", "parcels", "value").BindInput("value", "value", "pick")
+            .Build());
+    }
 }

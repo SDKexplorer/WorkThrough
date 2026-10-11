@@ -47,6 +47,8 @@ SQLite initialization now enables WAL by default for local multi-process use, an
 
 Schema 4 adds whole-unit retention holds, policy revisions, maintenance leases/batches/incidents and verified-export receipts on SQLite/PostgreSQL. Stop older writers before upgrading; see [ADR-013](adr/0013-fenced-retention-maintenance.md). `IRetentionQueries` is metadata-only and works through read-only connections. Maintenance uses the existing serialized write transaction, checks its lease before and after every batch, and keeps copy verification outside that transaction. Schema-1/schema-3 upgrades and partial-batch rollback are covered by the shared suite.
 
+Schema 6 records compatibility (ADR-021). A host accepts a newer schema whose `reader_minimum` still includes its own version, so additive migrations roll out while older workers run. Shared semantics change through engine protocol levels. A worker raises the store's level once no live worker is below it and no older worker holds a lease. Older hosts refuse to claim from a store above their level. Upgrading from schema 5 or earlier requires stopping older writers once, because those releases cannot read the compatibility record.
+
 Write throughput follows [ADR-020](adr/0020-write-path-throughput.md):
 
 - **Without the admission lock:** owned-row writes and settlements run outside the admission lock on PostgreSQL and Oracle, ordered by flow and job row locks. Claims do too while the store has no limit, rate or bounded flow and the worker serves one queue.
