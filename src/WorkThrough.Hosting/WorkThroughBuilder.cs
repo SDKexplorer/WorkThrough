@@ -199,6 +199,22 @@ public sealed class WorkThroughBuilder
         return this;
     }
 
+    /// <summary>
+    /// Creates, publishes and enables these schedules at startup when their key and version do not exist yet. Existing schedules,
+    /// including ones operators disabled or changed, are never modified. Requires <see cref="AddScheduler"/> somewhere in the fleet.
+    /// </summary>
+    public WorkThroughBuilder SeedSchedules(params ScheduleDefinition[] schedules)
+    {
+        foreach (var schedule in schedules)
+        {
+            ScheduleClock.Validate(schedule);
+        }
+
+        Initialization.Schedules.AddRange(schedules);
+
+        return this;
+    }
+
     public WorkThroughBuilder InitializeStorageOnStart(bool enabled)
     {
         Initialization.Enabled = enabled;
