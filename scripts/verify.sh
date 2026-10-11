@@ -23,19 +23,10 @@ package_cache="$(mktemp -d "$repo_dir/artifacts/package-cache-XXXXXXXX")"
 (cd "$sdk8_dir" && "$runtime8" restore --configfile "$repo_dir/tests/PackageConsumer/NuGet.Config" --packages "$package_cache" --disable-parallel -m:1 -nr:false && "$runtime8" run -c Release --no-restore -p:UseSharedCompilation=false)
 dotnet restore tests/PackageConsumer -p:TargetFramework=net10.0 --configfile tests/PackageConsumer/NuGet.Config --packages "$package_cache" --disable-parallel -m:1 -nr:false
 dotnet run --project tests/PackageConsumer -c Release -f net10.0 -p:TargetFramework=net10.0 --no-restore -p:UseSharedCompilation=false
-sample_dir="$(mktemp -d "$repo_dir/artifacts/processor-sample-XXXXXXXX")"
-Jobs__ConnectionString="Data Source=$sample_dir/jobs.db" "$runtime8" samples/Demo.Processor/bin/Release/net8.0/Demo.Processor.dll --once
-if Jobs__ConnectionString="Data Source=$sample_dir/jobs.db" "$runtime8" samples/Demo.Worker/bin/Release/net8.0/Demo.Worker.dll --preflight > artifacts/preflight-smoke.json; then
-  echo 'FAIL: the order worker incorrectly claimed coverage for the invoice sample.' >&2
-  exit 1
-else
-  preflight_status=$?
-  test "$preflight_status" -eq 2
-  echo 'PASS: deployment preflight rejected a worker that does not support persisted invoice work.'
-fi
-
-lifecycle_dir="$(mktemp -d "$repo_dir/artifacts/lifecycle-sample-XXXXXXXX")"
-Lifecycle__BusinessConnection="Data Source=$lifecycle_dir/business.db" Lifecycle__JobsConnection="Data Source=$lifecycle_dir/jobs.db" "$runtime8" samples/Demo.Lifecycle/bin/Release/net8.0/Demo.Lifecycle.dll
+sample_dir="$(mktemp -d "$repo_dir/artifacts/shop-sample-XXXXXXXX")"
+Shop__Sqlite="Data Source=$sample_dir/shop.db" "$runtime8" samples/Shop.Api/bin/Release/net8.0/Shop.Api.dll --smoke
+Shop__Sqlite="Data Source=$sample_dir/shop.db" "$runtime8" samples/Shop.Worker/bin/Release/net8.0/Shop.Worker.dll --preflight > artifacts/preflight-smoke.json
+echo 'PASS: deployment preflight confirmed the shop worker covers stored work and its seeded schedule.'
 
 # Independent process termination and a bounded performance/correctness smoke campaign.
 WORKTHROUGH_DOTNET8="$runtime8" ./scripts/performance.sh --smoke

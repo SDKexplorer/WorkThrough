@@ -1,23 +1,69 @@
-# Executable samples
+# Shop sample
 
-All samples target net8.0. Repository builds use SDK 10; the verification script also compiles package consumers using SDK 8.
+One small shop, deployed the way a real system would be: shared definitions, processors in their own project, an API that also runs work, a headless worker, a standalone operations console and an MCP endpoint. Every host points at the same store.
 
-| Sample | Purpose |
+| Project | Role |
 |---|---|
-| Demo.Processor | Typed `IProcessor<InvoiceInput>` with identity assigned at registration, named definitions/settings, immediate/delayed/cron jobs, progress and concurrency. `--once` smoke-tests execution. |
-| Demo.Lifecycle | Business SQL plus outbox to a separate database, typed durable approval signal, persisted successor binding, and restart-safe receipt checks. Sends no real email. |
-| Demo.Host | API + worker + scheduler + embedded Angular dashboard at `/operations/jobs`; development orders demonstrate success, branches, and recoverable failure. |
-| Demo.Worker | Generic BackgroundService host with no HTTP listener; `--describe-worker` exports capabilities and `--preflight` checks an existing store without starting workers. |
-| Demo.Dashboard | Standalone dashboard with no application DLL references; host OIDC/cookie authentication and server-controlled role permissions, with explicit anonymous Development fallback. |
-| Demo.Mcp | Standalone read-only MCP endpoint with dedicated bearer authentication, configuration-supplied authority/resource and no processor/Angular reference. Requires an existing initialized database and has no anonymous fallback. See [setup](../docs/mcp.md). |
-| Demo.Contracts / Demo.Processors | Shared typed definitions, named step IDs and DTO property selectors, settings, and separate application implementations. |
-| Refactor.Before / Refactor.MovedHandlers / Refactor.After | Separately published deployments: create typed, delayed string, and flow-step work, remove old assembly, and execute unchanged data through relocated implementations, then activate a deliberate address alias. |
-| tests/PackageConsumer | Fresh local NuGet-only consumer for SDK/runtime 8 and 10, exercising processors, idempotent flows, bounded queries and an authenticated MCP call over a real loopback listener. |
+| `Shop.Shared` | Typed job addresses (`ShopJobs`), the checkout flow, settings, storage choice, seeded policies and schedule, and the tenant-claim resolver. Producers need only this project. |
+| `Shop.Processors` | The `IProcessor<T>` implementations and the one place that maps addresses to classes (`AddShopProcessors`). |
+| `Shop.Api` | Order intake and review approval, a worker and scheduler, and the embedded dashboard. `--smoke` runs an end-to-end check. |
+| `Shop.Worker` | Headless worker for scaling out. `--describe-worker` prints its capabilities; `--preflight` checks that it covers the stored work. |
+| `Shop.Dashboard` | Standalone console with OIDC sign-in, role-based permissions and tenant-scoped users. References no processor code. |
+| `Shop.Mcp` | Read-only MCP endpoint for AI assistants, with bearer authentication and the same tenant scoping. |
 
-The development sample uses a negative order amount to create an intentional failure; repeating that step without correcting its input will fail again and preserve both attempts. A real recovery requires fixing the underlying cause.
+## Run it
 
-Use a common absolute SQLite path for separate local processes. Configure PostgreSQL for a multi-machine fleet. Only isolated Development hosts enable anonymous access. See `docs/dashboard-security.md` before configuring the standalone OIDC host; credentials and the real provider are supplied by the deployment.
+```bash
+ASPNETCORE_ENVIRONMENT=Development dotnet run --project samples/Shop.Api --urls http://127.0.0.1:5295
+```
 
-Run `scripts/performance.sh --smoke` for independent worker processes, real-provider load checks, and crash recovery. Use `--full` for repeated measured runs; see [performance methodology](../docs/performance.md).
+Open <http://127.0.0.1:5295/operations>. Place orders:
 
-`Demo.Host` also accepts `Jobs__SqlServer` for a dedicated SQL Server database with snapshot isolation enabled. It also accepts `Jobs__Oracle` for an initialized dedicated Oracle schema. Configure only one of `Jobs__PostgreSql`, `Jobs__SqlServer` and `Jobs__Oracle`; otherwise startup fails explicitly. The processor definitions, flows and Angular dashboard stay the same. See [provider setup](../docs/providers.md#sql-server-setup).
+```bash
+curl -X POST http://127.0.0.1:5295/orders -H 'Content-Type: application/json' -d '{"tenantId":"acme","customer":"ada","amount":40}'
+curl -X POST http://127.0.0.1:5295/orders -H 'Content-Type: application/json' -d '{"tenantId":"acme","customer":"grace","amount":900}'
+curl -X POST http://127.0.0.1:5295/orders -H 'Content-Type: application/json' -d '{"tenantId":"acme","customer":"alan","amount":-5}'
+```
+
+- The first order runs reserve → charge → ship → notify.
+- The second needs manual review: the flow waits, holding no worker slot, until you approve it with `curl -X POST http://127.0.0.1:5295/orders/<orderId>/approve`.
+- The third is rejected by the payment step without spending retries. The flow becomes an incident: the remaining steps wait, and the console shows the reason and the recovery actions.
+
+Each order row and its "start checkout" job commit in one database transaction (`Orders.PlaceAsync`). That job starts the flow with an idempotency key, so a retry never starts a second checkout.
+
+Scale out by starting workers against the same store. Separate local processes need the same absolute SQLite path; use PostgreSQL for several machines:
+
+```bash
+Shop__Sqlite="Data Source=$PWD/shop.db" dotnet run --project samples/Shop.Worker
+Shop__PostgreSql="Host=...;Database=shop" dotnet run --project samples/Shop.Worker
+```
+
+## What to look at
+
+- **Stable addresses** (`ShopJobs`, `AddShopProcessors`): stored work names `shop.payment.charge` v1, never a CLR type. Move or rename a processor class and existing work still runs.
+- **Flow** (`CheckoutFlow`): steps pass outputs to inputs by property name. The review step runs only when the payment output says so, and shipping waits for it only then.
+- **Policies** (`ShopSetup.SeedShopPolicies`), created once and afterwards owned by operators in the console:
+  - at most 12 running attempts fleet-wide and 2 shipments at a time;
+  - 4 slots per tenant, so one busy tenant cannot starve the others;
+  - one payment at a time per customer;
+  - 120 payment starts per tenant per minute;
+  - a daily report at 06:00 UTC.
+- **Tenants:** orders carry their tenant; partition keys are namespaced with it. Users whose identity token has `tenant` claims see only those tenants in `Shop.Dashboard` and `Shop.Mcp` (`TenantClaimResolver`).
+- **Effects:** processors receive `context.IdempotencyKey`, stable across retries; pass it to payment and shipping providers. Delivery is at least once.
+
+## Configuration
+
+Settings bind from the `Shop` section, with environment variables as `Shop__Name`:
+
+- **Storage:** `Sqlite` (default `Data Source=shop.db`) or `PostgreSql`.
+- **Capacity:** `WorkerSlots`, `FleetSlots`, `ShippingSlots`, `SlotsPerTenant`.
+- **Rate:** `PaymentsPerTenantPerMinute`.
+- **Report schedule:** `DailyReportCron`, `DailyReportTimeZone`.
+
+`Shop.Dashboard` reads `Identity:Authority`, `ClientId` and `ClientSecret` from host configuration or a secret store; without an authority it runs anonymously only in Development. Its role-to-permission map is in `appsettings.json`; see [dashboard security](../docs/dashboard-security.md). `Shop.Mcp` needs `Mcp:Authority`, `Mcp:Resource` and `Mcp:Environment` and has no anonymous mode; see [MCP](../docs/mcp.md). Both use an already initialized store.
+
+SQL Server and Oracle work the same way through `UseSqlServer` / `UseOracle`; see [providers](../docs/providers.md). The sample keeps to SQLite and PostgreSQL so that its order table DDL stays portable.
+
+## Verification
+
+`scripts/verify.sh` runs `Shop.Api --smoke`: two orders in different tenants, one requiring review approval, both completing. It then runs `Shop.Worker --preflight` against the resulting store. The relocation proof (work created by one build, executed after its processors moved to another assembly) lives in `tests/Relocation` and runs from `scripts/check-refactor.sh`.
