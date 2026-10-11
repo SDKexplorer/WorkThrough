@@ -7,7 +7,7 @@ internal abstract class DelegatingJobStore(IJobStore inner) : IJobStore
     public Task SeedLimitsAsync(IReadOnlyList<ConcurrencyLimit> limits, CancellationToken ct = default) => inner.SeedLimitsAsync(limits, ct);
     public Task SetLimitAsync(ConcurrencyLimit limit, CancellationToken ct = default) => inner.SetLimitAsync(limit, ct);
     public Task<JobRecord?> ClaimAsync(ClaimRequest request, CancellationToken ct = default) => inner.ClaimAsync(request, ct);
-    public Task<bool> RenewAsync(Guid id, Guid token, TimeSpan duration, CancellationToken ct = default) => inner.RenewAsync(id, token, duration, ct);
+    public virtual Task<bool> RenewAsync(Guid id, Guid token, TimeSpan duration, CancellationToken ct = default) => inner.RenewAsync(id, token, duration, ct);
     public Task<bool> CompleteAsync(Guid id, Guid token, JobResult result, CancellationToken ct = default) => inner.CompleteAsync(id, token, result, ct);
     public Task<bool> FailAsync(Guid id, Guid token, string error, TimeSpan delay, CancellationToken ct = default) => inner.FailAsync(id, token, error, delay, ct);
     public Task<bool> ReleaseAsync(Guid id, Guid token, string reason, CancellationToken ct = default) => inner.ReleaseAsync(id, token, reason, ct);

@@ -52,6 +52,31 @@ public sealed class WorkerTests
     }
 
     [Fact]
+    public async Task A_transient_renewal_failure_does_not_abandon_a_healthy_attempt()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var probe = new Probe();
+        var store = new FlakyRenewalStore(harness.Store);
+        using var host = BuildHost(harness.ConnectionString, probe, maximum: 1, store);
+        var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("long"), new(MaxAttempts: 1));
+        await host.StartAsync();
+        try
+        {
+            // The 3 s lease renews each second: the first renewal fails, the second succeeds.
+            await EventuallyAsync(() => Task.FromResult(store.Renewals >= 2));
+            Assert.Equal(1, probe.Active);
+            probe.Gate.Release();
+            await EventuallyAsync(async () => (await harness.Store.GetAsync(id))!.Status == JobStatus.Succeeded);
+            Assert.Equal(AttemptStatus.Succeeded, (await harness.Store.AttemptsAsync(id)).Single().Status);
+        }
+        finally
+        {
+            probe.Gate.Release(10);
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
     public async Task Processor_registry_change_stops_acquisition_and_the_host()
     {
         await using var harness = await StoreHarness.CreateAsync("sqlite");
@@ -241,6 +266,15 @@ public sealed class WorkerTests
     public sealed class NeedsDependency(IMissingDependency dependency) : IJobHandler<Alpha>
     {
         public Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(dependency.ToString()));
+    }
+
+    private sealed class FlakyRenewalStore(IJobStore inner) : DelegatingJobStore(inner)
+    {
+        private int renewals;
+        public int Renewals => Volatile.Read(ref renewals);
+
+        public override Task<bool> RenewAsync(Guid id, Guid token, TimeSpan duration, CancellationToken ct = default) =>
+            Interlocked.Increment(ref renewals) == 1 ? throw new TimeoutException("Simulated storage outage") : base.RenewAsync(id, token, duration, ct);
     }
 
     private sealed class SetupGateStore(IJobStore inner) : IJobStore

@@ -18,6 +18,7 @@ internal sealed class JobWorker(
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan SettlementTimeout = TimeSpan.FromSeconds(5);
+    private const int LeaseRenewalsPerDuration = 3;
     private const string ShutdownReason = "Host shutdown interrupted execution";
     private const string DeadlineMessage = "The configured execution deadline elapsed.";
 
@@ -368,30 +369,47 @@ internal sealed class JobWorker(
         return outcome;
     }
 
+    /// <summary>
+    /// Renews every third of the lease. A refused renewal means ownership is gone. A failed renewal is retried on the next tick,
+    /// so a brief storage outage does not abandon healthy handlers; the attempt is cancelled once the lease may have expired.
+    /// </summary>
     private async Task RenewLeaseAsync(Guid id, Guid token, TimeSpan duration, CancellationTokenSource attempt, CancellationToken stop)
     {
+        var interval = duration / LeaseRenewalsPerDuration;
+        var renewed = Stopwatch.GetTimestamp();
         try
         {
-            using var timer = new PeriodicTimer(duration / 3);
+            using var timer = new PeriodicTimer(interval);
             while (await timer.WaitForNextTickAsync(stop))
             {
-                if (await store.RenewAsync(id, token, duration, stop))
+                try
                 {
-                    continue;
+                    if (!await store.RenewAsync(id, token, duration, stop))
+                    {
+                        await attempt.CancelAsync();
+
+                        return;
+                    }
+
+                    renewed = Stopwatch.GetTimestamp();
                 }
+                catch (Exception exception) when (exception is not OperationCanceledException || !stop.IsCancellationRequested)
+                {
+                    // The next tick would come after the lease may already have expired.
+                    if (Stopwatch.GetElapsedTime(renewed) + interval >= duration)
+                    {
+                        logger.LogError(exception, "Cannot renew job {JobId} before its lease may expire; requesting cancellation", id);
+                        await attempt.CancelAsync();
 
-                await attempt.CancelAsync();
+                        return;
+                    }
 
-                return;
+                    logger.LogWarning(exception, "Renewing job {JobId} failed; retrying while the lease remains valid", id);
+                }
             }
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested)
         {
-        }
-        catch (Exception exception)
-        {
-            logger.LogError(exception, "Cannot renew job {JobId}; requesting cancellation", id);
-            await attempt.CancelAsync();
         }
     }
 

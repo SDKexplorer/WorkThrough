@@ -65,12 +65,14 @@ public sealed class WorkflowClient(IJobStore store)
         return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), start, cancellationToken);
     }
 
+    public const int MaximumIdempotencyKeyLength = 256;
+
     /// <summary>Validates the store-scoped flow-start request key.</summary>
     public static void ValidateIdempotencyKey(string idempotencyKey)
     {
-        if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 256)
+        if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > MaximumIdempotencyKeyLength)
         {
-            throw new ArgumentException("Flow idempotency keys must contain 1–256 characters and cannot be whitespace.", nameof(idempotencyKey));
+            throw new ArgumentException($"Flow idempotency keys must contain 1–{MaximumIdempotencyKeyLength} characters and cannot be whitespace.", nameof(idempotencyKey));
         }
     }
 }

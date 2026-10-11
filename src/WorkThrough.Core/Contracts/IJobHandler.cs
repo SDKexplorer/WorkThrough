@@ -42,7 +42,7 @@ public sealed record JobResult(JsonElement Output, JobOutcome Outcome = JobOutco
 
         if (Outcome != JobOutcome.Succeeded && (string.IsNullOrWhiteSpace(Reason) || Reason.Length > JobLimits.MaximumMessageLength))
         {
-            throw new ArgumentException("Rejection and deferral require a reason of 1–2000 characters.");
+            throw new ArgumentException($"Rejection and deferral require a reason of 1–{JobLimits.MaximumMessageLength} characters.");
         }
 
         if (Outcome == JobOutcome.Deferred && (RetryAfter is not { } delay || !JobLimits.IsSupportedDelay(delay)))
