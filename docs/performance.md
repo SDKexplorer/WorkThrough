@@ -240,4 +240,18 @@ Every job settled once with the expected output, within the fleet and type limit
 
 Enqueue ran at roughly 500–4,000/s throughout and was never the bottleneck. These runs used one machine with Docker databases; absolute numbers will differ on production hardware, and the per-store ceiling remains a design limit (ADR-020).
 
-Raw reports: [SQLite](performance-results/2026-10-11-sqlite-throughput.json), [PostgreSQL](performance-results/2026-10-11-postgres-throughput.json), [SQL Server](performance-results/2026-10-11-sqlserver-throughput.json), [Oracle](performance-results/2026-10-11-oracle-throughput.json).
+### Row-locked settlement and unrestricted claims (ADR-020 amendment)
+
+The amendment moved settlement, and claims while no limit exists, out of the admission lock, and appends journal events at commit. Same exercise, same host, alternating the previous build (`a2f23a9`) and this change, two runs each:
+
+| Provider | Previous build (jobs/s) | This change (jobs/s) | Change |
+|---|---:|---:|---:|
+| PostgreSQL | 227–254 | 811–829 | about 3.3× |
+| SQL Server (emulated), `READ_COMMITTED_SNAPSHOT` on | 195–206 | 434 | about 2.1× |
+| SQL Server (emulated), off | 195–206 | 201–211 | unchanged: serialized |
+| Oracle | 179–183 | 278–279 | about 1.5× |
+| SQLite | 729–736 | 723–813 | unchanged: single writer |
+
+The SQL Server variant is selected with `WT_EXERCISE_SQLSERVER_VERSIONED_READS=1`. Stores with limits keep the serialized claim path; their throughput is unchanged. The multi-process admission exercise still held every limit on PostgreSQL and SQLite.
+
+Raw reports for the first decision: [SQLite](performance-results/2026-10-11-sqlite-throughput.json), [PostgreSQL](performance-results/2026-10-11-postgres-throughput.json), [SQL Server](performance-results/2026-10-11-sqlserver-throughput.json), [Oracle](performance-results/2026-10-11-oracle-throughput.json).

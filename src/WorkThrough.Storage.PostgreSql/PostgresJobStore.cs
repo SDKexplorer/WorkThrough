@@ -62,6 +62,16 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
     protected override async Task<DbTransaction> BeginOwnedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(cancellationToken);
 
+    /// <summary>Settlements and unrestricted claims take no advisory lock; flow and job row locks order them against other writers.</summary>
+    protected override async Task<DbTransaction> BeginRowLockedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(cancellationToken);
+
+    protected override string LockingSelectSql(string columns, string table, string predicate, bool skipLocked) =>
+        $"SELECT {columns} FROM {table} WHERE {predicate} FOR UPDATE{(skipLocked ? " SKIP LOCKED" : "")}";
+
+    protected override string SkipLockedJobsSql(string predicate, string order, int limit) =>
+        base.SkipLockedJobsSql(predicate, order, limit) + " FOR UPDATE SKIP LOCKED";
+
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {
         var transaction = await connection.BeginTransactionAsync(cancellationToken);

@@ -133,6 +133,7 @@ public abstract partial class RelationalJobStore
     public Task<Result> RecoverStepAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
         AdminAsync(command, AuditActions.RecoverStep, id.ToString(), new { expectedAttempt }, async (connection, transaction, ct) =>
         {
+            await LockFlowsOfAsync(connection, transaction, [id], ct);
             var job = await ExpectedJobAsync(connection, transaction, id, expectedAttempt, ct);
             if (job.WorkflowRunId is not { } run || !job.Status.IsUnsuccessful())
             {

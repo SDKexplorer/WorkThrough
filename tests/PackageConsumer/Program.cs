@@ -1,5 +1,4 @@
 using WorkThrough;
-using WorkThrough.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -9,6 +8,18 @@ var builder = Host.CreateApplicationBuilder();
 builder.Services.AddWorkThrough().UseSqlite($"Data Source={database};Pooling=False")
     .AddGeneratedJobs(typeof(Program).Assembly).AddJob<InvoiceInput, ExplicitInvoiceProcessor>(manualDefinition).AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
 using var host = builder.Build();
+
+// Reflection registration needs no generator and must find the same jobs, leaving manual ones to AddJob.
+var scanning = new ServiceCollection();
+scanning.AddWorkThrough().AddJobs(typeof(Program).Assembly);
+var scanned = scanning.BuildServiceProvider().GetRequiredService<JobCatalog>().Registrations.Select(registration => registration.Identity.ToString()).Order(StringComparer.Ordinal).ToArray();
+var generated = host.Services.GetRequiredService<JobCatalog>().Registrations.Where(registration => registration.Identity != manualDefinition.Identity)
+    .Select(registration => registration.Identity.ToString()).Order(StringComparer.Ordinal).ToArray();
+if (!scanned.SequenceEqual(generated))
+{
+    throw new InvalidOperationException($"AddJobs registered [{string.Join(", ", scanned)}]; the generator registered [{string.Join(", ", generated)}].");
+}
+
 await host.StartAsync();
 try
 {

@@ -147,8 +147,14 @@ public abstract partial class RelationalJobStore : IExecutionOperations
             $"SELECT * FROM dj_jobs WHERE status='Queued' AND expires_at<=@now ORDER BY expires_at {PageSql(SweepBatchSize)}", ct, ("now", now));
         foreach (var job in expired)
         {
-            await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status=@status,error=@error WHERE id=@id", ct,
-                ("status", nameof(JobStatus.Expired)), ("error", QueueExpiredError), ("id", job.Id.ToString()));
+            // A flow that a settlement holds is left to the next sweep; that settlement may also have skipped the step.
+            if (job.WorkflowRunId is { } run && !await LockFlowAsync(connection, transaction, run, skipLocked: true, ct)
+                || await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status=@status,error=@error WHERE id=@id AND status='Queued'", ct,
+                    ("status", nameof(JobStatus.Expired)), ("error", QueueExpiredError), ("id", job.Id.ToString())) == 0)
+            {
+                continue;
+            }
+
             await JournalAsync(connection, transaction, job, now, nameof(JobStatus.Expired), ct);
             if (job.WorkflowRunId is { } flow)
             {

@@ -75,6 +75,37 @@ public sealed class WorkThroughBuilder
     public WorkThroughBuilder AddJob<TInput, TJob>(JobContractId identity, params JobContractId[] aliases)
         where TJob : class, IJob<TInput> => AddJob<TInput, TJob>(new JobDefinition<TInput>(identity), aliases);
 
+    /// <summary>
+    /// Registers every job class in the assembly at the address its [Job] attribute, or its input's [JobContract], declares. It
+    /// follows the source generator's rules at startup instead of build time. Classes marked [ManualJobRegistration] are left to AddJob.
+    /// </summary>
+    public WorkThroughBuilder AddJobs(Assembly assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        var register = typeof(WorkThroughBuilder).GetMethods().Single(method => method.Name == nameof(AddJob) && method.GetParameters().Length == 0);
+        var jobs = assembly.GetTypes()
+            .Where(type => type is { IsClass: true, IsAbstract: false, ContainsGenericParameters: false }
+                && type.GetCustomAttribute<ManualJobRegistrationAttribute>() is null)
+            .OrderBy(type => type.FullName, StringComparer.Ordinal);
+        foreach (var job in jobs)
+        {
+            var inputs = job.GetInterfaces().Where(type => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IJob<>))
+                .Select(type => type.GetGenericArguments()[0]);
+            foreach (var input in inputs)
+            {
+                if (job.GetCustomAttribute<JobAttribute>() is null && input.GetCustomAttribute<JobContractAttribute>() is null)
+                {
+                    throw new InvalidOperationException($"Job {job.FullName} needs a [Job] address, or an input type with a [JobContract] address. " +
+                        "Mark it [ManualJobRegistration] to register it with AddJob instead.");
+                }
+
+                register.MakeGenericMethod(input, job).Invoke(this, BindingFlags.DoNotWrapExceptions, null, null, null);
+            }
+        }
+
+        return this;
+    }
+
     public WorkThroughBuilder AddGeneratedJobs(Assembly assembly)
     {
         var marker = assembly.GetCustomAttribute<JobModuleAttribute>()

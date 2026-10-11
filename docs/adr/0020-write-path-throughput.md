@@ -1,6 +1,6 @@
 # ADR 020: write-path throughput without weakening admission
 
-Status: accepted, implemented.
+Status: accepted, implemented; amended with row-locked settlement and unrestricted claims.
 
 ## Context
 
@@ -28,28 +28,38 @@ Keep the single admission lock and every guarantee that depends on it. Shorten a
    - Custom providers inherit the locked path unless they opt in.
 6. **SQLite busy timeout:** connections set `busy_timeout` to the connection's command timeout, so writers wait in SQLite's busy handler.
 
-## Not done: relaxing the lock for claims and settlements
+## Amendment: row-locked settlement and unrestricted claims
 
-Running claims concurrently (`SKIP LOCKED` / `READPAST`), or settling without the lock, was analysed and deferred:
+The first decision left settlements and claims under the admission lock. Measurements then showed that lock, together with the event-sequence row, capped every provider at a few hundred jobs per second. Three further changes remove it from the common path without weakening a guarantee:
 
-- **Flow joins:** two parallel steps of one flow completing concurrently could each miss the other's success and never activate their join. Avoiding that needs per-flow row locks.
-- **Lock ordering:** those row locks, together with the single event-sequence row that keeps the journal gap-free and ordered, create lock-ordering hazards across claims, signals and settlements.
-- **Exact limits:** global, keyed and rate limits would need per-limit counter rows to stay exact.
+7. **Journal last:** a transaction's events are buffered and appended just before commit, in one round trip. The event-sequence row, which every journaled transaction increments, is then locked only for that final moment. The journal stays gap-free and ordered by commit.
+8. **Row-locked settlement:** on PostgreSQL and Oracle, and on SQL Server when `READ_COMMITTED_SNAPSHOT` is on, settlement takes no admission lock. Ordering comes from row locks instead:
+   - A transaction that changes a flow's steps locks the flow row first, then step rows, then the sequence row at commit. Settlement batches lock their flows in one global order.
+   - The job row is read with a lock and its lease rechecked, so a concurrent recovery or cancellation cannot be overwritten.
+   - Sweeps inside a claim (lease recovery, queued expiry, signal dispatch) skip a flow or job that another transaction holds instead of waiting; the next sweep handles it. A sweep therefore never waits while holding the admission lock.
+   - Leases and flow changes are conditional on the status that was read. A claim and a failing flow that race for the same queued step agree: the step is either leased or skipped, never both.
+   - A serialized claim reads the database clock again after its admission counts and starts the attempt on it. A settlement those counts no longer saw has committed, so its recorded finish is earlier. Recorded attempt intervals therefore never show more overlap than a limit allows. Without this, the multi-process admission exercise observed five overlapping attempts against a tenant limit of three, although no claim had admitted beyond it.
+   - Without versioned reads, SQL Server's plain reads wait on row locks, which can deadlock a claim with a settlement; it keeps the serialized path there. SQLite always has one writer.
+9. **Unrestricted claims:** when the store has no cluster, per-type, keyed or rate limit and no bounded flow, no sweep is due, and the worker asks for one queue, a claim takes no admission lock. It locks a page of ready jobs with `FOR UPDATE SKIP LOCKED` (`UPDLOCK, READPAST` on SQL Server), so concurrent claims lease disjoint jobs. The claim rereads the policies in its transaction and falls back to the serialized path if any appeared. Workers serving several queues keep the serialized path, which owns the fair-share turn.
 
-Each needs its own design and fault testing. The event-sequence row also stays a serialization point while the journal promises gap-free order to subscribers.
+Limits stay exact: whenever a limit, a rate or a bounded flow exists, claims serialize as before. A policy created while unrestricted claims are in flight applies to claims that start after it commits, as it would to claims that committed just before it.
 
 ## Consequences
 
 - **Throughput** (preloaded backlog, 3 workers × 16 slots, 1 ms handlers, drain jobs/s):
 
-  | Provider | Before | After |
-  |---|---:|---:|
-  | PostgreSQL | ~95 | 221–275 |
-  | SQL Server (emulated) | 63 | 230 |
-  | Oracle | 88 | 212 |
-  | SQLite | 265 | 695–725 |
+  | Provider | Before | After first decision | After amendment |
+  |---|---:|---:|---:|
+  | PostgreSQL | ~95 | 221–275 | 811–829 |
+  | SQL Server (emulated), `READ_COMMITTED_SNAPSHOT` on | 63 | 230 | 434 |
+  | SQL Server (emulated), off | 63 | 230 | 201–211 (serialized) |
+  | Oracle | 88 | 212 | 278–279 |
+  | SQLite | 265 | 695–725 | 723–813 (single writer) |
 
   The standard benchmark's limited workloads also improved; see `docs/performance.md`.
 - Delivery stays at least once. Admission stays exact across hosts. A stale worker still cannot settle an attempt.
 - A database error while committing a completion batch fails every completion in it. Those attempts remain recoverable through lease expiry, the same outcome as a failed single settlement.
 - `IJobStore` gains `ClaimBatchAsync` and `CompleteBatchAsync` with default implementations, so existing providers keep working unchanged.
+- Custom relational providers keep the serialized path unless they override `BeginRowLockedWriteAsync`, `LockingSelectSql` and `SkipLockedJobsSql` together.
+- A store with any limit, rate or bounded flow, or a worker serving several queues, still claims through the admission lock. Its throughput is the first decision's.
+- The event-sequence row remains the last serialization point. Removing it would mean giving up the gap-free, commit-ordered journal.

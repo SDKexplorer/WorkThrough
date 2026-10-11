@@ -89,6 +89,17 @@ public sealed partial class OracleJobStore : RelationalJobStore
     protected override async Task<DbTransaction> BeginOwnedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
 
+    /// <summary>Settlements and unrestricted claims do not lock the admission row; flow and job row locks order them against other writers.</summary>
+    protected override async Task<DbTransaction> BeginRowLockedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+    protected override string LockingSelectSql(string columns, string table, string predicate, bool skipLocked) =>
+        $"SELECT {columns} FROM {table} WHERE {predicate} FOR UPDATE{(skipLocked ? " SKIP LOCKED" : "")}";
+
+    /// <summary>Oracle cannot lock a row-limited query, so the ordered page is chosen first and its still-queued rows are locked.</summary>
+    protected override string SkipLockedJobsSql(string predicate, string order, int limit) =>
+        $"SELECT * FROM dj_jobs WHERE status='Queued' AND id IN (SELECT j.id FROM dj_jobs j WHERE {predicate} ORDER BY {order} {PageSql(limit)}) FOR UPDATE SKIP LOCKED";
+
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {
         var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);

@@ -215,3 +215,20 @@ New coverage:
 - typed bindings saving the same definition as property names.
 
 The multi-process admission exercise still holds every limit on PostgreSQL and SQLite after these changes. The full benchmark and throughput exercise ran on all four databases ([performance](performance.md)).
+
+Row-locked settlement, unrestricted claims, journal-last and `AddJobs` (2026-10-11, ADR-020 amendment), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 302 | 3 |
+| SQL Server 2022 (emulated), with and without `READ_COMMITTED_SNAPSHOT` | 303 | 3 |
+| Oracle Free 26ai | 302 | 0 |
+
+New coverage, run on every provider and on SQL Server both ways:
+
+- parallel flow branches settled concurrently in mixed batches activate each join once. The test fails when the flow row lock is removed;
+- concurrent claims without limits lease every job exactly once;
+- a failing flow racing claims leaves each queued sibling either leased or skipped, never both;
+- the event journal stays gap-free under all three.
+
+The multi-process admission exercise holds every limit on PostgreSQL (three runs) and SQLite. It first failed on PostgreSQL: recorded attempt intervals overlapped beyond a tenant limit, because claims timed attempts from before their admission counts while settlements committed concurrently. Claims now start attempts on a clock read after those counts; reverting that change fails the exercise three times out of three. The one-file quick start runs in `verify.sh`, and the package consumer checks that `AddJobs` registers the same jobs as the source generator.

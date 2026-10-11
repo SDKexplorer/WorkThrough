@@ -12,7 +12,6 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using ModelContextProtocol.Client;
 using WorkThrough;
-using WorkThrough.Storage;
 
 internal static class McpPackageSmoke
 {

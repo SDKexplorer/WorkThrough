@@ -1,4 +1,20 @@
-# Shop sample
+# Samples
+
+| Sample | Shows |
+|---|---|
+| [QuickStart](QuickStart/Program.cs) | The smallest program: one job, SQLite, an in-process worker. It runs the job and exits. |
+| [QuickStart.Web](QuickStart.Web/Program.cs) | An API that enqueues jobs, with idempotent requests, a delayed job, the worker and the console in one process. |
+| [Shop](#shop-sample) | A system split into deployable hosts, with a flow, tenants, limits, schedules, an OIDC console and MCP. |
+
+```bash
+dotnet run --project samples/QuickStart
+ASPNETCORE_ENVIRONMENT=Development dotnet run --project samples/QuickStart.Web --urls http://127.0.0.1:5296
+curl -X POST http://127.0.0.1:5296/signups -H 'Content-Type: application/json' -d '{"email":"ada@example.com"}'
+```
+
+Both quick starts register their jobs with `AddJobs(assembly)`, which finds every `IJob<T>` class whose input or class declares an address. Open <http://127.0.0.1:5296/jobs> to see the web sample's jobs. Repeating the same request returns the same job IDs, because each enqueue carries an idempotency key.
+
+## Shop sample
 
 One small shop, deployed the way a real system would be: shared definitions, jobs in their own project, an API that also runs work, a headless worker, a standalone operations console and an MCP endpoint. Every host points at the same store.
 

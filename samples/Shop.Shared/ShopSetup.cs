@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Configuration;
 using WorkThrough;
-using WorkThrough.Storage;
 
 namespace Shop;
 

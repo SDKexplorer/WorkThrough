@@ -82,12 +82,18 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             }
         }
 
+        var advanced = 0;
         foreach (var run in runs)
         {
-            await AdvanceWorkflowAsync(connection, transaction, run, ct);
+            // A flow that a settlement holds is advanced by that settlement or by a later sweep.
+            if (await LockFlowAsync(connection, transaction, run, skipLocked: true, ct))
+            {
+                await AdvanceWorkflowAsync(connection, transaction, run, ct);
+                advanced++;
+            }
         }
 
-        return runs.Count;
+        return advanced;
     }
 
     private async Task<bool> ResolveRunSignalsAsync(DbConnection connection, DbTransaction transaction, Guid run, long now, CancellationToken ct)

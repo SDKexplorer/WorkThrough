@@ -10,6 +10,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
 {
     private const int PartitionedSchemaPredecessor = 4;
     private readonly string connectionString;
+    private bool? versionedReads;
 
     public SqlServerJobStore(string connectionString)
     {
@@ -81,6 +82,26 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
     /// <summary>Owned-row writes take no application lock; their lease token or worker ID fences them.</summary>
     protected override async Task<DbTransaction> BeginOwnedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+    /// <summary>
+    /// Settlements and unrestricted claims skip the application lock only when READ_COMMITTED_SNAPSHOT is on. Plain reads would
+    /// otherwise wait on rows that a concurrent claim holds while that claim waits on the settlement's rows.
+    /// </summary>
+    protected override async Task<DbTransaction> BeginRowLockedWriteAsync(DbConnection connection, CancellationToken cancellationToken)
+    {
+        versionedReads ??= Convert.ToInt32(await ScalarAsync(connection, null,
+            "SELECT is_read_committed_snapshot_on FROM sys.databases WHERE database_id=DB_ID()", cancellationToken)) == 1;
+
+        return versionedReads.Value
+            ? await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            : await BeginWriteAsync(connection, cancellationToken);
+    }
+
+    protected override string LockingSelectSql(string columns, string table, string predicate, bool skipLocked) =>
+        $"SELECT {columns} FROM {table} WITH (UPDLOCK,ROWLOCK{(skipLocked ? ",READPAST" : "")}) WHERE {predicate}";
+
+    protected override string SkipLockedJobsSql(string predicate, string order, int limit) =>
+        $"SELECT TOP ({limit}) * FROM dj_jobs j WITH (UPDLOCK,ROWLOCK,READPAST) WHERE {predicate} ORDER BY {order}";
 
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {

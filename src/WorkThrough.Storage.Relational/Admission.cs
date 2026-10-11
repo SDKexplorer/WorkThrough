@@ -182,7 +182,10 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
                   CASE WHEN EXISTS (SELECT 1 FROM dj_jobs WHERE status='Queued' AND available_at<=@now AND queue IN ({string.Join(",", queues)}))
                   THEN 1 ELSE 0 END,
                   (SELECT maximum FROM dj_limits WHERE job_key=@all),
-                  (SELECT COUNT(*) FROM dj_jobs WHERE status='Running' AND lease_expires_at>@now)
+                  (SELECT COUNT(*) FROM dj_jobs WHERE status='Running' AND lease_expires_at>@now),
+                  CASE WHEN EXISTS (SELECT 1 FROM dj_limits) OR EXISTS (SELECT 1 FROM dj_keyed_limits) OR EXISTS (SELECT 1 FROM dj_rate_limits)
+                    OR EXISTS (SELECT 1 FROM dj_flows WHERE max_parallel IS NOT NULL AND status='Running')
+                  THEN 0 ELSE 1 END
                 FROM dj_registry r WHERE r.id=1
                 """, parameters.ToArray());
             await using var reader = await command.ExecuteReaderAsync(ct);
@@ -191,10 +194,10 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
             var ready = Convert.ToInt32(reader.GetValue(1)) != 0;
             var fleetFull = !reader.IsDBNull(2) && Convert.ToInt64(reader.GetValue(3)) >= Convert.ToInt64(reader.GetValue(2));
 
-            return new ClaimOutlook(sweepDue || ready && !fleetFull, sweepDue);
+            return new ClaimOutlook(sweepDue || ready && !fleetFull, sweepDue, Unrestricted: Convert.ToInt32(reader.GetValue(4)) != 0);
         }, cancellationToken);
 
-    private sealed record ClaimOutlook(bool Proceed, bool SweepDue);
+    private sealed record ClaimOutlook(bool Proceed, bool SweepDue, bool Unrestricted);
 
     /// <summary>
     /// Claim configuration and the database clock, read in one round trip at the start of the admission transaction, so every value is exact for this claim.
@@ -206,6 +209,7 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
             SELECT ({ClockSql}),r.revision,
               (SELECT COUNT(*) FROM dj_worker_controls WHERE worker_id=@worker AND draining=1),
               (SELECT maximum FROM dj_limits WHERE job_key=@all),
+              (SELECT COUNT(*) FROM dj_limits WHERE job_key<>@all),
               (SELECT COUNT(*) FROM dj_keyed_limits WHERE key_scope={(int)KeyScope.Partition}),
               (SELECT COUNT(*) FROM dj_keyed_limits WHERE key_scope={(int)KeyScope.Tenant}),
               (SELECT COUNT(*) FROM dj_rate_limits),
@@ -216,13 +220,17 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
         await reader.ReadAsync(ct);
 
         return new(Convert.ToInt64(reader.GetValue(0)), Convert.ToInt64(reader.GetValue(1)), Convert.ToInt64(reader.GetValue(2)) > 0,
-            reader.IsDBNull(3) ? null : Convert.ToInt64(reader.GetValue(3)),
-            HasPartitionLimits: Convert.ToInt64(reader.GetValue(4)) > 0, HasTenantLimits: Convert.ToInt64(reader.GetValue(5)) > 0,
-            HasRateLimits: Convert.ToInt64(reader.GetValue(6)) > 0, HasBoundedFlows: Convert.ToInt64(reader.GetValue(7)) > 0);
+            reader.IsDBNull(3) ? null : Convert.ToInt64(reader.GetValue(3)), HasTypeLimits: Convert.ToInt64(reader.GetValue(4)) > 0,
+            HasPartitionLimits: Convert.ToInt64(reader.GetValue(5)) > 0, HasTenantLimits: Convert.ToInt64(reader.GetValue(6)) > 0,
+            HasRateLimits: Convert.ToInt64(reader.GetValue(7)) > 0, HasBoundedFlows: Convert.ToInt64(reader.GetValue(8)) > 0);
     }
 
-    private sealed record ClaimSettings(long Now, long RegistryRevision, bool Draining, long? GlobalMaximum, bool HasPartitionLimits,
-        bool HasTenantLimits, bool HasRateLimits, bool HasBoundedFlows);
+    private sealed record ClaimSettings(long Now, long RegistryRevision, bool Draining, long? GlobalMaximum, bool HasTypeLimits, bool HasPartitionLimits,
+        bool HasTenantLimits, bool HasRateLimits, bool HasBoundedFlows)
+    {
+        /// <summary>No limit, rate or bounded flow constrains admission, so claims need no shared view of running work.</summary>
+        public bool Unrestricted => GlobalMaximum is null && !HasTypeLimits && !HasPartitionLimits && !HasTenantLimits && !HasRateLimits && !HasBoundedFlows;
+    }
 
     public Task<AdmissionPolicies> AdmissionPoliciesAsync(CancellationToken cancellationToken = default) =>
         ReadAsync(async (connection, transaction, ct) =>

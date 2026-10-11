@@ -18,19 +18,15 @@ Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite
 
 ## Quick start
 
-Define an address and a job. Producers need only the address.
+A job is a class that implements `IJob<TInput>`. Its input type carries the address that the database stores:
 
 ```csharp
-public static class InvoiceJobs
-{
-    public static JobDefinition<InvoiceInput> Generate { get; } = new("invoices.generate", displayName: "Generate invoice");
-}
+[JobContract("invoices.generate")]
+public sealed record GenerateInvoice(string InvoiceId);
 
-public sealed record InvoiceInput(string InvoiceId);
-
-public sealed class GenerateInvoice(IInvoiceService invoices) : IJob<InvoiceInput>
+public sealed class GenerateInvoiceJob(IInvoiceService invoices) : IJob<GenerateInvoice>
 {
-    public async Task<JobResult> ExecuteAsync(InvoiceInput input, JobExecutionContext context, CancellationToken ct)
+    public async Task<JobResult> ExecuteAsync(GenerateInvoice input, JobExecutionContext context, CancellationToken ct)
     {
         // Attempts can repeat after a crash: let the external service deduplicate on the stable key.
         var number = await invoices.CreateAsync(input.InvoiceId, context.IdempotencyKey, ct);
@@ -40,33 +36,57 @@ public sealed class GenerateInvoice(IInvoiceService invoices) : IJob<InvoiceInpu
 }
 ```
 
-Register storage, the job, a worker and a recurring schedule:
+Register storage, the assembly's jobs and a worker:
 
 ```csharp
 builder.Services.AddWorkThrough()
     .UsePostgreSql(connectionString) // or UseSqlite / UseSqlServer / UseOracle
-    .AddJob<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)
-    .SeedSchedules(ScheduleDefinition.Create("invoices.nightly", "0 2 * * *", InvoiceJobs.Generate, new InvoiceInput("batch")))
-    .AddScheduler()
+    .AddJobs(typeof(GenerateInvoiceJob).Assembly)
     .AddWorker(options => options.MaxConcurrentJobs = 8);
 ```
 
 Enqueue from anywhere that can reach the store:
 
 ```csharp
-await jobs.EnqueueAsync(InvoiceJobs.Generate, new InvoiceInput("INV-42"),
+await jobs.EnqueueAsync(new GenerateInvoice("INV-42"),
     new(IdempotencyKey: "invoice:INV-42", NotBefore: DateTimeOffset.UtcNow.AddMinutes(5)), ct);
 ```
 
-Run several processes, or several machines on a server database, against the same store. Workers claim work under leases; a crashed worker's attempt is recovered when its lease expires. The [Shop sample](samples/README.md) is a complete system: intake API, workers, an approval flow, tenants, limits, a standalone OIDC console and MCP.
+Run several processes, or several machines on a server database, against the same store. Workers claim work under leases; a crashed worker's attempt is recovered when its lease expires.
+
+Three samples build on each other ([samples](samples/README.md)):
+
+- [`QuickStart`](samples/QuickStart/Program.cs): one file, SQLite, one job.
+- [`QuickStart.Web`](samples/QuickStart.Web/Program.cs): an API that enqueues jobs, with the worker and console in the same process.
+- [Shop](samples/README.md#shop-sample): a complete system with an intake API, workers, an approval flow, tenants, limits, a standalone OIDC console and MCP.
+
+### Addresses shared with producers
+
+When producers live in other services, or one input type feeds several jobs, declare the address once as a `JobDefinition` and bind the class at the composition root. The input type then needs no attribute, and schedules take the same definition:
+
+```csharp
+public static class InvoiceJobs
+{
+    public static JobDefinition<GenerateInvoice> Generate { get; } = new("invoices.generate", displayName: "Generate invoice");
+}
+
+builder.Services.AddWorkThrough()
+    .UsePostgreSql(connectionString)
+    .AddJob<GenerateInvoice, GenerateInvoiceJob>(InvoiceJobs.Generate)
+    .SeedSchedules(ScheduleDefinition.Create("invoices.nightly", "0 2 * * *", InvoiceJobs.Generate, new GenerateInvoice("batch")))
+    .AddScheduler()
+    .AddWorker();
+
+await jobs.EnqueueAsync(InvoiceJobs.Generate, new GenerateInvoice("INV-42"), cancellationToken: ct);
+```
 
 ## Concepts
 
 ### Addresses and relocation
 
-A job's address is its key and contract version. The database stores that address and the JSON input, never a type, method or assembly name. To move a job class, keep its address and map it to the new class (`AddJob`, or the `WorkThrough.Generators` source generator with `[Job("…")]`). Change the version when the input's meaning changes.
+A job's address is its key and contract version. The database stores that address and the JSON input, never a type, method or assembly name. To move a job class, keep its address: the attribute moves with it, or `AddJob` maps the address to the new class. Change the version when the input's meaning changes.
 
-Every job implements `IJob<TInput>`. Its address comes from a `JobDefinition` passed to `AddJob` (preferred: declared once, shared with producers, and several jobs may accept the same input type), from `[Job("key")]` on the class, or from `[JobContract("key")]` on the input type when the message type itself should be the address.
+Every job implements `IJob<TInput>`. Its address comes from `[JobContract("key")]` on the input type, from `[Job("key")]` on the class, or from a `JobDefinition` passed to `AddJob`. A definition suits addresses shared with producers in other services, and input types that several jobs accept. `AddJobs(assembly)` registers attributed jobs at startup; the `WorkThrough.Generators` source generator does the same at build time and reports a job without an address as a compile error.
 
 Retired addresses can be [aliased](docs/identity-evolution.md) to new ones under fleet fencing. [Deployment preflight](docs/deployment-preflight.md) checks that a proposed worker fleet covers every address, version and queue that stored work still needs.
 
@@ -168,7 +188,7 @@ Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVE
 - Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation, checkpoint forks and child flows are planned.
 - Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
 - External OIDC sign-in requires a configured identity provider and has not been verified against a real account.
-- Each store admits work through one serialized write path, which keeps limits exact across hosts. Expect a few hundred jobs per second per store: on the documented test host, about 220–275/s on PostgreSQL and 700/s on SQLite with near-instant handlers ([ADR-020](docs/adr/0020-write-path-throughput.md)). WorkThrough suits business workflows; for high-volume event streams, use a message broker.
+- Throughput per store, on the documented test host with near-instant handlers and no limits: about 810–830/s on PostgreSQL, 720–810/s on SQLite, 430/s on SQL Server with `READ_COMMITTED_SNAPSHOT`, and 280/s on Oracle. Limits are exact because claims serialize while any limit exists; such stores reach a few hundred jobs per second ([ADR-020](docs/adr/0020-write-path-throughput.md)). WorkThrough suits business workflows; for high-volume event streams, use a message broker.
 - There is no production certification and no Native AOT support. Performance figures describe the documented test host.
 - Package publication and the project license are pending maintainer decisions.
 

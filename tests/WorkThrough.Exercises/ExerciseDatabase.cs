@@ -44,7 +44,9 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             await using var database = new SqlConnection(admin);
             await database.OpenAsync();
             await using var command = database.CreateCommand();
-            command.CommandText = $"CREATE DATABASE [{schema}]; ALTER DATABASE [{schema}] SET ALLOW_SNAPSHOT_ISOLATION ON;";
+            // WT_EXERCISE_SQLSERVER_VERSIONED_READS=1 measures the row-locked path that READ_COMMITTED_SNAPSHOT enables (ADR-020).
+            command.CommandText = $"CREATE DATABASE [{schema}]; ALTER DATABASE [{schema}] SET ALLOW_SNAPSHOT_ISOLATION ON;" +
+                (Environment.GetEnvironmentVariable("WT_EXERCISE_SQLSERVER_VERSIONED_READS") == "1" ? $" ALTER DATABASE [{schema}] SET READ_COMMITTED_SNAPSHOT ON;" : "");
             await command.ExecuteNonQueryAsync();
             connection = new SqlConnectionStringBuilder(admin) { InitialCatalog = schema }.ToString();
         }

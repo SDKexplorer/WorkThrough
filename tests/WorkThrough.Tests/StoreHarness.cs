@@ -16,6 +16,9 @@ internal sealed class StoreHarness : IAsyncDisposable
     private string? oraclePassword;
     public string? OracleSchema => Store is OracleJobStore ? schema : null;
     public string? ReadOnlyConnectionString { get; private set; }
+    /// <summary>A SQL Server database with READ_COMMITTED_SNAPSHOT on, where settlements and unrestricted claims skip the application lock.</summary>
+    public const string SqlServerVersionedReads = "sqlserver-rcsi";
+
     public required Func<RelationalJobStore> NewStore { get; init; }
     public required string ConnectionString { get; init; }
     public RelationalJobStore Store => NewStore();
@@ -95,7 +98,7 @@ internal sealed class StoreHarness : IAsyncDisposable
                 NewStore = () => new OracleJobStore(cs)
             };
         }
-        else if (provider == "sqlserver")
+        else if (provider is "sqlserver" or SqlServerVersionedReads)
         {
             var admin = Environment.GetEnvironmentVariable("DURABLEJOBS_SQLSERVER")
                 ?? throw new InvalidOperationException("SQL Server tests require a disposable server connection with database creation privileges.");
@@ -103,7 +106,8 @@ internal sealed class StoreHarness : IAsyncDisposable
             await using var connection = new SqlConnection(admin);
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
-            command.CommandText = $"CREATE DATABASE [{database}]; ALTER DATABASE [{database}] SET ALLOW_SNAPSHOT_ISOLATION ON;";
+            command.CommandText = $"CREATE DATABASE [{database}]; ALTER DATABASE [{database}] SET ALLOW_SNAPSHOT_ISOLATION ON;" +
+                (provider == SqlServerVersionedReads ? $" ALTER DATABASE [{database}] SET READ_COMMITTED_SNAPSHOT ON;" : "");
             await command.ExecuteNonQueryAsync();
             var cs = new SqlConnectionStringBuilder(admin) { InitialCatalog = database }.ToString();
             harness = new()

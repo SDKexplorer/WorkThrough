@@ -101,6 +101,8 @@ public abstract partial class RelationalJobStore
 
     private async Task AdvanceWorkflowAsync(DbConnection connection, DbTransaction transaction, Guid runId, CancellationToken ct)
     {
+        // Callers that change steps first lock the flow before them; this covers callers that change only the flow or its signals.
+        await LockFlowAsync(connection, transaction, runId, skipLocked: false, ct);
         FlowDefinition definition;
         JsonElement input;
         await using (var command = Command(connection, transaction, """
@@ -123,13 +125,21 @@ public abstract partial class RelationalJobStore
         for (var pass = 0; pass <= definition.Steps.Length; pass++)
         {
             var jobs = await ReadJobsAsync(connection, transaction, "SELECT * FROM dj_jobs WHERE workflow_run_id=@id", ct, ("id", runId.ToString()));
+            var read = jobs.ToDictionary(job => job.Id, job => job.Status);
             var plan = FlowPlanner.Advance(definition, input, jobs);
             var now = await NowAsync(connection, transaction, ct);
             foreach (var change in plan.Changes)
             {
-                await ExecuteAsync(connection, transaction,
-                    "UPDATE dj_jobs SET status=@status,payload=@payload,error=@error,available_at=CASE WHEN @status='Queued' THEN @now ELSE available_at END WHERE id=@id", ct,
-                    ("status", change.Status.ToString()), ("payload", change.Payload.GetRawText()), ("error", change.Error), ("id", change.Id.ToString()), ("now", now));
+                // A claim may lease a queued step that a failing flow is skipping; the lease then stands, as if it came first.
+                if (await ExecuteAsync(connection, transaction, """
+                    UPDATE dj_jobs SET status=@status,payload=@payload,error=@error,available_at=CASE WHEN @status='Queued' THEN @now ELSE available_at END
+                    WHERE id=@id AND status=@read
+                    """, ct, ("status", change.Status.ToString()), ("payload", change.Payload.GetRawText()), ("error", change.Error), ("id", change.Id.ToString()),
+                    ("now", now), ("read", read[change.Id].ToString())) == 0)
+                {
+                    continue;
+                }
+
                 if (change.Status == JobStatus.AwaitingSignal)
                 {
                     var signal = definition.Steps.Single(s => s.Id == change.StepId).Signal!;

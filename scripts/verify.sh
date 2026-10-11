@@ -27,6 +27,8 @@ sample_dir="$(mktemp -d "$repo_dir/artifacts/shop-sample-XXXXXXXX")"
 Shop__Sqlite="Data Source=$sample_dir/shop.db" "$runtime8" samples/Shop.Api/bin/Release/net8.0/Shop.Api.dll --smoke
 Shop__Sqlite="Data Source=$sample_dir/shop.db" "$runtime8" samples/Shop.Worker/bin/Release/net8.0/Shop.Worker.dll --preflight > artifacts/preflight-smoke.json
 echo 'PASS: deployment preflight confirmed the shop worker covers stored work and its seeded schedule.'
+(cd "$sample_dir" && "$runtime8" "$repo_dir/samples/QuickStart/bin/Release/net8.0/QuickStart.dll" > quickstart.log)
+echo 'PASS: the one-file quick start registered its job by reflection and ran it.'
 
 # Independent process termination and a bounded performance/correctness smoke campaign.
 WORKTHROUGH_DOTNET8="$runtime8" ./scripts/performance.sh --smoke

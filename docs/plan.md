@@ -92,7 +92,8 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 ## Throughput — 2026-10-11
 
 - [x] Raise write-path throughput without weakening admission: a lock-free claim pre-check, batched claims and completions, batched statements, owned writes outside the admission lock, and the SQLite busy timeout (ADR-020). Drain throughput rose 2.4–3.6× on every provider.
-- [ ] Concurrent claims (`SKIP LOCKED`/`READPAST`) and lock-free settlement with per-flow row locks and per-limit counters, after a design for flow joins, lock ordering and the gap-free journal (ADR-020).
+- [x] Settlement outside the admission lock with flow-first row locks, journal events appended at commit, and `SKIP LOCKED`/`READPAST` claims while no limit exists (ADR-020 amendment). PostgreSQL drain rose 3.3×, SQL Server with versioned reads 2.1×, Oracle 1.5×.
+- [ ] Concurrent claims while limits exist, which needs per-limit counter rows to stay exact.
 
 ## Product review findings — 2026-10-11
 
@@ -105,6 +106,7 @@ Gaps found when reviewing WorkThrough as an adopter would. None blocks the curre
 - [ ] MySQL/MariaDB provider, a common request from Hangfire users.
 - [x] One programming model: `IJob<TInput>` with `ExecuteAsync`, replacing `IProcessor<T>` and `IJobHandler<T>`. Addresses come from a `JobDefinition`, `[Job]` on the class, or `[JobContract]` on the input type; `AddJob` registers all three.
 - [x] Typed flow bindings and conditions (`BindInput((Target t) => t.X, (Source s) => s.Y)`) and a [testing guide](testing.md).
+- [x] An easier first job: `AddJobs(assembly)` registers attributed jobs without the generator, storage registration needs no extra `using`, and `QuickStart` and `QuickStart.Web` samples sit beside Shop.
 - [ ] A `dotnet new` template and rolling (zero-downtime) schema upgrades.
 
 ## Exit criteria for the initial repository
