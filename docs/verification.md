@@ -314,3 +314,9 @@ Input correction (2026-10-11, schema 9): SQLite + PostgreSQL 351, SQL Server (bo
 - Running or queued work, and steps of finished flows, are refused.
 - The console endpoint refuses a user who has `inputs.correct` but lacks `payloads.read`.
 
+Compensation (2026-10-11, ADR-025, engine protocol 5): SQLite + PostgreSQL 357, SQL Server (both modes) 363, Oracle 357 passed.
+- A failed flow undoes completed steps in reverse order, each with its input and output, then fails with the original error.
+- A failed undo raises an incident, and recovery finishes compensation.
+- Compensating definitions wait for protocol 5.
+- A step queued in the same planning pass as a failure is now skipped instead of left queued. The test fails without that fix.
+

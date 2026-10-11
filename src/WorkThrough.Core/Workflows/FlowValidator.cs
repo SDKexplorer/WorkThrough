@@ -61,10 +61,17 @@ public static class FlowValidator
                 throw new ArgumentException("Steps require an ID, queue, and positive retry count.");
             }
 
-            // Item steps of a fan-out are named id[index], so brackets would make step IDs ambiguous.
-            if (step.Id.IndexOfAny(['[', ']']) >= 0)
+            // Fan-out items are named id[index] and compensations id:undo, so these characters would make step IDs ambiguous.
+            if (step.Id.IndexOfAny(['[', ']', ':']) >= 0)
             {
-                throw new ArgumentException($"Step ID {step.Id} must not contain brackets.");
+                throw new ArgumentException($"Step ID {step.Id} must not contain brackets or colons.");
+            }
+
+            if (step.Compensation is { } compensation && (step.Signal is not null || step.Child is not null || step.ForEach is not null
+                || string.IsNullOrWhiteSpace(compensation.Queue) || compensation.MaxAttempts < 1
+                || compensation.Contract.Key is var key && (key == SignalWait.Processor.Key || key == FlowChild.Processor.Key)))
+            {
+                throw new ArgumentException($"Step {step.Id} can be compensated only when it runs a job, by a job with a queue and positive retry count.");
             }
 
             if (step.Input.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)

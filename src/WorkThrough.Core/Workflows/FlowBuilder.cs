@@ -94,6 +94,17 @@ public sealed class FlowBuilder
         return Change(step => step with { Child = new(child.Key, child.Version, timeout ?? FlowChild.MaximumTimeout) { Definition = child } });
     }
 
+    /// <summary>
+    /// Undoes the last step with <paramref name="processor"/> if the flow fails under <see cref="FlowFailurePolicy.Compensate"/>.
+    /// The job receives the step's input and output as <see cref="CompensationInput{TInput, TOutput}"/>.
+    /// </summary>
+    public FlowBuilder CompensateWith(JobContractId processor, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts) =>
+        Change(step => step with { Compensation = new(processor, queue, maxAttempts) });
+
+    /// <summary>Typed form of <see cref="CompensateWith(JobContractId, string, int)"/>.</summary>
+    public FlowBuilder CompensateWith<TInput, TOutput>(JobDefinition<CompensationInput<TInput, TOutput>> definition, string queue = JobDefaults.Queue,
+        int maxAttempts = JobDefaults.MaxAttempts) => CompensateWith(definition.Identity, queue, maxAttempts);
+
     /// <summary>Persists a signal wait without invoking a processor or holding a worker lease.</summary>
     public FlowBuilder WaitForSignal<TInput>(string id, SignalDefinition<TInput> signal, TimeSpan timeout)
     {

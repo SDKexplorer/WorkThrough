@@ -38,6 +38,21 @@ public sealed record FlowChild(string FlowKey, int FlowVersion, TimeSpan Timeout
 }
 
 /// <summary>
+/// Undoes a completed step when its flow fails under <see cref="FlowFailurePolicy.Compensate"/>. The compensating job receives
+/// <see cref="CompensationInput{TInput, TOutput}"/>: the step's input and output. Steps are undone in reverse dependency order.
+/// </summary>
+public sealed record FlowCompensation(JobContractId Contract, string Queue, int MaxAttempts)
+{
+    /// <summary>The step ID of the job that undoes step <paramref name="stepId"/>.</summary>
+    public static string UndoStepId(string stepId) => $"{stepId}:undo";
+
+    public static bool IsUndoStep(string? stepId) => stepId?.EndsWith(":undo", StringComparison.Ordinal) == true;
+}
+
+/// <summary>What a compensating job receives: the completed step's input and output.</summary>
+public sealed record CompensationInput<TInput, TOutput>(TInput Input, TOutput? Output);
+
+/// <summary>
 /// Runs a step once per element of an array in an earlier step's output. Each item step receives its element in
 /// <paramref name="TargetProperty"/>; the step succeeds with <c>{"items":[...]}</c>, the item outputs in order, after every item succeeds.
 /// </summary>
@@ -69,11 +84,22 @@ public sealed record FlowStep(
     /// <summary>Runs another flow instead of a job; see <see cref="FlowChild"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public FlowChild? Child { get; init; }
+
+    /// <summary>Undoes this step if the flow fails under <see cref="FlowFailurePolicy.Compensate"/>; see <see cref="FlowCompensation"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FlowCompensation? Compensation { get; init; }
 }
 
 public enum FlowFailurePolicy
 {
-    Stop, Suspend
+    /// <summary>Skips remaining work and fails the flow.</summary>
+    Stop,
+
+    /// <summary>Keeps remaining work and raises an incident for operators to recover.</summary>
+    Suspend,
+
+    /// <summary>Skips remaining work, undoes completed steps that declare a compensation in reverse order, then fails the flow.</summary>
+    Compensate
 }
 
 /// <summary>Run lifecycle. Persisted and archived by name.</summary>
@@ -87,7 +113,9 @@ public sealed record FlowDefinition(string Key, int Version, FlowStep[] Steps, F
 {
     /// <summary>The engine protocol every host must understand before a run of this definition may start.</summary>
     [JsonIgnore]
-    public int RequiredProtocol => Steps.Any(step => step.Child is not null) ? EngineProtocol.ChildFlows
+    public int RequiredProtocol => FailurePolicy == FlowFailurePolicy.Compensate || Steps.Any(step => step.Compensation is not null)
+        ? EngineProtocol.Compensation
+        : Steps.Any(step => step.Child is not null) ? EngineProtocol.ChildFlows
         : Steps.Any(step => step.ForEach is not null) ? EngineProtocol.FanOut
         : EngineProtocol.Baseline;
 }

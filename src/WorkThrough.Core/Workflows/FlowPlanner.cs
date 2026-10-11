@@ -25,7 +25,7 @@ public static class FlowPlanner
             {
                 if (definition.FailurePolicy == FlowFailurePolicy.Suspend && FirstUnsuccessful(current) is { } incident)
                 {
-                    return new(changes, FlowStatus.Incident, RecoveryMessage(incident)) { Added = added };
+                    return Plan(changes, FlowStatus.Incident, RecoveryMessage(incident), added);
                 }
 
                 var job = current[step.Id];
@@ -76,23 +76,136 @@ public static class FlowPlanner
 
         if (FirstUnsuccessful(current) is not { } failure)
         {
-            return new(changes, current.Values.All(x => x.Status.IsTerminal()) ? FlowStatus.Succeeded : FlowStatus.Running, null) { Added = added };
+            return Plan(changes, current.Values.All(x => x.Status.IsTerminal()) ? FlowStatus.Succeeded : FlowStatus.Running, null, added);
         }
 
         if (definition.FailurePolicy == FlowFailurePolicy.Suspend)
         {
-            return new(changes, FlowStatus.Incident, RecoveryMessage(failure)) { Added = added };
+            return Plan(changes, FlowStatus.Incident, RecoveryMessage(failure), added);
         }
 
         // Item steps created by this plan are not stored yet; a failing flow simply never creates them.
         var created = added.Select(item => item.Id).ToHashSet();
-        foreach (var job in current.Values.Where(x => x.Status is JobStatus.Waiting or JobStatus.Queued && !created.Contains(x.Id)).ToArray())
+        added.Clear();
+        foreach (var job in current.Values.Where(x => x.Status is JobStatus.Waiting or JobStatus.Queued && !created.Contains(x.Id)
+            && !FlowCompensation.IsUndoStep(x.StepId)).ToArray())
         {
-            changes.Add(job with { Status = JobStatus.Skipped });
+            current[job.StepId!] = job with { Status = JobStatus.Skipped };
+            changes.Add(current[job.StepId!]);
         }
 
-        return new(changes, FlowStatus.Failed, failure.Error ?? $"Step {failure.StepId} did not succeed.");
+        foreach (var id in created)
+        {
+            current.Remove(current.Single(entry => entry.Value.Id == id).Key);
+        }
+
+        var error = failure.Error ?? $"Step {failure.StepId} did not succeed.";
+
+        return definition.FailurePolicy == FlowFailurePolicy.Compensate
+            ? Compensate(definition, current, changes, added, error)
+            : Plan(changes, FlowStatus.Failed, error, added);
     }
+
+    /// <summary>
+    /// Undoes completed steps that declare a compensation. A step is undone after every step that depended on it has finished and been
+    /// undone. A failed compensation raises an incident; the flow fails once nothing remains to run.
+    /// </summary>
+    private static FlowPlan Compensate(FlowDefinition definition, Dictionary<string, JobRecord> current, List<JobRecord> changes, List<JobRecord> added,
+        string error)
+    {
+        foreach (var step in definition.Steps.Where(step => step.Compensation is not null))
+        {
+            var undoId = FlowCompensation.UndoStepId(step.Id);
+            if (current[step.Id] is { Status: JobStatus.Succeeded } done && !current.ContainsKey(undoId))
+            {
+                var compensation = step.Compensation!;
+                var undo = done with
+                {
+                    Id = Guid.NewGuid(),
+                    StepId = undoId,
+                    Contract = compensation.Contract,
+                    Queue = compensation.Queue,
+                    MaxAttempts = compensation.MaxAttempts,
+                    Status = JobStatus.Waiting,
+                    Attempt = 0,
+                    Output = null,
+                    Error = null,
+                    Payload = JsonSerializer.SerializeToElement(new JsonObject
+                    {
+                        ["input"] = JsonNode.Parse(done.Payload.GetRawText()),
+                        ["output"] = done.Output is { } output ? JsonNode.Parse(output.GetRawText()) : null
+                    }, JobJson.Options)
+                };
+                current[undoId] = undo;
+                added.Add(undo);
+            }
+        }
+
+        var progressed = true;
+        while (progressed)
+        {
+            progressed = false;
+            foreach (var step in definition.Steps)
+            {
+                if (!current.TryGetValue(FlowCompensation.UndoStepId(step.Id), out var undo) || undo.Status != JobStatus.Waiting)
+                {
+                    continue;
+                }
+
+                // Later work is undone first: every descendant must have finished, and its own compensation too.
+                var settled = Descendants(definition, step.Id).All(id => current[id].Status.IsTerminal()
+                    && (!current.TryGetValue(FlowCompensation.UndoStepId(id), out var later) || later.Status.IsTerminal()));
+                if (!settled)
+                {
+                    continue;
+                }
+
+                var queued = undo with { Status = JobStatus.Queued };
+                current[queued.StepId!] = queued;
+                var pending = added.FindIndex(item => item.Id == queued.Id);
+                if (pending >= 0)
+                {
+                    added[pending] = queued;
+                }
+                else
+                {
+                    changes.Add(queued);
+                }
+
+                progressed = true;
+            }
+        }
+
+        if (current.Values.FirstOrDefault(job => FlowCompensation.IsUndoStep(job.StepId) && job.Status.IsUnsuccessful()) is { } failedUndo)
+        {
+            return Plan(changes, FlowStatus.Incident, $"Compensation {failedUndo.StepId} did not succeed: {failedUndo.Error}", added);
+        }
+
+        return Plan(changes, current.Values.All(job => job.Status.IsTerminal()) ? FlowStatus.Failed : FlowStatus.Running, error, added);
+    }
+
+    /// <summary>Every step that depends on <paramref name="stepId"/>, directly or through other steps.</summary>
+    private static HashSet<string> Descendants(FlowDefinition definition, string stepId)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>([stepId]);
+        while (pending.TryPop(out var id))
+        {
+            foreach (var next in definition.Steps.Where(step => step.After.Contains(id)).Select(step => step.Id))
+            {
+                if (found.Add(next))
+                {
+                    pending.Push(next);
+                }
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>A plan whose changes keep only the last change to each job, since providers apply each against the status first read.</summary>
+    private static FlowPlan Plan(List<JobRecord> changes, FlowStatus status, string? error, List<JobRecord> added) =>
+        new([.. changes.GroupBy(job => job.Id).Select(group => group.Last())], status, error) { Added = added };
 
     /// <summary>
     /// Creates one queued item step per element of the fan-out's source array, each with the step's bound input plus its element.
@@ -207,7 +320,9 @@ public static class FlowPlanner
         return JsonSerializer.SerializeToElement(payload, JobJson.Options);
     }
 
-    private static JobRecord? FirstUnsuccessful(Dictionary<string, JobRecord> jobs) => jobs.Values.FirstOrDefault(x => x.Status.IsUnsuccessful());
+    /// <summary>The first failed step of the flow's own work; compensations are judged separately.</summary>
+    private static JobRecord? FirstUnsuccessful(Dictionary<string, JobRecord> jobs) =>
+        jobs.Values.FirstOrDefault(x => x.Status.IsUnsuccessful() && !FlowCompensation.IsUndoStep(x.StepId));
 
     private static string RecoveryMessage(JobRecord step) => step.Error ?? $"Step {step.StepId} requires recovery.";
 

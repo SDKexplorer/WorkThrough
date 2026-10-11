@@ -21,8 +21,11 @@ public static class EngineProtocol
     /// <summary>Flow steps that run another published flow and wait for it (<see cref="FlowChild"/>).</summary>
     public const int ChildFlows = 4;
 
+    /// <summary>Compensating steps that undo completed work when a flow fails (<see cref="FlowCompensation"/>).</summary>
+    public const int Compensation = 5;
+
     /// <summary>The highest level this build understands.</summary>
-    public const int Supported = ChildFlows;
+    public const int Supported = Compensation;
 }
 
 /// <summary>A store's active protocol and, while a higher level waits, the workers that block it.</summary>
