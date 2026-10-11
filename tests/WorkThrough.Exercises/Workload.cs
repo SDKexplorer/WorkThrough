@@ -9,6 +9,8 @@ namespace WorkThrough.Exercises;
 internal static class Workload
 {
     public const string Queue = "exercise";
+    public const int LocalSlots = 4;
+    public const int PollMilliseconds = 10;
     public static JobDefinition<WorkItem> Fast { get; } = new("exercises.fast");
     public static JobDefinition<WorkItem> Limited { get; } = new("exercises.limited");
     public static readonly TimeSpan Lease = TimeSpan.FromSeconds(30);
@@ -44,10 +46,10 @@ internal static class Workload
             .AddWorker(options =>
             {
                 options.WorkerId = $"exercise-{Environment.ProcessId}";
-                options.Queues = [Queue];
-                options.MaxConcurrentJobs = 4;
+                options.Queues = Environment.GetEnvironmentVariable("WT_EXERCISE_QUEUES") is { Length: > 0 } queues ? queues.Split(',') : [Queue];
+                options.MaxConcurrentJobs = LocalSlots;
                 options.PerJobLimits[Limited.Identity.Key] = 2;
-                options.PollInterval = TimeSpan.FromMilliseconds(10);
+                options.PollInterval = TimeSpan.FromMilliseconds(PollMilliseconds);
                 options.LeaseDuration = Environment.GetEnvironmentVariable("WT_EXERCISE_CRASH") == "1" ? TimeSpan.FromSeconds(2) : Lease;
             });
         using var host = builder.Build();

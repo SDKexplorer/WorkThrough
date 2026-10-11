@@ -21,6 +21,7 @@ interface Job {
     stepId: string | null;
     workerId: string | null;
     partitionKey: string | null;
+    tenantId: string | null;
 }
 interface Attempt {
     number: number;
@@ -146,9 +147,15 @@ interface QueueControl {
     revision: number;
     weight: number;
 }
+type KeyScope = 'Partition' | 'Tenant';
 interface AdmissionPolicies {
-    partitionLimits: { jobKey: string | null; maximumPerPartition: number }[];
-    rateLimits: { jobKey: string | null; permits: number; window: string; perPartition: boolean }[];
+    keyedLimits: { scope: KeyScope; jobKey: string | null; maximumPerKey: number }[];
+    rateLimits: {
+        jobKey: string | null;
+        permits: number;
+        window: string;
+        perKey: KeyScope | null;
+    }[];
 }
 interface WorkerControl {
     workerId: string;
@@ -256,7 +263,7 @@ export class LiveConsoleComponent {
     readonly deployment = signal<DeploymentReport | null>(null);
     readonly controls = signal<Controls>({ queues: [], workers: [] });
     readonly archives = signal<Archive[]>([]);
-    readonly admission = signal<AdmissionPolicies>({ partitionLimits: [], rateLimits: [] });
+    readonly admission = signal<AdmissionPolicies>({ keyedLimits: [], rateLimits: [] });
     readonly archiveCandidates = signal<Candidate[] | null>(null);
     readonly retention = signal<RetentionStatus | null>(null);
     readonly retentionError = signal('');
@@ -477,6 +484,9 @@ export class LiveConsoleComponent {
                 },
         );
     }
+    keyScopeLabel(scope: KeyScope): string {
+        return scope === 'Tenant' ? 'tenant' : 'partition key';
+    }
     processorName(worker: Worker, processor: Processor): string {
         return (
             worker.descriptions?.find(
@@ -657,6 +667,8 @@ export class LiveConsoleComponent {
                     Scheduled: 'Scheduled for later',
                     SharedCapacity: 'Waiting for shared capacity',
                     PartitionCapacity: 'Waiting for a free slot in its partition',
+                    TenantCapacity: 'Waiting for a free slot for its tenant',
+                    FlowParallelism: 'Waiting for its flow run to finish a parallel step',
                     RateLimited: 'Waiting for the rate limit window',
                     WorkerCapacity: 'Waiting for worker capacity',
                     NoRecentCapableWorker: 'No recent worker supports this processor and queue',

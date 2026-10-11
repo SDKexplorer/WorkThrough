@@ -210,6 +210,12 @@ public sealed partial class OracleJobStore
         new("DJ_JOBS", false, """
             ALTER TABLE dj_jobs ADD partition_key VARCHAR2(256 CHAR)
             """, Column: "PARTITION_KEY"),
+        new("DJ_JOBS", false, """
+            ALTER TABLE dj_jobs ADD tenant_id VARCHAR2(256 CHAR)
+            """, Column: "TENANT_ID"),
+        new("DJ_FLOWS", false, """
+            ALTER TABLE dj_flows ADD max_parallel NUMBER(10) CHECK(max_parallel>0)
+            """, Column: "MAX_PARALLEL"),
         new("DJ_QUEUE_CONTROLS", false, """
             ALTER TABLE dj_queue_controls ADD weight NUMBER(10) DEFAULT 1 NOT NULL
             """, Column: "WEIGHT"),
@@ -219,19 +225,36 @@ public sealed partial class OracleJobStore
         new("DJ_QUEUE_CLOCK", false, """
             CREATE TABLE dj_queue_clock (id NUMBER(10) PRIMARY KEY,value NUMBER(19) NOT NULL) SEGMENT CREATION IMMEDIATE
             """),
-        new("DJ_PARTITION_LIMITS", false, """
-            CREATE TABLE dj_partition_limits (job_key VARCHAR2(120 CHAR) PRIMARY KEY,maximum NUMBER(10) NOT NULL CHECK(maximum>=0)) SEGMENT CREATION IMMEDIATE
+        new("DJ_KEYED_LIMITS", false, """
+            CREATE TABLE dj_keyed_limits (
+            job_key VARCHAR2(120 CHAR) NOT NULL,key_scope NUMBER(10) NOT NULL,maximum NUMBER(10) NOT NULL CHECK(maximum>=0),
+            PRIMARY KEY(job_key,key_scope)) SEGMENT CREATION IMMEDIATE
             """),
         new("DJ_RATE_LIMITS", false, """
             CREATE TABLE dj_rate_limits (
-            job_key VARCHAR2(120 CHAR) NOT NULL,per_partition NUMBER(10) NOT NULL,permits NUMBER(10) NOT NULL CHECK(permits>0),
-            window_ms NUMBER(19) NOT NULL CHECK(window_ms>0),PRIMARY KEY(job_key,per_partition)) SEGMENT CREATION IMMEDIATE
+            job_key VARCHAR2(120 CHAR) NOT NULL,key_scope NUMBER(10) NOT NULL,permits NUMBER(10) NOT NULL CHECK(permits>0),
+            window_ms NUMBER(19) NOT NULL CHECK(window_ms>0),PRIMARY KEY(job_key,key_scope)) SEGMENT CREATION IMMEDIATE
             """),
         new("IX_DJ_JOBS_PARTITION", true, """
             CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key)
             """),
-        new("IX_DJ_ATTEMPTS_STARTED", true, """
-            CREATE INDEX ix_dj_attempts_started ON dj_attempts(started_at,job_id)
+        // Oracle omits all-null keys from B-tree indexes, so work without a tenant or bound never maintains these.
+        new("IX_DJ_JOBS_TENANT", true, """
+            CREATE INDEX ix_dj_jobs_tenant ON dj_jobs(tenant_id)
+            """),
+        new("IX_DJ_FLOWS_BOUNDED", true, """
+            CREATE INDEX ix_dj_flows_bounded ON dj_flows(max_parallel)
+            """),
+        new("DJ_RATE_LEDGER", false, """
+            CREATE TABLE dj_rate_ledger (
+            job_key VARCHAR2(120 CHAR) NOT NULL,key_scope NUMBER(10) NOT NULL,rate_key VARCHAR2(256 CHAR) NOT NULL,
+            started_at NUMBER(19) NOT NULL,job_id VARCHAR2(36 CHAR) NOT NULL) SEGMENT CREATION IMMEDIATE
+            """),
+        new("IX_DJ_RATE_LEDGER", true, """
+            CREATE INDEX ix_dj_rate_ledger ON dj_rate_ledger(job_key,key_scope,rate_key,started_at)
+            """),
+        new("IX_DJ_RATE_LEDGER_TIME", true, """
+            CREATE INDEX ix_dj_rate_ledger_time ON dj_rate_ledger(started_at)
             """),
     ];
 

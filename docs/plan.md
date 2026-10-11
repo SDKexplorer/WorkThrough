@@ -12,7 +12,7 @@ The core engine and processor relocation guarantee are implemented. Completing a
 | 2 | Automatic retention implemented: opt-in maintenance, holds, fenced batches, verified file exports and separate purge/event policies; large contention/restore qualification remains | Crash/race tests proving active work, receipts and held evidence survive; restart-safe progress |
 | 3 | SQL Server and Oracle implemented and native CI verified | Provider dialect/transaction implementation, real-database conformance, package consumers, relocation and process-kill recovery on .NET 8/10 |
 | 4 | Implemented operational UX: windowed metrics, step display labels, worker acquisition health and retention status | Real measurements and saved-data inspection in the Angular console; no invented counts or missing-history claims |
-| 5 | Partition-key concurrency, rate limits, queue fairness and tenant isolation | Separate lock/tenant identities, resource-policy tests and multi-host admission/fairness evidence |
+| 5 | Implemented: partition-key and tenant concurrency, rate limits, bounded flow fan-out and weighted queue fairness (ADR-018); tenant access isolation remains P2 work | Separate lock/tenant identities, resource-policy tests and multi-process admission/fairness evidence on all four providers |
 | 6 | Controlled MCP actions, after the read-only release | Trusted approval, exact target/parameters, revocation/state preconditions and existing atomic command/audit reconciliation |
 | 7 | Production/public release readiness; 100k-job/20-client correctness passed on all four providers; proposed throughput budget missed in some runs | Repeated contention and two-hour soak, external IdP/AI-client checks, multi-host/PITR evidence, license/package/visibility decisions and enforced branch policies |
 
@@ -75,7 +75,7 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [x] Add durable signals with deduplication, storage of signals arriving before their wait step, and race-tested timeout behavior; never park a worker thread while waiting.
 - [x] Define cron time zones, daylight-saving transitions, and missed-schedule policy alongside overlap controls.
 - [x] Add weighted queue fairness (ADR-018).
-- [ ] Add bounded fan-out, per-tenant quotas where applicable, and load tests that measure both database contention and memory growth.
+- [x] Add bounded fan-out (`MaxParallelSteps`), per-tenant quotas and a multi-process admission load exercise that measures policy cost under contention and worker memory (ADR-018). Longer soaks remain release-readiness work.
 
 ## P3 — controlled recovery and release
 

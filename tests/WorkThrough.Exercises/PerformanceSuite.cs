@@ -39,11 +39,11 @@ internal static class PerformanceSuite
             {
                 workerProcesses = 2,
                 producers = 4,
-                localSlots = 4,
+                localSlots = Workload.LocalSlots,
                 globalLimit = 6,
                 limitedTypeLimit = 2,
                 handlerDelayMs = 10,
-                pollMs = 10,
+                pollMs = Workload.PollMilliseconds,
                 leaseSeconds = 30,
                 load = "finite concurrent burst",
                 latencyOrigin = LatencyOrigin,
@@ -178,7 +178,7 @@ internal static class PerformanceSuite
         }
     }
 
-    private static int Peak(IEnumerable<JobAttempt> attempts)
+    internal static int Peak(IEnumerable<JobAttempt> attempts)
     {
         var points = attempts.SelectMany(a => new[] { (At: a.StartedAt, Delta: 1), (At: a.FinishedAt!.Value, Delta: -1) });
         var active = 0;

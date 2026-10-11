@@ -54,13 +54,16 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
             // Schema 5 columns are added by name: older stores may have created these tables at any earlier version.
             await AddColumnIfMissingAsync(connection, transaction, "dj_jobs", "partition_key", "TEXT", ct);
+            await AddColumnIfMissingAsync(connection, transaction, "dj_jobs", "tenant_id", "TEXT", ct);
+            await AddColumnIfMissingAsync(connection, transaction, "dj_flows", "max_parallel", "INTEGER", ct);
             await AddColumnIfMissingAsync(connection, transaction, "dj_queue_controls", "weight", "INTEGER NOT NULL DEFAULT 1", ct);
 
             // Indexes on upgraded columns are created after the columns exist.
             await ExecuteAsync(connection, transaction, """
                 CREATE INDEX IF NOT EXISTS ix_dj_jobs_terminal ON dj_jobs(status,terminal_at,id);
                 CREATE INDEX IF NOT EXISTS ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at) WHERE partition_key IS NOT NULL;
-                CREATE INDEX IF NOT EXISTS ix_dj_attempts_started ON dj_attempts(started_at,job_id);
+                CREATE INDEX IF NOT EXISTS ix_dj_jobs_tenant ON dj_jobs(tenant_id,status,lease_expires_at) WHERE tenant_id IS NOT NULL;
+                CREATE INDEX IF NOT EXISTS ix_dj_flows_bounded ON dj_flows(status) WHERE max_parallel IS NOT NULL;
                 """, ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_event_sequence(id,value) SELECT 1,COALESCE(MAX(sequence),0) FROM dj_events WHERE 1=1 ON CONFLICT DO NOTHING", ct);
             if (Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_store", ct)) == 0)
@@ -89,10 +92,13 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     public Task<Guid> EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default) =>
         WriteAsync((connection, transaction, ct) => AcceptJobAsync(connection, transaction, job, ct), cancellationToken);
 
-    // Unpartitioned work keeps the fingerprint shape of earlier releases, so existing receipts still match.
-    private static string JobFingerprint(JobRecord job) => job.PartitionKey is null
-        ? Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId })
-        : Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId, job.PartitionKey });
+    // Work without admission keys keeps the fingerprint shape of earlier releases, so existing receipts still match.
+    private static string JobFingerprint(JobRecord job) => (job.PartitionKey, job.TenantId) switch
+    {
+        (null, null) => Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId }),
+        (_, null) => Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId, job.PartitionKey }),
+        _ => Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId, job.PartitionKey, job.TenantId })
+    };
 
     private static string Fingerprint(object value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, JobJson.Options))));
@@ -104,7 +110,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             throw new ArgumentException("Inline input exceeds 1 MiB.");
         }
 
-        PartitionKeys.Validate(job.PartitionKey, nameof(job));
+        AdmissionKeys.Validate(job.PartitionKey, KeyScope.Partition, nameof(job));
+        AdmissionKeys.Validate(job.TenantId, KeyScope.Tenant, nameof(job));
 
         if (job.IdempotencyKey is not null && await FindAcceptedAsync(connection, transaction, job, ct) is { } accepted)
         {
@@ -228,7 +235,13 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                     await AdvanceQueueTurnAsync(connection, transaction, queue, order.Clock, ct);
                 }
 
-                return await LeaseAsync(connection, transaction, candidate, request, now, ct);
+                var leased = await LeaseAsync(connection, transaction, candidate, request, now, ct);
+                if (settings.HasRateLimits)
+                {
+                    await RecordRateStartAsync(connection, transaction, leased.Id, now, ct);
+                }
+
+                return leased;
             }
 
             return null;
@@ -278,8 +291,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 SELECT 1 FROM dj_flows f WHERE f.id=j.workflow_run_id AND f.status='Running'))
               AND ({string.Join(" OR ", contracts)}) AND j.queue=@queue
               AND {AdmissionGroupSql("j.job_key")} NOT IN (SELECT group_key FROM blocked_groups)
-              {(settings.HasPartitionLimits ? $"AND NOT {PartitionBlockedSql("j")}" : "")}
-              {(settings.HasRateLimits ? $"AND NOT {RateBlockedSql("j")}" : "")}
+              {AdmissionPredicatesSql("j", settings)}
             ORDER BY j.available_at,j.created_at,j.id {PageSql(1)}
             """;
 

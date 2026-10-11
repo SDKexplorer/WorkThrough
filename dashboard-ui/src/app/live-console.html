@@ -220,6 +220,8 @@
                     <code class="muted">{{ detail.job.id }}</code>
                     @if (detail.job.partitionKey) {
                     <p class="muted">Partition <code>{{ detail.job.partitionKey }}</code></p>
+                    } @if (detail.job.tenantId) {
+                    <p class="muted">Tenant <code>{{ detail.job.tenantId }}</code></p>
                     }
                 </div>
                 <span class="badge" [attr.data-status]="detail.job.status"
@@ -677,32 +679,31 @@
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
-                    <h2>Partition and rate limits</h2>
+                    <h2>Keyed and rate limits</h2>
                     <p class="muted">
-                        Partition limits cap running attempts per partition key. Rate limits cap
-                        starts per window.
+                        Keyed limits cap running attempts per partition key or tenant. Rate limits
+                        cap starts per window.
                     </p>
                 </div>
             </div>
             <div class="live-limits">
-                @for (limit of admission().partitionLimits; track limit.jobKey) {
+                @for (limit of admission().keyedLimits; track limit.scope + ':' + limit.jobKey) {
                 <article>
                     <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
-                    ><strong>{{ limit.maximumPerPartition }}</strong
-                    ><small class="muted">Running per partition key</small>
+                    ><strong>{{ limit.maximumPerKey }}</strong
+                    ><small class="muted">Running per {{ keyScopeLabel(limit.scope) }}</small>
                 </article>
-                } @for (limit of admission().rateLimits; track limit.jobKey + ':' +
-                limit.perPartition) {
+                } @for (limit of admission().rateLimits; track limit.jobKey + ':' + limit.perKey) {
                 <article>
                     <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
                     ><strong>{{ limit.permits }}</strong
                     ><small class="muted"
-                        >Starts per {{ limit.window }}{{ limit.perPartition ? ' per partition key' :
-                        '' }}</small
+                        >Starts per {{ limit.window }}{{ limit.perKey ? ' per ' +
+                        keyScopeLabel(limit.perKey) : '' }}</small
                     >
                 </article>
-                } @if (!admission().partitionLimits.length && !admission().rateLimits.length) {
-                <p class="muted">No partition or rate limits configured.</p>
+                } @if (!admission().keyedLimits.length && !admission().rateLimits.length) {
+                <p class="muted">No keyed or rate limits configured.</p>
                 }
             </div>
         </section>

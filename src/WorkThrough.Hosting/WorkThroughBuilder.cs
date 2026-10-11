@@ -183,10 +183,10 @@ public sealed class WorkThroughBuilder
         return this;
     }
 
-    /// <summary>Sets initial partition limits. Existing database policies survive restarts and deployments.</summary>
-    public WorkThroughBuilder SeedPartitionLimits(params PartitionLimit[] limits)
+    /// <summary>Sets initial partition-key and tenant limits. Existing database policies survive restarts and deployments.</summary>
+    public WorkThroughBuilder SeedKeyedLimits(params KeyedLimit[] limits)
     {
-        Initialization.PartitionLimits.AddRange(limits);
+        Initialization.KeyedLimits.AddRange(limits);
 
         return this;
     }

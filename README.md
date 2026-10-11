@@ -92,7 +92,18 @@ The explicit key overload lets producer-only hosts enqueue without the processor
 
 Local total/type concurrency and shared total/type limits all apply. Shared limits count valid admitted leases; lowering a limit does not terminate current handlers. A partitioned process can outlive its lease, so external effects still require idempotency/fencing.
 
-Jobs may carry a `PartitionKey` (enqueue, outbox, schedules, flow runs), separate from `CorrelationId`. `SeedPartitionLimits(new(null, 1))` serializes each key; `SeedRateLimits(new(InvoiceJobs.Generate.Identity.Key, 100, TimeSpan.FromMinutes(1), PerPartition: true))` caps attempt starts per sliding window. Queues sharing a worker are served by weighted stride scheduling (`SetQueueWeightAsync`, default weight 1). All rules are evaluated in the claim transaction, so they hold across hosts (ADR-018).
+Jobs may carry a `PartitionKey` (a business resource) and a `TenantId` (its owner) on enqueue, outbox, schedules and flow runs, separate from `CorrelationId`:
+
+```csharp
+builder.Services.AddWorkThrough()
+    .SeedKeyedLimits(new(KeyScope.Partition, null, 1), new(KeyScope.Tenant, null, 10))
+    .SeedRateLimits(new(InvoiceJobs.Generate.Identity.Key, 100, TimeSpan.FromMinutes(1), PerKey: KeyScope.Tenant));
+
+await jobs.EnqueueAsync(InvoiceJobs.Generate, invoice, new(TenantId: tenant, PartitionKey: $"{tenant}/{invoiceId}"), ct);
+await flows.StartAsync(definition, input, new FlowStart(TenantId: tenant, MaxParallelSteps: 4), ct);
+```
+
+Partition limits serialize or bound each key, tenant limits keep one tenant's backlog from taking every slot, rate limits cap attempt starts per sliding window, and `MaxParallelSteps` releases a wide flow stage gradually. Queues sharing a worker are served by weighted stride scheduling (`SetQueueWeightAsync`, default weight 1). All rules are evaluated in the claim transaction, so they hold across hosts (ADR-018). Partition keys are global; namespace them per tenant when tenants reuse business IDs.
 
 ## Flows and recovery
 

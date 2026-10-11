@@ -70,7 +70,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
         return command;
     }
 
-    private static bool IsIdentityParameter(string name) => name is "id" or "job" or "run" or "flow" or "worker" or "key" or "partition"
+    private static bool IsIdentityParameter(string name) => name is "id" or "job" or "run" or "flow" or "worker" or "key" or "partition" or "tenant"
         or "name" or "correlation" or "queue" or "step" or "target" or "alias" or "group" or "destination" or "action"
         || name.StartsWith("queue", StringComparison.Ordinal) || name.StartsWith("key", StringComparison.Ordinal);
 

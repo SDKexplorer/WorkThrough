@@ -151,3 +151,33 @@ The first rerun, at `92b855f`, was 14–18% slower on PostgreSQL in every worklo
 SQLite's lower medians are host drift, not the change: a paired SQLite A/B (six runs per side) measured develop at 26.9 / 13.2 / 63.7 jobs/s and this revision at 30.2 / 12.9 / 68.9 jobs/s (mixed / flows / outbox). Develop itself ran 25% below its own baseline that hour. PostgreSQL outbox repetition 1 (21.9 jobs/s) matches isolated collapses also seen on develop during the A/B runs. Throughput with policies configured depends on policy shape and is covered for correctness, not performance, by `AdmissionControlTests`.
 
 Raw reports: [SQLite](performance-results/2026-10-10-sqlite-controls.json), [PostgreSQL](performance-results/2026-10-10-postgres-controls.json), [SQL Server](performance-results/2026-10-10-sqlserver-controls.json), [Oracle](performance-results/2026-10-10-oracle-controls.json).
+
+## Multi-process admission campaign — 2026-10-11
+
+`WorkThrough.Exercises admission <provider>` runs three separate worker processes (four slots each, so a 12-slot fleet). The workers serve three queues of one fresh store, through five phases:
+
+1. **Overhead:** the same 400-job keyed workload runs alternately without policies and with non-binding partition, tenant and per-tenant rate policies (10,000 each). The difference prices predicate evaluation under contention.
+2. **Keyed limits:** partition maximum 1 and tenant maximum 3. One busy tenant has 340 jobs over 24 partitions; three quiet tenants have 20 jobs each.
+3. **Rate:** 10 starts per second on one processor type, over 50 jobs.
+4. **Fan-out:** six flow runs of 16 parallel steps, each started with `MaxParallelSteps: 3`.
+5. **Fairness:** two queues of 90 jobs each, released together, with weights 3 and 1.
+
+Each limit is checked from the database's recorded attempt intervals, and a breach fails the run. Worker resident memory is sampled every 250 ms. The runs used the same host as above, on the working tree committed as the next revision after `6255d8b`; only documentation changed after the runs.
+
+| Provider | No policies, jobs/s | Non-binding policies, jobs/s | Partition / tenant peak | Quiet / busy tenant wait p95 | Busiest 1 s window | Flow run peak | Bulk share | Worker RSS start → peak |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| sqlite | 129.6 / 81.3 | 98.1 / 86.6 | 1 / 3 | 1.1 s / 32.1 s | 10 | 3 | 0.750 | 172 → 279 MiB |
+| postgres | 92.2 / 101.9 | 88.0 / 85.1 | 1 / 3 | 0.5 s / 5.8 s | 10 | 3 | 0.750 | 239 → 319 MiB |
+| sqlserver (emulated) | 52.1 / 53.4 | 50.7 / 47.9 | 1 / 3 | 1.3 s / 14.1 s | 10 | 3 | 0.750 | 260 → 357 MiB |
+| oracle | 73.2 / 85.1 | 80.1 / 78.4 | 1 / 3 | 0.5 s / 5.9 s | 10 | 3 | 0.750 | 339 → 438 MiB |
+
+- **Limits:** every one held across the separate processes. The weighted queue received exactly its 3/4 share of the 120 starts made while both queues had work.
+- **Tenant isolation:** quiet tenants waited at most 0.5–1.3 s (p95) while the busy tenant's backlog queued for 6–32 s.
+- **Policy cost:** non-binding policies cost 3–16% on the server databases.
+  - This is the price of evaluating all three policy kinds on every claim, including a per-tenant rate count over thousands of in-window starts. Binding limits count at most their permits.
+  - The SQLite and Oracle no-policy pairs varied 13–37% between themselves, so their differences are within noise.
+- **Rate ledger:** the first implementation counted rate limits from attempt history and cost PostgreSQL 27% in the second non-binding run. The rate ledger (ADR-018) reduced that to 16%.
+- **Memory:** worker memory rose during warm-up (the first phase), then grew 3–4% across the remaining four phases. This short campaign does not rule out slow growth; the two-hour soak remains release-readiness work.
+- **No-policy claim path:** paired, interleaved PostgreSQL runs against `e2de671` (six repetitions each) measured medians of 83.6 / 61.1 / 50.6 jobs/s before and 83.8 / 60.7 / 50.6 after (mixed / flows / outbox). Reading the extra policy kinds in the claim's first query costs nothing measurable.
+
+Raw reports: [SQLite](performance-results/2026-10-11-sqlite-admission.json), [PostgreSQL](performance-results/2026-10-11-postgres-admission.json), [SQL Server](performance-results/2026-10-11-sqlserver-admission.json), [Oracle](performance-results/2026-10-11-oracle-admission.json).

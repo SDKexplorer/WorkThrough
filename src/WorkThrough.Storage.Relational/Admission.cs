@@ -2,39 +2,106 @@ using System.Data.Common;
 
 namespace WorkThrough.Storage;
 
-/// <summary>Partition concurrency, rate limits and weighted queue fairness (ADR-018). Evaluated inside the admission transaction.</summary>
+/// <summary>Keyed concurrency, rate limits, flow parallelism and weighted queue fairness (ADR-018). Evaluated inside the admission transaction.</summary>
 public abstract partial class RelationalJobStore : IAdmissionPolicies
 {
     // A queue of weight w advances its pass by Stride / w per claim; weight 1 is plain round-robin.
     private const long Stride = 1_000_000;
 
+    // Stored key_scope of rate limits that count all covered work together.
+    private const int AllKeys = 0;
+
     /// <summary>The admission group of a job key: its alias target when processor aliases share one, otherwise itself.</summary>
     private static string AdmissionGroupSql(string jobKey) =>
         $"COALESCE((SELECT group_key FROM dj_processor_groups WHERE job_key={jobKey}),{jobKey})";
 
-    /// <summary>True when a partition limit covering the job has no free slot for its key. Requires @now and @all.</summary>
-    private static string PartitionBlockedSql(string job) => $"""
-        ({job}.partition_key IS NOT NULL AND EXISTS (
-          SELECT 1 FROM dj_partition_limits pl
-          WHERE (pl.job_key=@all OR {AdmissionGroupSql("pl.job_key")}={AdmissionGroupSql($"{job}.job_key")})
-            AND pl.maximum<=(
-              SELECT COUNT(*) FROM dj_jobs pr
-              WHERE pr.partition_key IS NOT NULL AND pr.partition_key={job}.partition_key AND pr.status='Running' AND pr.lease_expires_at>@now
-                AND (pl.job_key=@all OR {AdmissionGroupSql("pr.job_key")}={AdmissionGroupSql("pl.job_key")}))))
+    private static string KeyColumn(KeyScope scope) => scope == KeyScope.Tenant ? "tenant_id" : "partition_key";
+
+    /// <summary>True when a keyed limit of the scope covering the job has no free slot for its key. Requires @now and @all.</summary>
+    private static string KeyBlockedSql(string job, KeyScope scope)
+    {
+        var column = KeyColumn(scope);
+
+        return $"""
+            ({job}.{column} IS NOT NULL AND EXISTS (
+              SELECT 1 FROM dj_keyed_limits kl
+              WHERE kl.key_scope={(int)scope} AND (kl.job_key=@all OR {AdmissionGroupSql("kl.job_key")}={AdmissionGroupSql($"{job}.job_key")})
+                AND kl.maximum<=(
+                  SELECT COUNT(*) FROM dj_jobs kr
+                  WHERE kr.{column} IS NOT NULL AND kr.{column}={job}.{column} AND kr.status='Running' AND kr.lease_expires_at>@now
+                    AND (kl.job_key=@all OR {AdmissionGroupSql("kr.job_key")}={AdmissionGroupSql("kl.job_key")}))))
+            """;
+    }
+
+    /// <summary>A rate limit <c>rl</c> covers the job: its type scope matches and, for per-key limits, the job has that key.</summary>
+    private static string RateAppliesSql(string job) => $"""
+        (rl.key_scope={AllKeys} OR (rl.key_scope={(int)KeyScope.Partition} AND {job}.partition_key IS NOT NULL)
+            OR (rl.key_scope={(int)KeyScope.Tenant} AND {job}.tenant_id IS NOT NULL))
+          AND (rl.job_key=@all OR {AdmissionGroupSql("rl.job_key")}={AdmissionGroupSql($"{job}.job_key")})
         """;
 
+    /// <summary>The ledger key the job counts under for rate limit <c>rl</c>. Requires @all.</summary>
+    private static string RateKeySql(string job) =>
+        $"CASE rl.key_scope WHEN {(int)KeyScope.Partition} THEN {job}.partition_key WHEN {(int)KeyScope.Tenant} THEN {job}.tenant_id ELSE @all END";
+
     /// <summary>True when a rate limit covering the job used every permit in its sliding window. Requires @now and @all.</summary>
+    /// <remarks>Counts the rate ledger, an index range of one policy and key, so the cost stays bounded by the permits while a limit
+    /// binds instead of growing with every start in the window.</remarks>
     private static string RateBlockedSql(string job) => $"""
         EXISTS (
           SELECT 1 FROM dj_rate_limits rl
-          WHERE (rl.per_partition=0 OR {job}.partition_key IS NOT NULL)
-            AND (rl.job_key=@all OR {AdmissionGroupSql("rl.job_key")}={AdmissionGroupSql($"{job}.job_key")})
+          WHERE {RateAppliesSql(job)}
             AND rl.permits<=(
-              SELECT COUNT(*) FROM dj_attempts ra JOIN dj_jobs rj ON rj.id=ra.job_id
-              WHERE ra.started_at>@now-rl.window_ms
-                AND (rl.job_key=@all OR {AdmissionGroupSql("rj.job_key")}={AdmissionGroupSql("rl.job_key")})
-                AND (rl.per_partition=0 OR rj.partition_key={job}.partition_key)))
+              SELECT COUNT(*) FROM dj_rate_ledger rd
+              WHERE rd.job_key=rl.job_key AND rd.key_scope=rl.key_scope AND rd.rate_key={RateKeySql(job)} AND rd.started_at>@now-rl.window_ms))
         """;
+
+    /// <summary>Records an admitted start against every rate limit covering it, and drops starts older than any window can count.</summary>
+    private async Task RecordRateStartAsync(DbConnection connection, DbTransaction transaction, Guid jobId, long now, CancellationToken ct)
+    {
+        await ExecuteAsync(connection, transaction, $"""
+            INSERT INTO dj_rate_ledger(job_key,key_scope,rate_key,started_at,job_id)
+            SELECT rl.job_key,rl.key_scope,{RateKeySql("j")},@now,j.id FROM dj_rate_limits rl, dj_jobs j
+            WHERE j.id=@id AND {RateAppliesSql("j")}
+            """, ct, ("id", jobId.ToString()), ("now", now), ("all", AllJobsLimitKey));
+        await ExecuteAsync(connection, transaction, "DELETE FROM dj_rate_ledger WHERE started_at<=@expired", ct,
+            ("expired", now - (long)RateLimit.MaximumWindow.TotalMilliseconds));
+    }
+
+    /// <summary>True when the job's flow run already holds its maximum number of admitted step leases. Requires @now.</summary>
+    private static string FlowBoundedSql(string job) => $"""
+        ({job}.workflow_run_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM dj_flows bf
+          WHERE bf.id={job}.workflow_run_id AND bf.max_parallel IS NOT NULL AND bf.max_parallel<=(
+            SELECT COUNT(*) FROM dj_jobs br WHERE br.workflow_run_id=bf.id AND br.status='Running' AND br.lease_expires_at>@now)))
+        """;
+
+    /// <summary>Claim predicates for the policy kinds that exist; absent kinds add nothing to the query.</summary>
+    private static string AdmissionPredicatesSql(string job, ClaimSettings settings)
+    {
+        var predicates = new List<string>();
+        if (settings.HasPartitionLimits)
+        {
+            predicates.Add(KeyBlockedSql(job, KeyScope.Partition));
+        }
+
+        if (settings.HasTenantLimits)
+        {
+            predicates.Add(KeyBlockedSql(job, KeyScope.Tenant));
+        }
+
+        if (settings.HasRateLimits)
+        {
+            predicates.Add(RateBlockedSql(job));
+        }
+
+        if (settings.HasBoundedFlows)
+        {
+            predicates.Add(FlowBoundedSql(job));
+        }
+
+        return string.Concat(predicates.Select(predicate => $"\n  AND NOT {predicate}"));
+    }
 
     /// <summary>The worker's queues with ready work, lowest fair-share pass first, and whether several of them compete.</summary>
     private async Task<FairQueueOrder> FairQueueOrderAsync(DbConnection connection, DbTransaction transaction, ClaimRequest request, long now, CancellationToken ct)
@@ -95,12 +162,14 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
     /// </summary>
     private async Task<ClaimSettings> ReadClaimSettingsAsync(DbConnection connection, DbTransaction transaction, string workerId, CancellationToken ct)
     {
-        await using var command = Command(connection, transaction, """
+        await using var command = Command(connection, transaction, $"""
             SELECT r.revision,
               (SELECT COUNT(*) FROM dj_worker_controls WHERE worker_id=@worker AND draining=1),
               (SELECT maximum FROM dj_limits WHERE job_key=@all),
-              (SELECT COUNT(*) FROM dj_partition_limits),
-              (SELECT COUNT(*) FROM dj_rate_limits)
+              (SELECT COUNT(*) FROM dj_keyed_limits WHERE key_scope={(int)KeyScope.Partition}),
+              (SELECT COUNT(*) FROM dj_keyed_limits WHERE key_scope={(int)KeyScope.Tenant}),
+              (SELECT COUNT(*) FROM dj_rate_limits),
+              (SELECT COUNT(*) FROM dj_flows WHERE max_parallel IS NOT NULL AND status='Running')
             FROM dj_registry r WHERE r.id=1
             """, ("worker", workerId), ("all", AllJobsLimitKey));
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -108,10 +177,12 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
 
         return new(Convert.ToInt64(reader.GetValue(0)), Convert.ToInt64(reader.GetValue(1)) > 0,
             reader.IsDBNull(2) ? null : Convert.ToInt64(reader.GetValue(2)),
-            Convert.ToInt64(reader.GetValue(3)) > 0, Convert.ToInt64(reader.GetValue(4)) > 0);
+            HasPartitionLimits: Convert.ToInt64(reader.GetValue(3)) > 0, HasTenantLimits: Convert.ToInt64(reader.GetValue(4)) > 0,
+            HasRateLimits: Convert.ToInt64(reader.GetValue(5)) > 0, HasBoundedFlows: Convert.ToInt64(reader.GetValue(6)) > 0);
     }
 
-    private sealed record ClaimSettings(long RegistryRevision, bool Draining, long? GlobalMaximum, bool HasPartitionLimits, bool HasRateLimits);
+    private sealed record ClaimSettings(long RegistryRevision, bool Draining, long? GlobalMaximum, bool HasPartitionLimits,
+        bool HasTenantLimits, bool HasRateLimits, bool HasBoundedFlows);
 
     public Task<AdmissionPolicies> AdmissionPoliciesAsync(CancellationToken cancellationToken = default) =>
         ReadAsync(async (connection, transaction, ct) =>
@@ -126,38 +197,42 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
                 }
             }
 
-            var partitions = new List<PartitionLimit>();
-            await using (var command = Command(connection, transaction, "SELECT job_key,maximum FROM dj_partition_limits ORDER BY job_key"))
+            var keyed = new List<KeyedLimit>();
+            await using (var command = Command(connection, transaction, "SELECT key_scope,job_key,maximum FROM dj_keyed_limits ORDER BY key_scope,job_key"))
             {
                 await using var reader = await command.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
-                    partitions.Add(new(PolicyKey(reader.GetString(0)), Convert.ToInt32(reader.GetValue(1))));
+                    keyed.Add(new((KeyScope)Convert.ToInt32(reader.GetValue(0)), PolicyKey(reader.GetString(1)), Convert.ToInt32(reader.GetValue(2))));
                 }
             }
 
             var rates = new List<RateLimit>();
-            await using (var command = Command(connection, transaction, "SELECT job_key,per_partition,permits,window_ms FROM dj_rate_limits ORDER BY job_key,per_partition"))
+            await using (var command = Command(connection, transaction, "SELECT job_key,key_scope,permits,window_ms FROM dj_rate_limits ORDER BY job_key,key_scope"))
             {
                 await using var reader = await command.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
                     rates.Add(new(PolicyKey(reader.GetString(0)), Convert.ToInt32(reader.GetValue(2)),
-                        TimeSpan.FromMilliseconds(Convert.ToInt64(reader.GetValue(3))), Convert.ToInt32(reader.GetValue(1)) != 0));
+                        TimeSpan.FromMilliseconds(Convert.ToInt64(reader.GetValue(3))), StoredScope(Convert.ToInt32(reader.GetValue(1)))));
                 }
             }
 
-            return new AdmissionPolicies(limits, partitions, rates);
+            return new AdmissionPolicies(limits, keyed, rates);
         }, cancellationToken);
 
     private static string? PolicyKey(string stored) => stored == AllJobsLimitKey ? null : stored;
 
-    public Task SeedAdmissionPoliciesAsync(IReadOnlyList<PartitionLimit> partitionLimits, IReadOnlyList<RateLimit> rateLimits,
+    private static KeyScope? StoredScope(int stored) => stored == AllKeys ? null : (KeyScope)stored;
+
+    private static int StoredScope(KeyScope? scope) => scope is { } value ? (int)value : AllKeys;
+
+    public Task SeedAdmissionPoliciesAsync(IReadOnlyList<KeyedLimit> keyedLimits, IReadOnlyList<RateLimit> rateLimits,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(partitionLimits);
+        ArgumentNullException.ThrowIfNull(keyedLimits);
         ArgumentNullException.ThrowIfNull(rateLimits);
-        foreach (var limit in partitionLimits)
+        foreach (var limit in keyedLimits)
         {
             limit.Validate();
         }
@@ -169,9 +244,9 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
-            foreach (var limit in partitionLimits)
+            foreach (var limit in keyedLimits)
             {
-                await SavePartitionLimitAsync(connection, transaction, limit, replace: false, ct);
+                await SaveKeyedLimitAsync(connection, transaction, limit, replace: false, ct);
             }
 
             foreach (var limit in rateLimits)
@@ -183,54 +258,62 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
         }, cancellationToken);
     }
 
-    public Task<Result> SetPartitionLimitAsync(PartitionLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.SetPartitionLimit, limit.JobKey ?? AllJobsLimitKey, limit, async (connection, transaction, ct) =>
+    public Task<Result> SetKeyedLimitAsync(KeyedLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.SetKeyedLimit, PolicyTarget(limit.JobKey, limit.Scope), limit, async (connection, transaction, ct) =>
         {
-            await SavePartitionLimitAsync(connection, transaction, limit, replace: true, ct);
+            await SaveKeyedLimitAsync(connection, transaction, limit, replace: true, ct);
         }, cancellationToken, validate: limit.Validate);
 
-    public Task<Result> RemovePartitionLimitAsync(string? jobKey, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.RemovePartitionLimit, jobKey ?? AllJobsLimitKey, new { jobKey }, async (connection, transaction, ct) =>
+    public Task<Result> RemoveKeyedLimitAsync(KeyScope scope, string? jobKey, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.RemoveKeyedLimit, PolicyTarget(jobKey, scope), new { scope, jobKey }, async (connection, transaction, ct) =>
         {
-            if (await ExecuteAsync(connection, transaction, "DELETE FROM dj_partition_limits WHERE job_key=@key", ct, ("key", jobKey ?? AllJobsLimitKey)) == 0)
+            if (await ExecuteAsync(connection, transaction, "DELETE FROM dj_keyed_limits WHERE job_key=@key AND key_scope=@scope", ct,
+                ("key", jobKey ?? AllJobsLimitKey), ("scope", (int)scope)) == 0)
             {
-                throw new MissingStateException("No partition limit exists for this scope.");
+                throw new MissingStateException("No keyed limit exists for this scope and job key.");
             }
-        }, cancellationToken, validate: () => ValidatePolicyKey(jobKey));
+        }, cancellationToken, validate: () => ValidatePolicyScope(scope, jobKey));
 
     public Task<Result> SetRateLimitAsync(RateLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.SetRateLimit, RateTarget(limit.JobKey, limit.PerPartition), limit, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.SetRateLimit, PolicyTarget(limit.JobKey, limit.PerKey), limit, async (connection, transaction, ct) =>
         {
             await SaveRateLimitAsync(connection, transaction, limit, replace: true, ct);
         }, cancellationToken, validate: limit.Validate);
 
-    public Task<Result> RemoveRateLimitAsync(string? jobKey, bool perPartition, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.RemoveRateLimit, RateTarget(jobKey, perPartition), new { jobKey, perPartition }, async (connection, transaction, ct) =>
+    public Task<Result> RemoveRateLimitAsync(string? jobKey, KeyScope? perKey, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.RemoveRateLimit, PolicyTarget(jobKey, perKey), new { jobKey, perKey }, async (connection, transaction, ct) =>
         {
-            if (await ExecuteAsync(connection, transaction, "DELETE FROM dj_rate_limits WHERE job_key=@key AND per_partition=@partitioned", ct,
-                ("key", jobKey ?? AllJobsLimitKey), ("partitioned", perPartition ? 1 : 0)) == 0)
+            if (await ExecuteAsync(connection, transaction, "DELETE FROM dj_rate_limits WHERE job_key=@key AND key_scope=@scope", ct,
+                ("key", jobKey ?? AllJobsLimitKey), ("scope", StoredScope(perKey))) == 0)
             {
-                throw new MissingStateException("No rate limit exists for this scope.");
+                throw new MissingStateException("No rate limit exists for this job key and scope.");
             }
-        }, cancellationToken, validate: () => ValidatePolicyKey(jobKey));
 
-    private static string RateTarget(string? jobKey, bool perPartition) => (jobKey ?? AllJobsLimitKey) + (perPartition ? "/per-partition" : "");
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_rate_ledger WHERE job_key=@key AND key_scope=@scope", ct,
+                ("key", jobKey ?? AllJobsLimitKey), ("scope", StoredScope(perKey)));
+        }, cancellationToken, validate: () => ValidatePolicyScope(perKey, jobKey));
 
-    private static void ValidatePolicyKey(string? jobKey)
+    private static string PolicyTarget(string? jobKey, KeyScope? scope) =>
+        (jobKey ?? AllJobsLimitKey) + (scope is { } value ? "/per-" + value.ToString().ToLowerInvariant() : "");
+
+    private static void ValidatePolicyScope(KeyScope? scope, string? jobKey)
     {
-        if (jobKey is not null)
+        if (scope is { } value)
         {
-            _ = new JobContractId(jobKey, 1);
+            AdmissionKeys.ValidateScope(value, nameof(scope));
         }
+
+        AdmissionKeys.ValidateJobKey(jobKey);
     }
 
-    private Task<int> SavePartitionLimitAsync(DbConnection connection, DbTransaction transaction, PartitionLimit limit, bool replace, CancellationToken ct) =>
-        ExecuteAsync(connection, transaction, UpsertSql("dj_partition_limits", "job_key,maximum", "@key,@maximum", "job_key", replace ? "maximum" : ""), ct,
-            ("key", limit.JobKey ?? AllJobsLimitKey), ("maximum", limit.MaximumPerPartition));
+    private Task<int> SaveKeyedLimitAsync(DbConnection connection, DbTransaction transaction, KeyedLimit limit, bool replace, CancellationToken ct) =>
+        ExecuteAsync(connection, transaction, UpsertSql("dj_keyed_limits", "job_key,key_scope,maximum", "@key,@scope,@maximum", "job_key,key_scope",
+            replace ? "maximum" : ""), ct,
+            ("key", limit.JobKey ?? AllJobsLimitKey), ("scope", (int)limit.Scope), ("maximum", limit.MaximumPerKey));
 
     private Task<int> SaveRateLimitAsync(DbConnection connection, DbTransaction transaction, RateLimit limit, bool replace, CancellationToken ct) =>
-        ExecuteAsync(connection, transaction, UpsertSql("dj_rate_limits", "job_key,per_partition,permits,window_ms", "@key,@partitioned,@permits,@window",
-            "job_key,per_partition", replace ? "permits,window_ms" : ""), ct,
-            ("key", limit.JobKey ?? AllJobsLimitKey), ("partitioned", limit.PerPartition ? 1 : 0), ("permits", limit.Permits),
+        ExecuteAsync(connection, transaction, UpsertSql("dj_rate_limits", "job_key,key_scope,permits,window_ms", "@key,@scope,@permits,@window",
+            "job_key,key_scope", replace ? "permits,window_ms" : ""), ct,
+            ("key", limit.JobKey ?? AllJobsLimitKey), ("scope", StoredScope(limit.PerKey)), ("permits", limit.Permits),
             ("window", (long)limit.Window.TotalMilliseconds));
 }

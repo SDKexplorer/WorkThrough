@@ -31,6 +31,10 @@ public sealed record JobRecord(
     /// <summary>Optional admission partition, such as a customer ID. Independent of <see cref="CorrelationId"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? PartitionKey { get; init; }
+
+    /// <summary>Optional owning tenant for tenant-scoped admission. Independent of <see cref="PartitionKey"/>; not an access boundary.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TenantId { get; init; }
 }
 
 public sealed record JobAttempt(

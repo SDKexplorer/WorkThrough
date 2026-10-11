@@ -12,6 +12,21 @@ public sealed record CapacityObservation(int? GlobalMaximum, long GlobalAdmitted
     /// <summary>A partition limit covering the execution has no free slot for its key.</summary>
     public bool PartitionLimited { get; init; }
 
+    /// <summary>Lowest tenant limit applying to the execution's tenant, if it has one.</summary>
+    public int? TenantMaximum { get; init; }
+
+    /// <summary>Admitted, unexpired leases of any type owned by the execution's tenant.</summary>
+    public long TenantAdmitted { get; init; }
+
+    /// <summary>A tenant limit covering the execution has no free slot for its tenant.</summary>
+    public bool TenantLimited { get; init; }
+
+    /// <summary>The flow run's maximum parallel steps, if it was started with one.</summary>
+    public int? FlowMaximum { get; init; }
+
+    /// <summary>Admitted, unexpired leases of the execution's flow run.</summary>
+    public long FlowAdmitted { get; init; }
+
     /// <summary>A rate limit covering the execution has used every permit in its current window.</summary>
     public bool RateLimited { get; init; }
 }
@@ -39,6 +54,8 @@ public static class ReadinessReasons
     public const string Scheduled = "Scheduled";
     public const string SharedCapacity = "SharedCapacity";
     public const string PartitionCapacity = "PartitionCapacity";
+    public const string TenantCapacity = "TenantCapacity";
+    public const string FlowParallelism = "FlowParallelism";
     public const string RateLimited = "RateLimited";
     public const string WorkerCoverageIncomplete = "WorkerCoverageIncomplete";
     public const string NoRecentCapableWorker = "NoRecentCapableWorker";

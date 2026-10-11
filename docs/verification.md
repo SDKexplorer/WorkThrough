@@ -169,3 +169,13 @@ The corrected version-2 campaign completed six comparisons across SQLite, Postgr
 ## Execution admission controls, 2026-10-10
 
 ADR-018 (partition limits, rate limits, weighted queue fairness, schema 5) at `e2de671`, on .NET 10 test runs per provider: SQLite + PostgreSQL 17 270 passed / 3 skipped; SQL Server 2022 (emulated x64) 267 passed / 3 skipped; Oracle Free 26ai 270 passed. Eleven provider-theory admission tests cover partition limits across workers, type scope, expired-lease release, sliding-window and per-partition rate limits, readiness reasons, audited policy commands, backlog fairness, weights, idle-burst prevention and flow/query partition keys. `Schema_four_stores_upgrade_to_admission_controls_without_losing_work` upgrades a real schema-4 fixture. A separate process-level check ran schema-4 (`cab5d8a`) code against each of the four databases, then schema-5 code against the same stores: queued work was preserved, an in-flight lease settled, queues gained weight 1 and partition limits applied. The no-policy claim-path rerun is in [performance](performance.md). Both runtimes and NuGet consumers are checked by `scripts/verify.sh` in CI.
+
+Tenant IDs, keyed limits, the rate ledger and `MaxParallelSteps` (2026-10-11), on .NET 10 test runs per provider:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 276 | 3 |
+| SQL Server 2022 (emulated) | 273 | 3 |
+| Oracle Free 26ai | 276 | 0 |
+
+New provider theories cover tenant limits that are independent of partitions, per-tenant rate limits, and gradual fan-out release with `FlowParallelism` readiness. The multi-process admission exercise passed on all four databases ([performance](performance.md)). The schema-4 upgrade fixture passes on every provider with the final schema 5.

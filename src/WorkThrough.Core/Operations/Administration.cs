@@ -25,16 +25,16 @@ public interface IJobAdministration
     Task<Result> SetFlowPausedAsync(Guid id, bool paused, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> ChangeLimitAsync(ConcurrencyLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
 
-    /// <summary>Creates or replaces the partition limit for its scope.</summary>
-    Task<Result> SetPartitionLimitAsync(PartitionLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
+    /// <summary>Creates or replaces the keyed limit for its key scope and job key.</summary>
+    Task<Result> SetKeyedLimitAsync(KeyedLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
 
-    /// <summary>Removes the partition limit for a job key, or the all-work limit when the key is null.</summary>
-    Task<Result> RemovePartitionLimitAsync(string? jobKey, AdministrativeCommand command, CancellationToken cancellationToken = default);
+    /// <summary>Removes the keyed limit for a job key, or the all-work limit when the job key is null.</summary>
+    Task<Result> RemoveKeyedLimitAsync(KeyScope scope, string? jobKey, AdministrativeCommand command, CancellationToken cancellationToken = default);
 
-    /// <summary>Creates or replaces the rate limit for its scope and partitioning.</summary>
+    /// <summary>Creates or replaces the rate limit for its job key and per-key scope.</summary>
     Task<Result> SetRateLimitAsync(RateLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
 
-    Task<Result> RemoveRateLimitAsync(string? jobKey, bool perPartition, AdministrativeCommand command, CancellationToken cancellationToken = default);
+    Task<Result> RemoveRateLimitAsync(string? jobKey, KeyScope? perKey, AdministrativeCommand command, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<AuditEntry>> AuditAsync(int limit = 100, CancellationToken cancellationToken = default);
 }

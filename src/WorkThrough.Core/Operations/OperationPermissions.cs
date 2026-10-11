@@ -43,8 +43,8 @@ public static class AuditActions
     public const string PauseFlow = "flows.pause";
     public const string ResumeFlow = "flows.resume";
     public const string ChangeLimit = "limits.manage";
-    public const string SetPartitionLimit = "limits.partition.set";
-    public const string RemovePartitionLimit = "limits.partition.remove";
+    public const string SetKeyedLimit = "limits.keyed.set";
+    public const string RemoveKeyedLimit = "limits.keyed.remove";
     public const string SetRateLimit = "limits.rate.set";
     public const string RemoveRateLimit = "limits.rate.remove";
     public const string EditDefinition = "definitions.edit";

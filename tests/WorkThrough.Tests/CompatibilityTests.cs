@@ -50,7 +50,7 @@ public sealed class CompatibilityTests
         Assert.Equal((2, QueueControl.DefaultWeight), (queue.Revision, queue.Weight));
         var existing = (await harness.Store.GetAsync(Guid.Parse("44444444-4444-4444-4444-444444444444")))!;
         Assert.Null(existing.PartitionKey);
-        await harness.Store.SeedAdmissionPoliciesAsync([new(null, 1)], []);
+        await harness.Store.SeedAdmissionPoliciesAsync([new(KeyScope.Partition, null, 1)], []);
         var partitioned = await new JobClient(harness.Store).EnqueueAsync(new Alpha("five"), new(PartitionKey: "customer"));
         Assert.Equal("customer", (await harness.Store.GetAsync(partitioned))!.PartitionKey);
         var claims = new[] { await harness.Store.ClaimAsync(Claim()), await harness.Store.ClaimAsync(Claim()) };

@@ -5,7 +5,7 @@ namespace WorkThrough;
 public sealed record EnqueueOptions(
     string Queue = JobDefaults.Queue, string? CorrelationId = null, DateTimeOffset? NotBefore = null,
     int MaxAttempts = JobDefaults.MaxAttempts, string? IdempotencyKey = null, DateTimeOffset? ExpiresAt = null,
-    string? PartitionKey = null);
+    string? PartitionKey = null, string? TenantId = null);
 
 /// <summary>Accepts work durably without requiring any handler registrations.</summary>
 public sealed class JobClient(IJobStore store)
@@ -46,7 +46,8 @@ public sealed class JobClient(IJobStore store)
             throw new ArgumentException("Queue must be non-empty.", nameof(options));
         }
 
-        PartitionKeys.Validate(options.PartitionKey, nameof(options));
+        AdmissionKeys.Validate(options.PartitionKey, KeyScope.Partition, nameof(options));
+        AdmissionKeys.Validate(options.TenantId, KeyScope.Tenant, nameof(options));
         if (options.IdempotencyKey is { Length: 0 })
         {
             throw new ArgumentException("IdempotencyKey must be non-empty when supplied.", nameof(options));
@@ -73,7 +74,8 @@ public sealed class JobClient(IJobStore store)
             options.IdempotencyKey, ExpiresAt: options.ExpiresAt)
         {
             UseStorageTime = options.NotBefore is null,
-            PartitionKey = options.PartitionKey
+            PartitionKey = options.PartitionKey,
+            TenantId = options.TenantId
         };
     }
 }

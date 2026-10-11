@@ -18,11 +18,13 @@ public sealed record RetentionPolicyCommand(RetentionPolicy Policy, DashboardCom
 
 public sealed record RetentionHoldCommand(bool Held, DashboardCommand Command);
 
-public sealed record PartitionLimitCommand(PartitionLimit Limit, DashboardCommand Command);
+public sealed record KeyedLimitCommand(KeyedLimit Limit, DashboardCommand Command);
+
+public sealed record KeyedLimitRemovalCommand(KeyScope Scope, string? JobKey, DashboardCommand Command);
 
 public sealed record RateLimitCommand(RateLimit Limit, DashboardCommand Command);
 
-/// <summary>Removes a partition limit, or a rate limit identified by its key and partitioning.</summary>
-public sealed record PolicyRemovalCommand(string? JobKey, DashboardCommand Command, bool PerPartition = false);
+/// <summary>Removes the rate limit identified by its job key and per-key scope.</summary>
+public sealed record RateLimitRemovalCommand(string? JobKey, DashboardCommand Command, KeyScope? PerKey = null);
 
 public sealed record QueueWeightCommand(string Queue, int Weight, DashboardCommand Command);

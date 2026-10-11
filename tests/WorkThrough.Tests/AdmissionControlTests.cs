@@ -2,7 +2,7 @@ using Xunit;
 
 namespace WorkThrough.Tests;
 
-/// <summary>Partition concurrency, rate limits and weighted queue fairness across independent store instances (ADR-018).</summary>
+/// <summary>Keyed concurrency, rate limits, flow parallelism and weighted queue fairness across independent store instances (ADR-018).</summary>
 public sealed class AdmissionControlTests
 {
     private static readonly TimeSpan Lease = TimeSpan.FromSeconds(30);
@@ -22,7 +22,7 @@ public sealed class AdmissionControlTests
     public async Task Partition_limit_admits_one_attempt_per_key_across_independent_workers(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await harness.Store.SeedAdmissionPoliciesAsync([new(null, 1)], []);
+        await harness.Store.SeedAdmissionPoliciesAsync([new(KeyScope.Partition, null, 1)], []);
         for (var i = 0; i < 3; i++)
         {
             await EnqueueAsync(harness.Store, "customer-a");
@@ -49,7 +49,7 @@ public sealed class AdmissionControlTests
     public async Task Type_scoped_partition_limit_leaves_other_types_unconstrained(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await harness.Store.SeedAdmissionPoliciesAsync([new("tests.alpha", 1)], []);
+        await harness.Store.SeedAdmissionPoliciesAsync([new(KeyScope.Partition, "tests.alpha", 1)], []);
         var client = new JobClient(harness.Store);
         for (var i = 0; i < 2; i++)
         {
@@ -71,7 +71,7 @@ public sealed class AdmissionControlTests
     public async Task An_expired_lease_frees_its_partition_slot(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await harness.Store.SeedAdmissionPoliciesAsync([new(null, 1)], []);
+        await harness.Store.SeedAdmissionPoliciesAsync([new(KeyScope.Partition, null, 1)], []);
         await EnqueueAsync(harness.Store, "customer");
         await EnqueueAsync(harness.Store, "customer");
         Assert.NotNull(await harness.Store.ClaimAsync(Claim("crashed", TimeSpan.FromSeconds(1))));
@@ -108,7 +108,7 @@ public sealed class AdmissionControlTests
     public async Task Per_partition_rate_limit_counts_each_key_separately(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await harness.Store.SeedAdmissionPoliciesAsync([], [new(null, 1, TimeSpan.FromMinutes(1), PerPartition: true)]);
+        await harness.Store.SeedAdmissionPoliciesAsync([], [new(null, 1, TimeSpan.FromMinutes(1), PerKey: KeyScope.Partition)]);
         await EnqueueAsync(harness.Store, "customer-a");
         await EnqueueAsync(harness.Store, "customer-a");
         await EnqueueAsync(harness.Store, "customer-b");
@@ -128,7 +128,7 @@ public sealed class AdmissionControlTests
     public async Task Readiness_explains_a_full_partition(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await harness.Store.SeedAdmissionPoliciesAsync([new(null, 1)], []);
+        await harness.Store.SeedAdmissionPoliciesAsync([new(KeyScope.Partition, null, 1)], []);
         await EnqueueAsync(harness.Store, "customer");
         await EnqueueAsync(harness.Store, "customer");
         Assert.NotNull(await harness.Store.ClaimAsync(Claim()));
@@ -148,32 +148,114 @@ public sealed class AdmissionControlTests
         var store = harness.Store;
         await EnqueueAsync(store, "customer");
         await EnqueueAsync(store, "customer");
-        await store.SetPartitionLimitAsync(new(null, 0), Command()).SucceedsAsync();
+        await store.SetKeyedLimitAsync(new(KeyScope.Partition, null, 0), Command()).SucceedsAsync();
         Assert.Null(await store.ClaimAsync(Claim()));
 
-        await store.SetPartitionLimitAsync(new(null, 1), Command()).SucceedsAsync();
+        await store.SetKeyedLimitAsync(new(KeyScope.Partition, null, 1), Command()).SucceedsAsync();
         Assert.NotNull(await store.ClaimAsync(Claim()));
         Assert.Null(await store.ClaimAsync(Claim()));
 
-        await store.RemovePartitionLimitAsync(null, Command()).SucceedsAsync();
-        await store.RemovePartitionLimitAsync(null, Command()).FailsAsync(ErrorType.NotFound);
+        await store.RemoveKeyedLimitAsync(KeyScope.Partition, null, Command()).SucceedsAsync();
+        await store.RemoveKeyedLimitAsync(KeyScope.Partition, null, Command()).FailsAsync(ErrorType.NotFound);
         Assert.NotNull(await store.ClaimAsync(Claim()));
 
-        await store.SetRateLimitAsync(new("tests.alpha", 5, TimeSpan.FromMinutes(1), PerPartition: true), Command()).SucceedsAsync();
+        await store.SetRateLimitAsync(new("tests.alpha", 5, TimeSpan.FromMinutes(1), PerKey: KeyScope.Partition), Command()).SucceedsAsync();
         await store.SetRateLimitAsync(new(null, 0, TimeSpan.FromMinutes(1)), Command()).FailsAsync(ErrorType.Validation);
-        await store.SetPartitionLimitAsync(new("NotAKey", 1), Command()).FailsAsync(ErrorType.Validation);
+        await store.SetKeyedLimitAsync(new(KeyScope.Partition, "NotAKey", 1), Command()).FailsAsync(ErrorType.Validation);
         var policies = await store.AdmissionPoliciesAsync();
-        Assert.Empty(policies.PartitionLimits);
-        Assert.Equal(new RateLimit("tests.alpha", 5, TimeSpan.FromMinutes(1), PerPartition: true), Assert.Single(policies.RateLimits));
+        Assert.Empty(policies.KeyedLimits);
+        Assert.Equal(new RateLimit("tests.alpha", 5, TimeSpan.FromMinutes(1), PerKey: KeyScope.Partition), Assert.Single(policies.RateLimits));
 
-        await store.RemoveRateLimitAsync("tests.alpha", perPartition: false, Command()).FailsAsync(ErrorType.NotFound);
-        await store.RemoveRateLimitAsync("tests.alpha", perPartition: true, Command()).SucceedsAsync();
+        await store.RemoveRateLimitAsync("tests.alpha", perKey: null, Command()).FailsAsync(ErrorType.NotFound);
+        await store.RemoveRateLimitAsync("tests.alpha", perKey: KeyScope.Partition, Command()).SucceedsAsync();
         Assert.Empty((await store.AdmissionPoliciesAsync()).RateLimits);
-        string[] applied = [AuditActions.SetPartitionLimit, AuditActions.SetPartitionLimit, AuditActions.RemovePartitionLimit,
+        string[] applied = [AuditActions.SetKeyedLimit, AuditActions.SetKeyedLimit, AuditActions.RemoveKeyedLimit,
             AuditActions.SetRateLimit, AuditActions.RemoveRateLimit];
 
         // Rejected commands commit no audit entry.
         Assert.Equal(applied.Order(StringComparer.Ordinal), (await store.AuditAsync()).Select(entry => entry.Action).Order(StringComparer.Ordinal));
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Tenant_limits_bound_each_tenant_independently_of_its_partitions(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        await harness.Store.SeedAdmissionPoliciesAsync([new(KeyScope.Tenant, null, 2), new(KeyScope.Partition, null, 1)], []);
+        var client = new JobClient(harness.Store);
+        foreach (var partition in new[] { "invoice-1", "invoice-1", "invoice-2", "invoice-3" })
+        {
+            await client.EnqueueAsync(new Alpha("busy"), new(TenantId: "tenant-busy", PartitionKey: partition));
+        }
+
+        // Partition keys are global across tenants; tenants that reuse business IDs namespace them.
+        await client.EnqueueAsync(new Alpha("quiet"), new(TenantId: "tenant-quiet", PartitionKey: "tenant-quiet/invoice-1"));
+        await client.EnqueueAsync(new Alpha("quiet"), new(TenantId: "tenant-quiet"));
+
+        var claims = await Task.WhenAll(Enumerable.Range(0, 8).Select(i => Task.Run(() => harness.NewStore().ClaimAsync(Claim($"worker-{i}")))));
+        var admitted = claims.OfType<JobRecord>().ToArray();
+
+        // The busy tenant gets its two slots on distinct partitions; its backlog leaves the quiet tenant's slots free.
+        Assert.Equal(2, admitted.Count(job => job.TenantId == "tenant-busy"));
+        Assert.Equal(2, admitted.Where(job => job.TenantId == "tenant-busy").Select(job => job.PartitionKey).Distinct().Count());
+        Assert.Equal(2, admitted.Count(job => job.TenantId == "tenant-quiet"));
+
+        var waiting = (await harness.Store.ListAsync(new(Status: JobStatus.Queued))).Where(job => job.TenantId == "tenant-busy")
+            .Single(job => admitted.All(running => running.PartitionKey != job.PartitionKey));
+        var readiness = await harness.Store.ReadReadinessAsync(waiting.Id);
+        Assert.Equal(ReadinessReasons.TenantCapacity, readiness.Reason);
+        Assert.Equal((2, 2L, true), (readiness.Capacity!.TenantMaximum, readiness.Capacity.TenantAdmitted, readiness.Capacity.TenantLimited));
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Per_tenant_rate_limit_counts_each_tenant_separately(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        await harness.Store.SeedAdmissionPoliciesAsync([], [new(null, 1, TimeSpan.FromMinutes(1), PerKey: KeyScope.Tenant)]);
+        var client = new JobClient(harness.Store);
+        await client.EnqueueAsync(new Alpha("a"), new(TenantId: "tenant-a", PartitionKey: "one"));
+        await client.EnqueueAsync(new Alpha("a"), new(TenantId: "tenant-a", PartitionKey: "two"));
+        await client.EnqueueAsync(new Alpha("b"), new(TenantId: "tenant-b"));
+        await client.EnqueueAsync(new Alpha("none"));
+
+        var admitted = new List<JobRecord>();
+        while (await harness.Store.ClaimAsync(Claim()) is { } job)
+        {
+            admitted.Add(job);
+            Assert.True(await harness.Store.CompleteAsync(job.Id, job.LeaseToken!.Value, JobResult.Done()));
+        }
+
+        Assert.Equal(["tenant-a", "tenant-b", null], admitted.Select(job => job.TenantId).OrderBy(key => key ?? "~", StringComparer.Ordinal));
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Max_parallel_steps_releases_a_fan_out_gradually(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var builder = new FlowBuilder("tests.fanout", 1);
+        for (var i = 0; i < 5; i++)
+        {
+            builder.Step<Alpha>($"branch-{i}", new Alpha($"branch-{i}"));
+        }
+
+        var flow = builder.Build();
+        var bounded = await new WorkflowClient(harness.Store).StartAsync(flow, new { }, new FlowStart(MaxParallelSteps: 2));
+        var unbounded = await new WorkflowClient(harness.Store).StartAsync(flow, new { });
+
+        var claims = await Task.WhenAll(Enumerable.Range(0, 10).Select(i => Task.Run(() => harness.NewStore().ClaimAsync(Claim($"worker-{i}")))));
+        var admitted = claims.OfType<JobRecord>().ToArray();
+        Assert.Equal(2, admitted.Count(job => job.WorkflowRunId == bounded));
+        Assert.Equal(5, admitted.Count(job => job.WorkflowRunId == unbounded));
+
+        var waiting = (await harness.Store.ListFlowJobsAsync(bounded)).First(job => job.Status == JobStatus.Queued);
+        var readiness = await harness.Store.ReadReadinessAsync(waiting.Id);
+        Assert.Equal(ReadinessReasons.FlowParallelism, readiness.Reason);
+        Assert.Equal((2, 2L), (readiness.Capacity!.FlowMaximum, readiness.Capacity.FlowAdmitted));
+
+        var finished = admitted.First(job => job.WorkflowRunId == bounded);
+        Assert.True(await harness.Store.CompleteAsync(finished.Id, finished.LeaseToken!.Value, JobResult.Done()));
+        Assert.Equal(bounded, (await harness.Store.ClaimAsync(Claim()))!.WorkflowRunId);
+        Assert.Null(await harness.Store.ClaimAsync(Claim()));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => new WorkflowClient(harness.Store).StartAsync(flow, new { }, new FlowStart(MaxParallelSteps: 0)));
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -228,18 +310,21 @@ public sealed class AdmissionControlTests
     }
 
     [Theory, MemberData(nameof(Providers))]
-    public async Task Flow_runs_and_schedules_carry_their_partition_key(string provider)
+    public async Task Flow_runs_carry_their_partition_key_and_tenant(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var flow = new FlowBuilder("tests.partitioned", 1).Step<Alpha>("first", new Alpha("a")).Step<Beta>("second", new Beta("b")).After("first").Build();
-        var run = await new WorkflowClient(harness.Store).StartAsync(flow, new { }, new FlowStart(PartitionKey: "customer"));
-        Assert.All(await harness.Store.ListFlowJobsAsync(run), job => Assert.Equal("customer", job.PartitionKey));
+        var run = await new WorkflowClient(harness.Store).StartAsync(flow, new { }, new FlowStart(PartitionKey: "customer", TenantId: "tenant"));
+        Assert.All(await harness.Store.ListFlowJobsAsync(run), job => Assert.Equal(("customer", "tenant"), (job.PartitionKey, job.TenantId)));
+        await Assert.ThrowsAsync<ArgumentException>(() => new JobClient(harness.Store).EnqueueAsync(new Alpha("a"), new(TenantId: "tenant ")));
         await Assert.ThrowsAsync<ArgumentException>(() => new WorkflowClient(harness.Store).StartAsync(flow, new { }, new FlowStart(PartitionKey: " padded")));
         await Assert.ThrowsAsync<ArgumentException>(() => new JobClient(harness.Store).EnqueueAsync(new Alpha("a"), new(PartitionKey: "")));
 
         var page = await harness.Store.SearchExecutionsAsync(new(PartitionKey: "customer"));
         Assert.Equal(2, page.Items.Count);
-        Assert.All(page.Items, item => Assert.Equal("customer", item.PartitionKey));
+        Assert.All(page.Items, item => Assert.Equal(("customer", "tenant"), (item.PartitionKey, item.TenantId)));
+        Assert.Equal(2, (await harness.Store.SearchExecutionsAsync(new(TenantId: "tenant"))).Items.Count);
+        Assert.Empty((await harness.Store.SearchExecutionsAsync(new(TenantId: "other"))).Items);
     }
 
     /// <summary>Claims and completes up to <paramref name="count"/> jobs, returning the queue of each in claim order.</summary>

@@ -2,8 +2,11 @@ using System.Text.Json;
 
 namespace WorkThrough;
 
-/// <summary>Options for one flow run. The partition key applies to every step of the run.</summary>
-public sealed record FlowStart(string? CorrelationId = null, string? IdempotencyKey = null, string? PartitionKey = null)
+/// <summary>Options for one flow run. The partition key and tenant ID apply to every step of the run.</summary>
+/// <remarks>MaxParallelSteps bounds how many of the run's steps hold admitted leases at once, so a wide fan-out releases its
+/// branches gradually instead of occupying every worker slot. Null leaves the run bounded only by other limits.</remarks>
+public sealed record FlowStart(string? CorrelationId = null, string? IdempotencyKey = null, string? PartitionKey = null,
+    string? TenantId = null, int? MaxParallelSteps = null)
 {
     public void Validate()
     {
@@ -12,7 +15,12 @@ public sealed record FlowStart(string? CorrelationId = null, string? Idempotency
             WorkflowClient.ValidateIdempotencyKey(IdempotencyKey);
         }
 
-        PartitionKeys.Validate(PartitionKey, nameof(PartitionKey));
+        AdmissionKeys.Validate(PartitionKey, KeyScope.Partition, nameof(PartitionKey));
+        AdmissionKeys.Validate(TenantId, KeyScope.Tenant, nameof(TenantId));
+        if (MaxParallelSteps is < 1 or > FlowValidator.MaximumSteps)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxParallelSteps), $"MaxParallelSteps must be 1–{FlowValidator.MaximumSteps}.");
+        }
     }
 }
 

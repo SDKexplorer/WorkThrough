@@ -63,7 +63,7 @@ There are four independent controls: local total capacity, local per-job-key cap
 
 All applicable limits must admit an attempt. Throttled work stays queued and consumes no handler slot. Shared policies reside in `dj_limits`; `SeedClusterLimits` inserts missing defaults without overwriting operator changes. `SetLimitAsync` is the explicit update operation. Zero pauses admission; lowering a limit lets existing work finish and prevents new admission until capacity is available.
 
-Shared limits count valid leases. No lease-based engine can guarantee that a partitioned process has physically stopped executing when its lease expires. Fencing prevents stale storage settlement, not arbitrary remote effects. Administrative shared-limit changes are audited. Partition limits cap running attempts per `PartitionKey`, rate limits cap attempt starts per sliding window (optionally per key), and competing queues are ordered by weighted stride scheduling; all three are evaluated in the same claim transaction (ADR-018).
+Shared limits count valid leases. No lease-based engine can guarantee that a partitioned process has physically stopped executing when its lease expires. Fencing prevents stale storage settlement, not arbitrary remote effects. Administrative shared-limit changes are audited. Keyed limits cap running attempts per `PartitionKey` or `TenantId`, rate limits cap attempt starts per sliding window (optionally per key), `MaxParallelSteps` bounds one flow run's concurrent steps, and competing queues are ordered by weighted stride scheduling; all are evaluated in the same claim transaction (ADR-018). Tenant IDs drive admission only: tenant row filtering and access isolation remain separate work.
 
 ## Workflows
 

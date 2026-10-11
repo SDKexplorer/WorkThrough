@@ -21,11 +21,13 @@ public abstract partial class RelationalJobStore
         FlowValidator.Validate(definition);
         start.Validate();
         var (correlationId, idempotencyKey, partitionKey) = (start.CorrelationId, start.IdempotencyKey, start.PartitionKey);
+        var (tenantId, maxParallelSteps) = (start.TenantId, start.MaxParallelSteps);
 
-        // Unpartitioned starts keep the fingerprint shape of earlier releases, so existing receipts still match.
+        // Starts without admission options keep the fingerprint shape of earlier releases, so existing receipts still match.
         var fingerprint = idempotencyKey is null ? null
-            : partitionKey is null ? Fingerprint(new { definition, input, correlationId })
-            : Fingerprint(new { definition, input, correlationId, partitionKey });
+            : tenantId is null && maxParallelSteps is null
+                ? partitionKey is null ? Fingerprint(new { definition, input, correlationId }) : Fingerprint(new { definition, input, correlationId, partitionKey })
+                : Fingerprint(new { definition, input, correlationId, partitionKey, tenantId, maxParallelSteps });
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
@@ -68,17 +70,18 @@ public abstract partial class RelationalJobStore
                 ("key", definition.Key), ("version", definition.Version), ("definition", serialized), ("status", nameof(DefinitionStatus.Published)));
             var runId = Guid.NewGuid();
             await ExecuteAsync(connection, transaction, """
-                INSERT INTO dj_flows(id,flow_key,version,input,correlation_id,status)
-                VALUES (@id,@key,@version,@input,@correlation,@status)
+                INSERT INTO dj_flows(id,flow_key,version,input,correlation_id,status,max_parallel)
+                VALUES (@id,@key,@version,@input,@correlation,@status,@parallel)
                 """, ct, ("id", runId.ToString()), ("key", definition.Key), ("version", definition.Version),
-                ("input", input.GetRawText()), ("correlation", correlationId), ("status", nameof(FlowStatus.Running)));
+                ("input", input.GetRawText()), ("correlation", correlationId), ("status", nameof(FlowStatus.Running)), ("parallel", maxParallelSteps));
             var now = DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct));
             foreach (var step in definition.Steps)
             {
                 await InsertJobAsync(connection, transaction, new(Guid.NewGuid(), step.Contract, step.Input, step.Queue,
                     correlationId, JobStatus.Waiting, 0, step.MaxAttempts, now, now, WorkflowRunId: runId, StepId: step.Id)
                 {
-                    PartitionKey = partitionKey
+                    PartitionKey = partitionKey,
+                    TenantId = tenantId
                 }, ct);
             }
 
