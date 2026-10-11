@@ -1,0 +1,7 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <!-- Samples target .NET 8 like the libraries, but also run where only a newer runtime is installed. -->
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+</Project>

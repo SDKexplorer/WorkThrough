@@ -12,7 +12,6 @@ namespace WorkThrough.Exercises;
 internal static class AdmissionSuite
 {
     private const int WorkerProcesses = 3;
-    private const int FleetSlots = WorkerProcesses * Workload.LocalSlots;
     private const string Bulk = "bulk";
     private const string Urgent = "urgent";
     private const string BusyTenant = "tenant-busy";

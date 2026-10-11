@@ -148,6 +148,12 @@ interface QueueControl {
     weight: number;
 }
 type KeyScope = 'Partition' | 'Tenant';
+const DurationUnits: [number, string][] = [
+    [86400, 'd'],
+    [3600, 'h'],
+    [60, 'min'],
+    [1, 's'],
+];
 interface AdmissionPolicies {
     keyedLimits: { scope: KeyScope; jobKey: string | null; maximumPerKey: number }[];
     rateLimits: {
@@ -502,6 +508,31 @@ export class LiveConsoleComponent {
                     weight: 1,
                 },
         );
+    }
+    /** Stored totals; terminal problems are grouped because an operator acts on them the same way. */
+    readonly totals = computed(() => {
+        const count = (...states: string[]) =>
+            states.reduce((sum, state) => sum + (this.stats().counts[state] ?? 0), 0);
+        return [
+            { label: 'Queued', count: count('Queued'), detail: 'Ready for a worker' },
+            { label: 'Running', count: count('Running'), detail: 'Holding a lease' },
+            { label: 'Succeeded', count: count('Succeeded'), detail: 'Current stored jobs' },
+            {
+                label: 'Needs attention',
+                count: count('Failed', 'Rejected', 'Expired'),
+                detail: 'Failed, rejected or expired',
+            },
+        ];
+    });
+    /** Formats a whole .NET TimeSpan ("d.hh:mm:ss") in its largest exact unit, e.g. "1 min"; anything else stays as stored. */
+    duration(value: string): string {
+        const match = /^(?:(\d+)\.)?(\d+):(\d+):(\d+)$/.exec(value);
+        if (!match) return value;
+        const [, days = '0', hours, minutes, seconds] = match;
+        const total =
+            ((Number(days) * 24 + Number(hours)) * 60 + Number(minutes)) * 60 + Number(seconds);
+        const [size, label] = DurationUnits.find(([unit]) => total % unit === 0) ?? [1, 's'];
+        return `${total / size} ${label}`;
     }
     keyScopeLabel(scope: KeyScope): string {
         return scope === 'Tenant' ? 'tenant' : 'partition key';

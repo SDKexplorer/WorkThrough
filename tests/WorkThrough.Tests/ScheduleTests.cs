@@ -1,10 +1,7 @@
-using System.Data.Common;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Npgsql;
 using Xunit;
 
 namespace WorkThrough.Tests;

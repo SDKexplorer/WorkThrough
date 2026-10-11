@@ -3,7 +3,7 @@
 Local verification on 7 October 2026, Node 24.20.0, Angular 22.2.1 / build tooling 22.2.2. The live entry point is `live-console.ts`; concept fixtures are not bootstrapped.
 
 - Production build, strict TypeScript/templates, and Prettier passed. Final JS/CSS is approximately 199 kB raw / 56 kB estimated transfer.
-- Embedded assets were served by Demo.Host on .NET 8 at `/operations/jobs` against real SQLite data. Backend tests exercise nested dashboard paths, PathBase, authentication, CSRF, and payload/action permission separation.
+- Embedded assets were served by Demo.Host (replaced by `samples/Shop.Api` on 2026-10-11) on .NET 8 at `/operations/jobs` against real SQLite data. Backend tests exercise nested dashboard paths, PathBase, authentication, CSRF, and payload/action permission separation.
 - Correlation filtering and failed-step inspection showed a stored Incident, waiting dependents, two retained attempts, exception evidence, and the saved graph.
 - A flow draft was saved without execution. A recurring schedule draft was saved and published while its trigger remained paused. Actor, reason, action, and result appeared in the audit trail.
 - Keyboard activation works for navigation, inspection, and command confirmation. The skip link becomes visible on focus and targets main content; hidden placement no longer extends above the viewport.

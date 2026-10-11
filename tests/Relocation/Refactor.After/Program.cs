@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using WorkThrough;
-using WorkThrough.Storage;
 
 if (args.Length != 2)
 {

@@ -1,8 +1,4 @@
-using System.Data.Common;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Npgsql;
-using WorkThrough.Storage;
 using Xunit;
 
 namespace WorkThrough.Tests;

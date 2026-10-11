@@ -38,6 +38,10 @@ Requirements derive from the conversation: assembly relocation first; extensible
 - FR-028: When the dashboard displays action history, it shall distinguish human/service administration from worker attempts, filter within authorized scope, and preserve stable actor identity independently of display-name changes.
 
 - FR-029: Flow and schedule definitions shall support draft authoring before publication. Drafts cannot execute; publication validates and freezes a revision; retiring a published flow revision prevents new starts while active runs retain their pinned definition. Editing published content creates a draft and never mutates active execution history. Publication, retirement, and schedule activation changes require authorization and audit.
+- FR-030: While a keyed limit, tenant limit, rate limit or flow parallelism bound covering a job is exhausted, the engine shall leave the job queued and admit other eligible work; every bound shall hold across independent hosts (ADR-018).
+- FR-031: When several queues served by one worker have ready work, claims shall be divided according to queue weights, and a queue that was idle shall gain no burst credit.
+- FR-032: Where the host registers tenant access, a tenant-scoped principal shall see and operate on executions of its tenants only, other work shall be indistinguishable from absent work, and store-wide surfaces shall be denied (ADR-019).
+- FR-033: When an application seeds policies or schedules, missing ones shall be created once across concurrently starting hosts, and existing ones shall never be overwritten.
 
 ## Non-functional requirements
 

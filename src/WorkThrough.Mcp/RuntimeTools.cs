@@ -11,7 +11,7 @@ internal sealed class RuntimeTools(IExecutionQueries executions, McpTenantScope 
     internal static readonly string[] Names = [Capacity, Metrics];
 
     [McpServerTool(Name = Capacity, ReadOnly = true, Destructive = false, OpenWorld = false, UseStructuredContent = true)]
-    [Description("Explain one execution's waiting/capacity state in a read snapshot. id is the execution ID. Returns shared admitted-lease counts/limits, flow/queue state, deadlines and recent matching-worker examples, never payload/progress text or lease tokens. At most 501 recent workers are examined; incomplete coverage never means no capable worker exists. Heartbeats are observations, not proof of future acquisition or free per-processor local slots. workerExamples is 1–100, default 10. No mutation occurs.")]
+    [Description("Explain one execution's waiting/capacity state in a read snapshot. id is the execution ID. Reasons include shared, partition, tenant and flow-parallelism capacity and rate limits. Returns admitted-lease counts/limits, flow/queue state, deadlines and recent matching-worker examples, never payload/progress text or lease tokens; tenant-scoped callers receive the reason without fleet-wide counts or workers. At most 501 recent workers are examined; incomplete coverage never means no capable worker exists. Heartbeats are observations, not proof of future acquisition or free per-processor local slots. workerExamples is 1–100, default 10. No mutation occurs.")]
     public Task<ExecutionReadiness> GetCapacity(Guid id, CancellationToken cancellationToken, int workerExamples = 10) =>
         InspectionTools.ReadSafelyAsync(() => Queries.ReadReadinessAsync(id, workerExamples, cancellationToken));
 

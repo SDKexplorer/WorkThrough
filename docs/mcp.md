@@ -5,7 +5,7 @@
 | Implemented tool | Evidence |
 |---|---|
 | `workthrough_get_context` | Actual store ID/database observation time, configured environment/resource, tool schema version, limits and unavailable capabilities |
-| `workthrough_search_executions` | Paged live metadata by correlation, processor/version, queue, current status, flow-run ID and creation/failed-attempt time |
+| `workthrough_search_executions` | Paged live metadata by correlation, processor/version, queue, current status, flow-run ID, partition key, tenant and creation/failed-attempt time |
 | `workthrough_get_execution` | One live execution's metadata by ID, including older retained work |
 | `workthrough_get_attempts` | Paged attempt outcomes/timestamps with an exclusive attempt-number continuation |
 | `workthrough_get_diagnostics` | One attempt's bounded exception type/message/stack after host redaction; requires both execution and payload permissions |
@@ -14,7 +14,7 @@
 | `workthrough_search_archives` | Paged archive summaries by archival time, correlation and kind, including purged-body summaries |
 | `workthrough_get_archive` | One summary by standalone job ID or whole-flow run ID, with no age restriction |
 | `workthrough_preview_retention` | Advisory preview of a caller-supplied manual archive policy; never deletes data |
-| `workthrough_get_capacity` | Snapshot of waiting reasons, shared limits/admitted leases and bounded recent worker evidence |
+| `workthrough_get_capacity` | Snapshot of waiting reasons (shared, partition, tenant, rate and flow-parallelism limits), admitted leases and bounded recent worker evidence |
 | `workthrough_get_metrics` | Windowed live attempt counts, successful attempt throughput and mean/max attempt duration |
 | `workthrough_get_retention` | Persisted automatic policy, pending/last batch, holds/incidents and journal/subscriber positions |
 
@@ -38,7 +38,7 @@ The event page exposes the global journal retention floor and last sequence. `re
 
 ## Runtime evidence
 
-`workthrough_get_capacity` takes an execution `id` and `workerExamples` (default 10, maximum 100). The database snapshot checks shared total/type admission, including processor aliases, queue and flow state, delayed/retrying work, execution deadlines and last progress. Limits count unexpired admitted leases. They cannot prove that a handler or its external effects stopped after lease expiry.
+`workthrough_get_capacity` takes an execution `id` and `workerExamples` (default 10, maximum 100). The database snapshot checks shared total/type admission (including processor aliases), partition and tenant limits, rate limits, a flow run's `MaxParallelSteps`, queue and flow state, delayed/retrying work, execution deadlines and last progress. Tenant-scoped callers receive the reason without fleet-wide counts or worker examples. Limits count unexpired admitted leases. They cannot prove that a handler or its external effects stopped after lease expiry.
 
 Recent worker evidence requires the exact processor version and queue on the same heartbeat, no older than 60 seconds. At most 501 workers are examined; more than 500 or an oversized/incomplete heartbeat reports `workerCoverageIncomplete`. Missing or stale evidence never proves no worker exists. Draining, exhausted local total capacity and consecutive acquisition failures have distinct reasons. Free per-type local slots and future acquisition success cannot be inferred. Worker examples are bounded metadata without progress descriptions or lease tokens.
 

@@ -1,6 +1,4 @@
 using System.Data.Common;
-using Microsoft.Data.Sqlite;
-using Npgsql;
 using Xunit;
 
 namespace WorkThrough.Tests;

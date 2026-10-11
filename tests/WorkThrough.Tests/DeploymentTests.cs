@@ -1,7 +1,5 @@
 using System.Data.Common;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Npgsql;
 using Xunit;
 
 namespace WorkThrough.Tests;

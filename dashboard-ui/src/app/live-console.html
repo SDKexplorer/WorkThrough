@@ -71,11 +71,10 @@
         <p class="live-alert" role="alert">{{ error() }} Displayed data may be stale.</p>
         } @if (storeWide() && can(permission.ReadExecutions)) {
         <section class="live-metrics" aria-label="Stored job totals">
-            @for (state of ['Queued', 'Running', 'Succeeded', 'Failed']; track state) {
+            @for (total of totals(); track total.label) {
             <article>
-                <span class="muted">{{ state }}</span
-                ><strong>{{ stats().counts[state] ?? 0 }}</strong
-                ><small class="muted">Current stored jobs</small>
+                <span class="muted">{{ total.label }}</span><strong>{{ total.count }}</strong
+                ><small class="muted">{{ total.detail }}</small>
             </article>
             }
         </section>
@@ -702,7 +701,7 @@
                     <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
                     ><strong>{{ limit.permits }}</strong
                     ><small class="muted"
-                        >Starts per {{ limit.window }}{{ limit.perKey ? ' per ' +
+                        >Starts per {{ duration(limit.window) }}{{ limit.perKey ? ' per ' +
                         keyScopeLabel(limit.perKey) : '' }}</small
                     >
                 </article>
