@@ -39,7 +39,7 @@ Read `README.md`, `docs/architecture.md`, and `docs/plan.md` before changing beh
 - Do not log full payloads by default. HTML-encode untrusted dashboard text and protect dashboard endpoints through host authorization.
 - Follow ADR-007 for dashboard security work: reuse host identity, derive actors from trusted server context, enforce action/resource permissions on the server, and commit administrative changes with their audit records atomically. Preserve permission separation and the same-transaction audit/command receipt invariant.
 - Keep README/plan status honest: implemented, verified, experimental, and planned are different.
-- Angular is the accepted dashboard frontend. The live Angular entry point must only display real API data. Keep archived concept fixtures isolated and unreachable from the production entry point. Build static assets before .NET packaging so NuGet consumers do not need Node.
+- Angular is the accepted dashboard frontend. The Angular console must only display real API data; do not add fictional fixtures to it. Build static assets before .NET packaging so NuGet consumers do not need Node.
 - Do not publish packages or choose a project license without an explicit maintainer decision.
 
 ## Verification

@@ -1,6 +1,6 @@
 # WorkThrough Angular console
 
-The default entry point is `LiveConsoleComponent`. It uses same-origin APIs from the configured ASP.NET dashboard mount path. The production bundle is embedded into `WorkThrough.Dashboard`; package consumers do not need Node. The earlier `console.ts` / `example-data.ts` concept remains isolated from this entry point and is not shipped as live data.
+The default entry point is `LiveConsoleComponent`. It uses same-origin APIs from the configured ASP.NET dashboard mount path. The production bundle is embedded into `WorkThrough.Dashboard`; package consumers do not need Node.
 
 Use Node 24, `npm ci`, `npm run format:check`, and `npm run build`, then build the .NET host. Output is `../artifacts/console-preview/browser`. Run `samples/Shop.Api` in Development and open `/operations`. A bare static server has no job API and cannot serve as the live console.
 
