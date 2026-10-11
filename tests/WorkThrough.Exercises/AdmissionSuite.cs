@@ -236,11 +236,11 @@ internal static class AdmissionSuite
 
     private static double QueueWait((JobRecord Job, JobAttempt Attempt) item) => (item.Attempt.StartedAt - item.Job.CreatedAt).TotalMilliseconds;
 
-    private static int PeakBy(IEnumerable<(JobRecord Job, JobAttempt Attempt)> attempts, Func<(JobRecord Job, JobAttempt Attempt), string?> key) =>
+    internal static int PeakBy(IEnumerable<(JobRecord Job, JobAttempt Attempt)> attempts, Func<(JobRecord Job, JobAttempt Attempt), string?> key) =>
         attempts.Where(item => key(item) is not null).GroupBy(key).Select(group => PerformanceSuite.Peak(group.Select(item => item.Attempt))).DefaultIfEmpty(0).Max();
 
     /// <summary>The most starts inside any half-open window (t - window, t], the interval a rate limit counts.</summary>
-    private static int SlidingWindowPeak(IEnumerable<DateTimeOffset> starts, TimeSpan window)
+    internal static int SlidingWindowPeak(IEnumerable<DateTimeOffset> starts, TimeSpan window)
     {
         var sorted = starts.Order().ToArray();
         var peak = 0;
@@ -280,15 +280,15 @@ internal static class AdmissionSuite
         return (selected / (double)contended, contended);
     }
 
-    private static AdministrativeCommand Command(string reason) => new(Guid.NewGuid(), new("admission-exercise", "harness"), reason);
+    internal static AdministrativeCommand Command(string reason) => new(Guid.NewGuid(), new("admission-exercise", "harness"), reason);
 
-    private static async Task RequireAsync(Task<Result> command)
+    internal static async Task RequireAsync(Task<Result> command)
     {
         var result = await command;
         Ensure(result.IsSuccess, result.Error?.Message ?? "Command failed.");
     }
 
-    private static async Task RequireAsync<T>(Task<Result<T>> command)
+    internal static async Task RequireAsync<T>(Task<Result<T>> command)
     {
         var result = await command;
         Ensure(result.IsSuccess, result.Error?.Message ?? "Command failed.");
@@ -297,76 +297,4 @@ internal static class AdmissionSuite
     private static void Ensure(bool condition, string message) => PerformanceSuite.Ensure(condition, message);
 
     private sealed record Phase(List<(JobRecord Job, JobAttempt Attempt)> Attempts, double JobsPerSecond);
-
-    /// <summary>Samples each worker's resident memory; the OS reports no peak on every platform, so peaks come from samples.</summary>
-    private sealed class MemorySampler : IAsyncDisposable
-    {
-        private readonly WorkerProcess[] workers;
-        private readonly CancellationTokenSource stop = new();
-        private readonly List<(string Phase, long Bytes)> samples = [];
-        private readonly Task loop;
-        private volatile string phase = "start";
-
-        public MemorySampler(WorkerProcess[] workers, TimeSpan interval)
-        {
-            this.workers = workers;
-            Sample();
-            loop = SampleAsync(interval);
-        }
-
-        public void Enter(string name)
-        {
-            phase = name;
-            Sample();
-        }
-
-        public object Report()
-        {
-            lock (samples)
-            {
-                const double megabyte = 1024 * 1024;
-
-                return new
-                {
-                    unit = "MiB, sum of worker resident sets",
-                    start = samples[0].Bytes / megabyte,
-                    end = samples[^1].Bytes / megabyte,
-                    phases = samples.GroupBy(sample => sample.Phase).Select(group => new { phase = group.Key, peak = group.Max(sample => sample.Bytes) / megabyte })
-                };
-            }
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await stop.CancelAsync();
-            try
-            {
-                await loop;
-            }
-            catch (OperationCanceledException)
-            {
-            }
-
-            Sample();
-            stop.Dispose();
-        }
-
-        private async Task SampleAsync(TimeSpan interval)
-        {
-            using var timer = new PeriodicTimer(interval);
-            while (await timer.WaitForNextTickAsync(stop.Token))
-            {
-                Sample();
-            }
-        }
-
-        private void Sample()
-        {
-            var bytes = workers.Sum(worker => worker.ResidentBytes);
-            lock (samples)
-            {
-                samples.Add((phase, bytes));
-            }
-        }
-    }
 }
