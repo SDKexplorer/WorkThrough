@@ -298,6 +298,12 @@
                         <summary>Input</summary>
                         <pre>{{ detail.payload | json }}</pre>
                     </details>
+                    @if (detail.originalPayload) {
+                    <details>
+                        <summary>Original input, before correction</summary>
+                        <pre>{{ detail.originalPayload | json }}</pre>
+                    </details>
+                    }
                     <details>
                         <summary>Output</summary>
                         <pre>{{ detail.output | json }}</pre>
@@ -325,6 +331,13 @@
                 ['Failed','Cancelled','Rejected','Expired'].includes(detail.job.status)) {
                 <button class="primary" (click)="openAction('recover', detail.job)">
                     Recover failed step
+                </button>
+                } @if (can(permission.CorrectInputs) && detail.sensitive && ![signalProcessorKey,
+                childFlowProcessorKey].includes(detail.job.contract.key) &&
+                ['Failed','Cancelled','Rejected','Expired'].includes(detail.job.status) &&
+                (!detail.job.workflowRunId || flow()?.flow?.status === 'Incident')) {
+                <button class="outline" (click)="openCorrection(detail.job, detail.payload)">
+                    Correct input
                 </button>
                 } @if (can(permission.CancelJobs) &&
                 ['Waiting','Queued','Running','AwaitingSignal'].includes(detail.job.status)) {
@@ -991,6 +1004,17 @@
     >
         <h2 id="command-title">{{ pending()?.title }}</h2>
         <p class="muted">This action records your identity and reason in the audit trail.</p>
+        @if (pending()?.input !== undefined) {
+        <label for="command-input">Input (JSON)</label
+        ><textarea
+            id="command-input"
+            rows="10"
+            spellcheck="false"
+            [disabled]="!!pending()?.command"
+            [value]="inputJson()"
+            (input)="inputJson.set($any($event.target).value)"
+        ></textarea>
+        }
         <label for="command-reason">Reason</label
         ><textarea
             id="command-reason"

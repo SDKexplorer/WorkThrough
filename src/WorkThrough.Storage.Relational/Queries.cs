@@ -177,7 +177,8 @@ public abstract partial class RelationalJobStore
             {
                 PartitionKey = Text(reader, "partition_key"),
                 TenantId = Text(reader, "tenant_id"),
-                TraceParent = Text(reader, "trace_parent")
+                TraceParent = Text(reader, "trace_parent"),
+                OriginalPayload = Text(reader, "original_payload") is { } original ? Json(original) : null
             });
         }
 

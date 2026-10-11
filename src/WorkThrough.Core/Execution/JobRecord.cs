@@ -39,6 +39,10 @@ public sealed record JobRecord(
     /// <summary>The producer's W3C trace context; the attempt's activity continues that trace. Never part of idempotency.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TraceParent { get; init; }
+
+    /// <summary>The input as first submitted, kept when an operator corrected <see cref="Payload"/>; otherwise null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonElement? OriginalPayload { get; init; }
 }
 
 public static class TraceContext

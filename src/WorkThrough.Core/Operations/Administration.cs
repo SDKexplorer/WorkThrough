@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace WorkThrough;
 
 /// <summary>A trusted host supplies the issuer and stable subject; display names are historical labels.</summary>
@@ -32,6 +34,12 @@ public interface IJobAdministration
     Task<Result> RetryJobAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> CancelJobAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> RecoverStepAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces the input of a failed, rejected, expired or cancelled job and runs it again: a standalone job is queued, a step of a flow
+    /// in an incident is recovered. The first input is kept as <see cref="JobRecord.OriginalPayload"/>; the audit records digests only.
+    /// </summary>
+    Task<Result> CorrectInputAsync(Guid id, int expectedAttempt, JsonElement input, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> SetFlowPausedAsync(Guid id, bool paused, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> ChangeLimitAsync(ConcurrencyLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
 

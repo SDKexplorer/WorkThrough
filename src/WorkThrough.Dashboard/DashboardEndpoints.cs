@@ -204,6 +204,7 @@ public static partial class DashboardEndpoints
                 health,
                 sensitive,
                 payload = sensitive ? (JsonElement?)job.Payload : null,
+                originalPayload = sensitive ? job.OriginalPayload : null,
                 output = sensitive ? job.Output : null,
                 error = sensitive ? job.Error : null,
                 attempts = (await queries.AttemptsAsync(id, ct)).Select(a => sensitive ? a : a with { Error = null }),
@@ -293,6 +294,12 @@ public static partial class DashboardEndpoints
         group.MapPost("/api/jobs/{id:guid}/recover", (Guid id, DashboardCommand command, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
             ForVisibleJobAsync(context, id, async () => ToHttp(await administration.RecoverStepAsync(id, command.ExpectedAttempt, Command(context, options, command), ct))))
             .ForTenants().Mutation(options, OperationPermissions.RecoverFlows);
+
+        // Correcting an input both reveals and replaces a payload, so it needs the payload permission as well.
+        group.MapPost("/api/jobs/{id:guid}/correct", (Guid id, InputCorrectionCommand request, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
+            ForVisibleJobAsync(context, id, async () => ToHttp(await administration.CorrectInputAsync(id, request.Command.ExpectedAttempt, request.Input,
+                Command(context, options, request.Command), ct))))
+            .ForTenants().Mutation(options, OperationPermissions.CorrectInputs).WithPermission(options, OperationPermissions.ReadPayloads);
         foreach (var pause in new[] { true, false })
         {
             group.MapPost(pause ? "/api/flows/{id:guid}/pause" : "/api/flows/{id:guid}/resume", (Guid id, DashboardCommand command, HttpContext context, IJobAdministration administration, CancellationToken ct) =>

@@ -118,7 +118,7 @@ Positioning: relocation alone does not win adoption. Hangfire has compatibility 
 2. **Execution controls:** done. Per-key serialization, tenant quotas, rate limits and weighted fair queues are exact across hosts (ADR-018, ADR-022).
 3. **Contract evolution (high):** input upcasts between versions are done (ADR-024); preflight counts them as coverage. A saved flow revision pins its graph and processor versions, not its handler binaries; upcasts let pinned steps run on current code.
 4. **Consumer testing tools (high):** done. `WorkThrough.Testing` runs the real store and worker on a temporary SQLite file, with a movable clock, waits and flow assertions. Dependencies are replaced through DI.
-5. **Recovery and composition (medium):** child flows are done (ADR-023). Next: validated input correction, compensation and checkpoint forks. Bounded fan-out, retry and pause/resume exist.
+5. **Recovery and composition (medium):** child flows (ADR-023) and audited input correction are done. Next: compensation and checkpoint forks. Bounded fan-out, retry and pause/resume exist.
 6. **Operational breadth (medium):** wider fleet investigation in the console. MCP actions remain phase two.
 
 ## Exit criteria for the initial repository

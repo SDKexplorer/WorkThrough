@@ -295,8 +295,16 @@ public sealed partial class OracleJobStore
             """),
     ];
 
+    /// <summary>Schema 9 additions: the first input of a corrected job.</summary>
+    private static readonly SchemaStep[] OracleCorrectionSchema =
+    [
+        new("DJ_JOBS", false, """
+            ALTER TABLE dj_jobs ADD original_payload CLOB
+            """, Column: "ORIGINAL_PAYLOAD"),
+    ];
+
     private static readonly SchemaStep[] OracleSchemaSteps =
-        [.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema];
+        [.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema, .. OracleCorrectionSchema];
 
     /// <summary>Identifies the installed step list; any edit to a step's SQL changes it.</summary>
     private static readonly string SchemaFingerprint = Fingerprint(OracleSchemaSteps);
@@ -309,7 +317,9 @@ public sealed partial class OracleJobStore
         (6, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length,
             Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema])),
         (7, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length + OracleLimitLockSchema.Length,
-            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema]))
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema])),
+        (8, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length + OracleLimitLockSchema.Length + OracleChildFlowSchema.Length,
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema]))
     ];
 
     private static string Fingerprint(IEnumerable<SchemaStep> steps) => Convert.ToHexString(SHA256.HashData(

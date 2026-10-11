@@ -24,10 +24,14 @@ public static class OperationPermissions
     public const string ManageWorkers = "workers.manage";
     public const string ManageArchives = "archives.manage";
 
+    /// <summary>Replaces the input of a failed job or step and retries it. Granted separately because it changes business data.</summary>
+    public const string CorrectInputs = "inputs.correct";
+
     public static IReadOnlyList<string> All { get; } =
     [
         ReadExecutions, ReadPayloads, RetryJobs, CancelJobs, RecoverFlows, EditDefinitions, PublishDefinitions, RetireDefinitions,
-        ManageSchedules, ManageLimits, ReadAudit, ReadRetention, ManageRetention, ManageQueues, ManageWorkers, ReplayJobs, ManageArchives
+        ManageSchedules, ManageLimits, ReadAudit, ReadRetention, ManageRetention, ManageQueues, ManageWorkers, ReplayJobs, ManageArchives,
+        CorrectInputs
     ];
 
     public static string Policy(string permission) => PolicyPrefix + permission;
@@ -40,6 +44,7 @@ public static class AuditActions
     public const string CancelJob = "jobs.cancel";
     public const string ReplayJob = "jobs.replay";
     public const string RecoverStep = "flows.recover";
+    public const string CorrectInput = "jobs.correct-input";
     public const string PauseFlow = "flows.pause";
     public const string ResumeFlow = "flows.resume";
     public const string ChangeLimit = "limits.manage";

@@ -1,7 +1,7 @@
 import { Component, ElementRef, computed, signal, viewChild } from '@angular/core';
 import { DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { SavedFlowGraph } from './saved-flow-graph';
-import { CsrfHeader, Permission, SignalProcessorKey } from './permissions';
+import { ChildFlowProcessorKey, CsrfHeader, Permission, SignalProcessorKey } from './permissions';
 
 interface Processor {
     key: string;
@@ -36,6 +36,7 @@ interface Detail {
     health: { reason: string; suspectedStalled: boolean; progress: unknown };
     sensitive: boolean;
     payload: unknown;
+    originalPayload: unknown;
     output: unknown;
     error: string | null;
     attempts: Attempt[];
@@ -205,6 +206,8 @@ interface Pending {
     wrapper?: 'command';
     value?: object;
     command?: object;
+    /** Initial JSON for an input the operator edits in the dialog. */
+    input?: string;
 }
 
 interface RetentionStatus {
@@ -260,6 +263,7 @@ const EmptyFlowDraft = JSON.stringify(
 export class LiveConsoleComponent {
     readonly permission = Permission;
     readonly signalProcessorKey = SignalProcessorKey;
+    readonly childFlowProcessorKey = ChildFlowProcessorKey;
     readonly base = document.body.dataset['base'] ?? '';
     readonly light = signal(false);
     readonly section = signal('executions');
@@ -292,6 +296,7 @@ export class LiveConsoleComponent {
     readonly detail = signal<Detail | null>(null);
     readonly flow = signal<Flow | null>(null);
     readonly pending = signal<Pending | null>(null);
+    readonly inputJson = signal('');
     readonly confirmation = viewChild<ElementRef<HTMLDialogElement>>('confirmation');
     readonly draftEditor = signal(false);
     readonly draftJson = signal(EmptyFlowDraft);
@@ -492,6 +497,16 @@ export class LiveConsoleComponent {
         this.offset = Math.max(0, this.offset + direction * 100);
         void this.refresh();
     }
+    /** Edits a failed job's input, then retries it, or recovers it when it is a step of a flow in an incident. */
+    openCorrection(job: Job, payload: unknown) {
+        this.ask({
+            title: 'Correct input and run again',
+            path: `/api/jobs/${job.id}/correct`,
+            expectedAttempt: job.attempt,
+            wrapper: 'command',
+            input: JSON.stringify(payload, null, 2),
+        });
+    }
     openAction(action: string, job: Job) {
         this.ask({
             title:
@@ -681,6 +696,7 @@ export class LiveConsoleComponent {
     }
     ask(pending: Pending) {
         this.pending.set(pending);
+        this.inputJson.set(pending.input ?? '');
         this.reason.set('');
         this.commandError.set('');
         this.confirmation()?.nativeElement.showModal();
@@ -691,6 +707,15 @@ export class LiveConsoleComponent {
     async confirm() {
         const pending = this.pending();
         if (!pending || !this.reason().trim() || this.submitting()) return;
+        let value = pending.value;
+        if (pending.input !== undefined) {
+            try {
+                value = { input: JSON.parse(this.inputJson()) };
+            } catch {
+                this.commandError.set('The input must be valid JSON.');
+                return;
+            }
+        }
         this.submitting.set(true);
         this.commandError.set('');
         const command = pending.command ?? {
@@ -703,7 +728,7 @@ export class LiveConsoleComponent {
         try {
             const result = await this.request<unknown>(
                 pending.path,
-                pending.wrapper ? { ...pending.value, command } : command,
+                pending.wrapper ? { ...value, command } : command,
             );
             if (pending.path.endsWith('/draft') && typeof result === 'number')
                 this.draftRevision.set(result);

@@ -306,3 +306,11 @@ Input upcasts (2026-10-11, ADR-024):
 
 SQLite + PostgreSQL: 344 passed, 3 skipped. No storage code changed.
 
+Input correction (2026-10-11, schema 9): SQLite + PostgreSQL 351, SQL Server (both modes) 357, Oracle 351 passed.
+- A rejected job runs again with the corrected input and keeps the original.
+- The same command is deduplicated; a different input under the same command conflicts.
+- The audit holds digests only.
+- A step in an incident resumes its flow with the corrected input.
+- Running or queued work, and steps of finished flows, are refused.
+- The console endpoint refuses a user who has `inputs.correct` but lacks `payloads.read`.
+

@@ -89,6 +89,31 @@ public sealed class DashboardTests
     }
 
     [Fact]
+    public async Task Correcting_an_input_requires_the_payload_permission_too()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("bad"), new(MaxAttempts: 1));
+        var job = (await harness.Store.ClaimAsync(new("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromSeconds(30))))!;
+        Assert.True(await harness.Store.RejectAsync(id, job.LeaseToken!.Value, new("Rejected", "bad", null)));
+        await using var app = await StartDashboardAsync(harness);
+        var correction = new InputCorrectionCommand(System.Text.Json.JsonSerializer.SerializeToElement(new Alpha("good"), JobJson.Options),
+            new(Guid.NewGuid(), "Fix the input", 1));
+
+        foreach (var (user, expected) in new[] { ("corrector", HttpStatusCode.Forbidden), ("operator", HttpStatusCode.OK) })
+        {
+            var client = app.GetTestClient();
+            client.DefaultRequestHeaders.Add("X-Test-User", user);
+            var csrf = await client.GetAsync("/jobs/api/csrf");
+            using var token = System.Text.Json.JsonDocument.Parse(await csrf.Content.ReadAsStringAsync());
+            client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", csrf.Headers.GetValues("Set-Cookie").Select(x => x.Split(';')[0])));
+            client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", token.RootElement.GetProperty("token").GetString());
+            Assert.Equal(expected, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/correct", correction)).StatusCode);
+        }
+
+        Assert.Equal("good", (await harness.Store.GetAsync(id))!.Payload.GetProperty("value").GetString());
+    }
+
+    [Fact]
     public async Task Metadata_viewer_cannot_read_exceptions_or_mutate_jobs_even_with_valid_csrf()
     {
         await using var harness = await StoreHarness.CreateAsync("sqlite");
@@ -194,6 +219,7 @@ public sealed class DashboardTests
             IReadOnlyList<string> permissions = user switch
             {
                 "viewer" => ["executions.read"],
+                "corrector" => [OperationPermissions.ReadExecutions, OperationPermissions.CorrectInputs],
                 "outsider" => [],
                 _ => DashboardPermissions.All
             };
