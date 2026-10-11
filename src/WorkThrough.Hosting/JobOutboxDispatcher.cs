@@ -12,7 +12,7 @@ internal sealed class JobOutboxDispatcher(IJobOutbox source, IJobStore destinati
         {
             try
             {
-                await source.DispatchOutboxAsync(destination, cancellationToken: stoppingToken);
+                await DispatchLoop.DrainAsync((batch, ct) => source.DispatchOutboxAsync(destination, batch, ct), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

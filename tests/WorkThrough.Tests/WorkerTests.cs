@@ -77,6 +77,41 @@ public sealed class WorkerTests
     }
 
     [Fact]
+    public async Task Outbox_dispatch_drains_full_batches_within_one_tick()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var outbox = new FullBatchesOutbox(fullBatches: 3);
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddWorkThrough().UseSqlite(harness.ConnectionString).AddOutboxDispatcher(outbox);
+        using var host = builder.Build();
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        await host.StartAsync();
+        try
+        {
+            await EventuallyAsync(() => Task.FromResult(outbox.Calls >= 4));
+
+            // The dispatcher ticks once per second; one batch per tick would need four seconds.
+            Assert.True(started.Elapsed < TimeSpan.FromSeconds(1), $"Draining took {started.Elapsed}.");
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    private sealed class FullBatchesOutbox(int fullBatches) : IJobOutbox
+    {
+        private int calls;
+        public int Calls => Volatile.Read(ref calls);
+
+        public Task<int> DispatchOutboxAsync(IJobStore destination, int batchSize = 20, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Interlocked.Increment(ref calls) <= fullBatches ? batchSize : 0);
+
+        public Task<OutboxDelivery?> OutboxDeliveryAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<OutboxDelivery?>(null);
+    }
+
+    [Fact]
     public async Task Processor_registry_change_stops_acquisition_and_the_host()
     {
         await using var harness = await StoreHarness.CreateAsync("sqlite");
