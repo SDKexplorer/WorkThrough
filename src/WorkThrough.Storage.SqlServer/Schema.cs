@@ -392,6 +392,8 @@ public sealed partial class SqlServerJobStore
         IF COL_LENGTH(N'dj_jobs',N'tenant_id') IS NULL
             ALTER TABLE dj_jobs ADD tenant_id nvarchar(256) COLLATE Latin1_General_100_BIN2 NULL
                 CONSTRAINT ck_dj_jobs_tenant_id CHECK(DATALENGTH(tenant_id)=DATALENGTH(RTRIM(tenant_id)));
+        IF COL_LENGTH(N'dj_jobs',N'trace_parent') IS NULL
+            ALTER TABLE dj_jobs ADD trace_parent nvarchar(64) NULL;
         IF COL_LENGTH(N'dj_flows',N'max_parallel') IS NULL
             ALTER TABLE dj_flows ADD max_parallel int NULL CONSTRAINT ck_dj_flows_max_parallel CHECK(max_parallel>0);
         IF COL_LENGTH(N'dj_queue_controls',N'weight') IS NULL

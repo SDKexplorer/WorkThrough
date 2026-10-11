@@ -22,6 +22,7 @@ public abstract partial class RelationalJobStore
         start.Validate();
         var (correlationId, idempotencyKey, partitionKey) = (start.CorrelationId, start.IdempotencyKey, start.PartitionKey);
         var (tenantId, maxParallelSteps) = (start.TenantId, start.MaxParallelSteps);
+        var traceParent = TraceContext.Capture();
 
         // Starts without admission options keep the fingerprint shape of earlier releases, so existing receipts still match.
         var fingerprint = idempotencyKey is null ? null
@@ -81,7 +82,8 @@ public abstract partial class RelationalJobStore
                     correlationId, JobStatus.Waiting, 0, step.MaxAttempts, now, now, WorkflowRunId: runId, StepId: step.Id)
                 {
                     PartitionKey = partitionKey,
-                    TenantId = tenantId
+                    TenantId = tenantId,
+                    TraceParent = traceParent
                 }, ct);
             }
 

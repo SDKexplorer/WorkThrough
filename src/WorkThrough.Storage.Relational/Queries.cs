@@ -150,7 +150,8 @@ public abstract partial class RelationalJobStore
                 ParseGuid(Text(reader, "lease_token")), Date(reader, "lease_expires_at"), Date(reader, "expires_at"), ParseGuid(Text(reader, "causation_job_id")))
             {
                 PartitionKey = Text(reader, "partition_key"),
-                TenantId = Text(reader, "tenant_id")
+                TenantId = Text(reader, "tenant_id"),
+                TraceParent = Text(reader, "trace_parent")
             });
         }
 
@@ -174,14 +175,15 @@ public abstract partial class RelationalJobStore
     private Task<int> InsertJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) =>
         ExecuteAsync(connection, transaction, """
             INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,correlation_id,status,attempt,max_attempts,
-              created_at,available_at,idempotency_key,workflow_run_id,step_id,expires_at,causation_job_id,partition_key,tenant_id)
-            VALUES (@id,@key,@version,@payload,@queue,@correlation,@status,@attempt,@maximum,@created,@available,@dedup,@flow,@step,@expiry,@cause,@partition,@tenant)
+              created_at,available_at,idempotency_key,workflow_run_id,step_id,expires_at,causation_job_id,partition_key,tenant_id,trace_parent)
+            VALUES (@id,@key,@version,@payload,@queue,@correlation,@status,@attempt,@maximum,@created,@available,@dedup,@flow,@step,@expiry,@cause,@partition,@tenant,@trace)
             """, ct, ("id", job.Id.ToString()), ("key", job.Contract.Key), ("version", job.Contract.Version),
             ("payload", job.Payload.GetRawText()), ("queue", job.Queue), ("correlation", job.CorrelationId),
             ("status", job.Status.ToString()), ("attempt", job.Attempt), ("maximum", job.MaxAttempts),
             ("created", job.CreatedAt.ToUnixTimeMilliseconds()), ("available", EligibilityMilliseconds(job.AvailableAt)),
             ("dedup", job.IdempotencyKey), ("flow", job.WorkflowRunId?.ToString()), ("step", job.StepId), ("expiry", job.ExpiresAt?.ToUnixTimeMilliseconds()), ("cause", job.CausationJobId?.ToString()),
-            ("partition", job.PartitionKey), ("tenant", job.TenantId));
+            ("partition", job.PartitionKey), ("tenant", job.TenantId),
+            ("trace", job.TraceParent is { Length: <= TraceContext.MaximumLength } trace ? trace : null));
 
     private static long EligibilityMilliseconds(DateTimeOffset instant)
     {

@@ -66,6 +66,8 @@ Run several processes, or several machines on a server database, against the sam
 
 A processor's address is its key and contract version. The database stores that address and the JSON input, never a type, method or assembly name. To move a processor, keep its address and map it to the new class (`AddProcessor`, or the `WorkThrough.Generators` source generator with `[Processor("…")]`). Change the version when the input's meaning changes.
 
+Prefer `JobDefinition` + `IProcessor<T>`: the address is declared once and several processors may accept the same input type. `[JobContract]` on a message type with `IJobHandler<T>` remains supported when the type itself should be the address.
+
 Retired addresses can be [aliased](docs/identity-evolution.md) to new ones under fleet fencing. [Deployment preflight](docs/deployment-preflight.md) checks that a proposed worker fleet covers every address, version and queue that stored work still needs.
 
 ### Delivery
@@ -81,14 +83,17 @@ Execution is at least once. Handlers receive `context.IdempotencyKey`, which sta
 
 ```csharp
 var fulfil = new FlowBuilder("orders.fulfil", 1)
-    .Step("reserve", Stock.Reserve.Identity).BindInput("orderId", "orderId")
-    .Step("ship", Shipping.Ship.Identity).After("reserve").BindInput("orderId", "orderId")
+    .Step("reserve", Stock.Reserve.Identity)
+        .BindInput((ReserveStock step) => step.OrderId, (Order order) => order.Id)
+    .Step("ship", Shipping.Ship.Identity).After("reserve")
+        .BindInput((ShipOrder step) => step.OrderId, (Order order) => order.Id)
+        .WhenOutput("reserve", (Reservation reservation) => reservation.Reserved, true)
     .Build();
 
-var run = await flows.StartAsync(fulfil, new { orderId = "42" }, new FlowStart(IdempotencyKey: "fulfil:42"), ct);
+var run = await flows.StartAsync(fulfil, new Order("42"), new FlowStart(IdempotencyKey: "fulfil:42"), ct);
 ```
 
-- **Structure:** steps bind inputs from the flow input or earlier outputs. Equality conditions, parallel branches, joins and `WaitForSignal` steps all hold no worker slot while waiting.
+- **Structure:** steps bind input properties from the flow input or earlier outputs, with typed selectors that resolve to JSON names when the definition is built. Flows support equality conditions, parallel branches and joins; `WaitForSignal` steps wait for an external event without holding a worker slot.
 - **Versioning:** every run pins an immutable definition version. Definitions move Draft → Published → Retired.
 - **Failure:** a step that fails by default suspends the run as an **incident**; operators recover the step with its history and idempotency key intact. See [flow starts](docs/adr/0009-idempotent-flow-starts.md) and [architecture](docs/architecture.md).
 
@@ -119,7 +124,8 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 - **Tenant scoping:** register an `ITenantAccessResolver` to scope users to their tenants ([ADR-019](docs/adr/0019-tenant-access-isolation.md)).
 - **Data operations:** [operations and retention](docs/operations-and-retention.md) covers queue pause, worker drain, replay, archives, retention with holds and verified exports, and event subscriptions.
 - **MCP:** the [MCP endpoint](docs/mcp.md) gives AI assistants bounded, read-only, audited investigation tools behind bearer authentication.
-- **OpenTelemetry:** subscribe to the `WorkThrough` ActivitySource and Meter. Job IDs are trace attributes, never metric labels.
+- **OpenTelemetry:** subscribe to the `WorkThrough` ActivitySource and Meter. An attempt continues the trace that enqueued it, including through flows and the outbox. Job IDs are trace attributes, never metric labels.
+- **Health checks:** `services.AddHealthChecks().AddWorkThrough()` reports storage reachability and, in worker hosts, repeated acquisition failures.
 
 ## Documentation
 
@@ -132,6 +138,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 | Console, permissions, tenants | [Dashboard security](docs/dashboard-security.md) |
 | Queries and MCP | [Execution queries](docs/execution-queries.md), [MCP](docs/mcp.md) |
 | Operations and retention | [Operations and retention](docs/operations-and-retention.md) |
+| Testing processors and flows | [Testing](docs/testing.md) |
 | Evidence | [Verification](docs/verification.md), [performance](docs/performance.md) |
 | Roadmap | [Plan](docs/plan.md) |
 
@@ -160,6 +167,7 @@ Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVE
 - Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation, checkpoint forks and child flows are planned.
 - Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
 - External OIDC sign-in requires a configured identity provider and has not been verified against a real account.
+- Each store admits work through one serialized write path, which keeps limits exact across hosts. Expect a few hundred jobs per second per store: on the documented test host, about 220–275/s on PostgreSQL and 700/s on SQLite with near-instant handlers ([ADR-020](docs/adr/0020-write-path-throughput.md)). WorkThrough suits business workflows; for high-volume event streams, use a message broker.
 - There is no production certification and no Native AOT support. Performance figures describe the documented test host.
 - Package publication and the project license are pending maintainer decisions.
 

@@ -89,16 +89,23 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [ ] Define supported platforms/TFMs, compatibility policy, license, final package name, and public release process.
 - [x] Apply the accepted WorkThrough working brand consistently to source/API/package/sample/UI names, with build and package-consumer verification. Package/domain clearance and publication remain separate; persisted processor keys must not change during the rename.
 
+## Throughput — 2026-10-11
+
+- [x] Raise write-path throughput without weakening admission: a lock-free claim pre-check, batched claims and completions, batched statements, owned writes outside the admission lock, and the SQLite busy timeout (ADR-020). Drain throughput rose 2.4–3.6× on every provider.
+- [ ] Concurrent claims (`SKIP LOCKED`/`READPAST`) and lock-free settlement with per-flow row locks and per-limit counters, after a design for flow joins, lock ordering and the gap-free journal (ADR-020).
+
 ## Product review findings — 2026-10-11
 
 Gaps found when reviewing WorkThrough as an adopter would. None blocks the current guarantees; each needs a maintainer priority.
 
-- [ ] Propagate W3C trace context from enqueue, flow start and outbox delivery to attempt activities, so a producer's trace continues into job execution.
-- [ ] ASP.NET Core health checks for storage reachability, schema version and worker acquisition failures.
+- [x] Propagate W3C trace context from enqueue, flow start and outbox delivery to attempt activities, so a producer's trace continues into job execution.
+- [x] ASP.NET Core health checks for storage reachability and worker acquisition failures (`AddHealthChecks().AddWorkThrough()`).
 - [ ] Dynamic fan-out: a step that expands into N child steps from its output, joined afterwards. Flows are static graphs today; `MaxParallelSteps` already bounds wide stages.
 - [ ] Payload protection: encryption at rest or a supported secret-reference pattern for sensitive inputs. Today inputs are stored as JSON, protected by database access and the payload permission.
 - [ ] MySQL/MariaDB provider, a common request from Hangfire users.
-- [ ] One recommended programming model in public docs: `JobDefinition` + `IProcessor` is the primary path; `[JobContract]` + `IJobHandler` remains supported for type-addressed messages.
+- [x] One recommended programming model in public docs: `JobDefinition` + `IProcessor` is the primary path; `[JobContract]` + `IJobHandler` remains supported for type-addressed messages.
+- [x] Typed flow bindings and conditions (`BindInput((Target t) => t.X, (Source s) => s.Y)`) and a [testing guide](testing.md).
+- [ ] A `dotnet new` template and rolling (zero-downtime) schema upgrades.
 
 ## Exit criteria for the initial repository
 

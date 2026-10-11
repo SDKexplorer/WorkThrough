@@ -205,3 +205,39 @@ Raw reports: [SQLite](performance-results/2026-10-11-sqlite-admission.json), [Po
 Throughput, latency and CPU did not degrade as history grew to 233k jobs. Worker memory rose 6 MiB between minute 10 and minute 120. That rate is too small to call a leak or to rule one out, so longer soaks remain advisable before production. The early latency was higher while workloads in this session (builds and tests) shared the host. This was one provider on one machine; it is not a multi-host or failover campaign.
 
 Raw report: [PostgreSQL soak](performance-results/2026-10-11-postgres-soak.json).
+
+## Write-path throughput (ADR-020) — 2026-10-11
+
+[ADR-020](adr/0020-write-path-throughput.md) changed the write path while keeping the single admission lock and every guarantee. Binaries were built at `5aa2a7a`; the working tree had documentation edits only. This is the same host and full profile as the claim-path baseline. The Oracle run was repeated after its first attempt started before the database service had registered with its listener; it was an environment race, not a test failure.
+
+**The standard benchmark** caps the fleet at six leases, uses 10 ms handlers and runs a closed loop, so it is bounded by those limits as well as by the write path:
+
+| Provider | Workload | Baseline jobs/s | ADR-020 jobs/s median (range) | Change | Queue wait p50 | Run p95 end-to-end |
+|---|---|---:|---:|---:|---:|---:|
+| sqlite | mixed | 34.3 | 298.8 (298.7–298.8) | +771% | 0.54 s | 1.43 s |
+| sqlite | flows | 14.4 | 215.2 (209.7–218.4) | +1398% | 1.19 s | 4.11 s |
+| sqlite | outbox | 84.6 | 391.9 (384.6–410.8) | +363% | 0.66 s | 1.15 s |
+| postgres | mixed | 80.6 | 162.0 (159.6–165.3) | +101% | 0.58 s | 1.62 s |
+| postgres | flows | 58.7 | 108.7 (104.6–110.7) | +85% | 2.28 s | 5.14 s |
+| postgres | outbox | 48.0 | 108.6 (105.3–111.0) | +126% | 2.29 s | 4.08 s |
+| sqlserver (emulated) | mixed | 36.7 | 87.3 (75.8–92.3) | +138% | 0.92 s | 2.61 s |
+| sqlserver (emulated) | flows | 30.9 | 61.8 (57.3–62.4) | +100% | 3.84 s | 8.77 s |
+| sqlserver (emulated) | outbox | 36.0 | 58.1 (58.1–59.1) | +61% | 4.01 s | 7.61 s |
+| oracle | mixed | 64.8 | 108.6 (99.9–108.9) | +68% | 0.86 s | 2.42 s |
+| oracle | flows | 46.9 | 77.7 (72.1–78.4) | +66% | 3.02 s | 6.96 s |
+| oracle | outbox | 52.5 | 73.6 (65.6–73.9) | +40% | 3.19 s | 5.63 s |
+
+Every job settled once with the expected output, within the fleet and type limits, and each crash proof passed. SQLite's largest gains come from its busy timeout: without it, processes contending for the single writer spent most of their time in the driver's fixed retry sleeps.
+
+**The throughput exercise** (`WorkThrough.Exercises throughput <provider> <jobs>`) measures the ceiling with no limits. A backlog is preloaded, then three workers with 16 slots each drain it with 1 ms handlers:
+
+| Provider | Drain before (jobs/s) | Drain after (jobs/s) | Change |
+|---|---:|---:|---:|
+| PostgreSQL | 87–105 | 221–275 | about 2.5× |
+| SQL Server (emulated) | 63–64 | 230–231 | 3.6× |
+| Oracle | 88 | 211–212 | 2.4× |
+| SQLite | 265 | 695–725 | 2.7× |
+
+Enqueue ran at roughly 500–4,000/s throughout and was never the bottleneck. These runs used one machine with Docker databases; absolute numbers will differ on production hardware, and the per-store ceiling remains a design limit (ADR-020).
+
+Raw reports: [SQLite](performance-results/2026-10-11-sqlite-throughput.json), [PostgreSQL](performance-results/2026-10-11-postgres-throughput.json), [SQL Server](performance-results/2026-10-11-sqlserver-throughput.json), [Oracle](performance-results/2026-10-11-oracle-throughput.json).

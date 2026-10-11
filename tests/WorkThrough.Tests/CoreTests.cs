@@ -119,4 +119,23 @@ public sealed class CoreTests
     {
         public Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.Done());
     }
+
+    [Fact]
+    public void Typed_bindings_save_the_same_definition_as_property_names()
+    {
+        var typed = new FlowBuilder("tests.typed", 1)
+            .Step("first", JobContractId.For<Alpha>())
+            .Step("second", JobContractId.For<Beta>()).After("first")
+                .BindInput((Beta beta) => beta.Value, (Alpha alpha) => alpha.Value, "first")
+                .WhenOutput("first", (Alpha alpha) => alpha.Value, "ready")
+            .Build();
+        var named = new FlowBuilder("tests.typed", 1)
+            .Step("first", JobContractId.For<Alpha>())
+            .Step("second", JobContractId.For<Beta>()).After("first")
+                .BindInput("value", "value", "first")
+                .WhenOutput("first", "value", "ready")
+            .Build();
+
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(named, JobJson.Options), System.Text.Json.JsonSerializer.Serialize(typed, JobJson.Options));
+    }
 }

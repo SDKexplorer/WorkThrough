@@ -196,3 +196,22 @@ New coverage:
 - outbox and event dispatch draining full batches.
 
 The renewal and drain tests fail without their fixes. `Shop.Api --smoke` and `Shop.Worker --preflight` pass locally. The two-hour PostgreSQL soak passed ([performance](performance.md)).
+
+Write-path throughput (ADR-020), typed flow bindings, trace propagation and health checks (2026-10-11), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 296 | 3 |
+| SQL Server 2022 (emulated) | 293 | 3 |
+| Oracle Free 26ai | 296 | 0 |
+
+New coverage:
+
+- batch claims applying every limit, local budget and queue weight as separate claims would;
+- batch completion with a stale lease;
+- outbox and event dispatch draining;
+- trace continuation from enqueue to attempt;
+- health checks for storage and failing acquisition;
+- typed bindings saving the same definition as property names.
+
+The multi-process admission exercise still holds every limit on PostgreSQL and SQLite after these changes. The full benchmark and throughput exercise ran on all four databases ([performance](performance.md)).

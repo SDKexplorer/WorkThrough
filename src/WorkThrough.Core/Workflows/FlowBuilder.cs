@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Text.Json;
 
 namespace WorkThrough;
@@ -70,6 +71,19 @@ public sealed class FlowBuilder
 
     public FlowBuilder WhenOutput<T>(string sourceStep, string property, T equals) =>
         Change(step => step with { Condition = new(sourceStep, property, JsonSerializer.SerializeToElement(equals, JobJson.Options)) });
+
+    /// <summary>
+    /// Sets a property of the last step's input from the flow input, or from <paramref name="sourceStep"/>'s output. Both sides are
+    /// direct DTO properties, resolved to their JSON names now; only the names are saved.
+    /// </summary>
+    /// <example><c>.BindInput((ShipOrder ship) => ship.OrderId, (OrderPlaced order) => order.OrderId)</c></example>
+    public FlowBuilder BindInput<TInput, TSource, TValue>(Expression<Func<TInput, TValue>> target, Expression<Func<TSource, TValue>> source,
+        string? sourceStep = null) =>
+        BindInput(JsonField.Of(target), JsonField.Of(source), sourceStep);
+
+    /// <summary>Runs the last step only when <paramref name="sourceStep"/>'s output property equals <paramref name="equals"/>.</summary>
+    public FlowBuilder WhenOutput<TOutput, TValue>(string sourceStep, Expression<Func<TOutput, TValue>> property, TValue equals) =>
+        WhenOutput(sourceStep, JsonField.Of(property), equals);
 
     public FlowDefinition Build()
     {

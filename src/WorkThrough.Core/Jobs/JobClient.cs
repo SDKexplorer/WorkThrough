@@ -75,7 +75,8 @@ public sealed class JobClient(IJobStore store)
         {
             UseStorageTime = options.NotBefore is null,
             PartitionKey = options.PartitionKey,
-            TenantId = options.TenantId
+            TenantId = options.TenantId,
+            TraceParent = TraceContext.Capture()
         };
     }
 }

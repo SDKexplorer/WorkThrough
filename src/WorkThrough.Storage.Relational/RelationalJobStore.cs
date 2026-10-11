@@ -62,6 +62,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             // Schema 5 columns are added by name: older stores may have created these tables at any earlier version.
             await AddColumnIfMissingAsync(connection, transaction, "dj_jobs", "partition_key", "TEXT", ct);
             await AddColumnIfMissingAsync(connection, transaction, "dj_jobs", "tenant_id", "TEXT", ct);
+            await AddColumnIfMissingAsync(connection, transaction, "dj_jobs", "trace_parent", "TEXT", ct);
             await AddColumnIfMissingAsync(connection, transaction, "dj_flows", "max_parallel", "INTEGER", ct);
             await AddColumnIfMissingAsync(connection, transaction, "dj_queue_controls", "weight", "INTEGER NOT NULL DEFAULT 1", ct);
 

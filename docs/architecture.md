@@ -48,10 +48,10 @@ The .NET host owns address/port/TLS and authentication. The dashboard defaults t
 ## Execution semantics
 
 1. Enqueue commits before acknowledging acceptance. An ambiguous commit result can still require caller reconciliation; a caller idempotency key makes repeating the enqueue safe.
-2. Claim uses a short transaction and provider-specific write serialization to recover expired work, check limits, select a supported contract/queue, issue a fresh ownership token, and record an attempt.
+2. Claim first reads a snapshot, without the lock, to skip polls that have nothing to do. It then uses a short transaction under provider-specific write serialization to recover expired work, check limits, select a supported contract/queue, issue a fresh ownership token and record an attempt, for up to the worker's free slots in one transaction (ADR-020).
 3. The worker resolves a scoped handler, records diagnostic implementation metadata, and invokes it outside the storage transaction.
 4. A renewal loop extends ownership every third of the lease. A refused renewal means ownership is lost and requests cooperative cancellation; a failed renewal is retried while the lease can still be valid, so a brief storage outage does not abandon healthy handlers.
-5. Completion/failure is accepted only for the current unexpired token. Completion and any workflow advancement commit together.
+5. Completion/failure is accepted only for the current unexpired token. Completion and any workflow advancement commit together; completions finishing together on one worker share a transaction, each with its own token check. Renewals, handler/progress records and heartbeats touch only rows their token or worker ID owns and need no admission lock on server providers.
 
 Execution is **at least once**. A process can perform an external effect and die before saving success. `JobExecutionContext.IdempotencyKey` identifies the logical job across attempts. External services or application transactions must enforce effect deduplication; engine deduplication is not an external exactly-once guarantee.
 

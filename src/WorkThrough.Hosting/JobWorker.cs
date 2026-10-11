@@ -14,7 +14,7 @@ internal enum AttemptOutcome
 
 internal sealed class JobWorker(
     IJobStore store, JobCatalog catalog, IServiceScopeFactory scopes,
-    IOptionsMonitor<JobWorkerOptions> options, ILogger<JobWorker> logger) : BackgroundService
+    IOptionsMonitor<JobWorkerOptions> options, WorkerStatus status, ILogger<JobWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan SettlementTimeout = TimeSpan.FromSeconds(5);
@@ -25,7 +25,6 @@ internal sealed class JobWorker(
     private long registryRevision;
     private CompletionBatcher? completions;
     private DateTimeOffset nextHeartbeat = DateTimeOffset.MinValue;
-    private WorkerAcquisition acquisition = new(null, null, 0);
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -121,7 +120,7 @@ internal sealed class JobWorker(
             var descriptions = catalog.Registrations.Select(r => new ProcessorDescription(r.Identity, r.CanonicalIdentity, r.DisplayName)).ToArray();
             var heartbeat = new WorkerHeartbeat(settings.WorkerId, default, processors, settings.Queues, settings.MaxConcurrentJobs, running, descriptions)
             {
-                Acquisition = acquisition
+                Acquisition = status.Acquisition
             };
             await diagnostics.HeartbeatAsync(heartbeat, ct);
         }
@@ -145,14 +144,14 @@ internal sealed class JobWorker(
 
         try
         {
-            acquisition = acquisition with { LastAttemptAt = DateTimeOffset.UtcNow };
+            status.Acquisition = status.Acquisition with { LastAttemptAt = DateTimeOffset.UtcNow };
             var request = new ClaimRequest(settings.WorkerId, admissible, settings.Queues, settings.LeaseDuration, registryRevision)
             {
                 MaximumJobs = free,
                 Budgets = LocalBudgets(settings, running)
             };
             var jobs = await store.ClaimBatchAsync(request, ct);
-            acquisition = acquisition with { LastSucceededAt = DateTimeOffset.UtcNow, ConsecutiveFailures = 0 };
+            status.Acquisition = status.Acquisition with { LastSucceededAt = DateTimeOffset.UtcNow, ConsecutiveFailures = 0 };
 
             return jobs;
         }
@@ -160,12 +159,13 @@ internal sealed class JobWorker(
         {
             // Retrying cannot succeed. Running attempts finish, then the failed service stops the host for a restart.
             logger.LogCritical(exception, "Processor mappings changed after this worker started; it stopped acquiring work");
+            status.Stopped = "Processor mappings changed after this worker started.";
             throw;
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogError(exception, "Job acquisition failed; storage will be retried");
-            acquisition = acquisition with { ConsecutiveFailures = Math.Min(acquisition.ConsecutiveFailures, int.MaxValue - 1) + 1 };
+            status.Acquisition = status.Acquisition with { ConsecutiveFailures = Math.Min(status.Acquisition.ConsecutiveFailures, int.MaxValue - 1) + 1 };
 
             return [];
         }
@@ -203,7 +203,10 @@ internal sealed class JobWorker(
     {
         var started = Stopwatch.GetTimestamp();
         var outcome = AttemptOutcome.InfrastructureFailure;
-        using var activity = WorkThroughTelemetry.Activities.StartActivity("workthrough.process", ActivityKind.Consumer);
+        // The attempt continues the producer's trace when one was captured at enqueue.
+        using var activity = ActivityContext.TryParse(job.TraceParent, null, out var parent)
+            ? WorkThroughTelemetry.Activities.StartActivity("workthrough.process", ActivityKind.Consumer, parent)
+            : WorkThroughTelemetry.Activities.StartActivity("workthrough.process", ActivityKind.Consumer);
         activity?.SetTag("workthrough.processor", job.Contract.ToString());
         activity?.SetTag("workthrough.job.id", job.Id);
         activity?.SetTag("workthrough.correlation.id", job.CorrelationId);

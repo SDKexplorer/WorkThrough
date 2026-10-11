@@ -49,7 +49,7 @@ public abstract partial class RelationalJobStore
           created_at BIGINT NOT NULL, available_at BIGINT NOT NULL,
           idempotency_key TEXT UNIQUE, workflow_run_id TEXT, step_id TEXT,
           output TEXT, error TEXT, worker_id TEXT, lease_token TEXT, lease_expires_at BIGINT, expires_at BIGINT, causation_job_id TEXT, terminal_at BIGINT,
-          partition_key TEXT, tenant_id TEXT,
+          partition_key TEXT, tenant_id TEXT, trace_parent TEXT,
           UNIQUE(workflow_run_id,step_id));
         CREATE INDEX IF NOT EXISTS ix_dj_jobs_ready ON dj_jobs(status,available_at,created_at);
         CREATE INDEX IF NOT EXISTS ix_dj_jobs_correlation ON dj_jobs(correlation_id,created_at);

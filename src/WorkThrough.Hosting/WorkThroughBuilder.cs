@@ -109,6 +109,7 @@ public sealed class WorkThroughBuilder
             && x.LeaseDuration >= MinimumLease && x.Queues.Length > 0
             && !(x.ExecutionTimeout <= TimeSpan.Zero) && !(x.ProgressTimeout <= TimeSpan.Zero)
             && x.PerJobLimits.All(y => y.Value >= 0), "Invalid worker concurrency, lease, or queue configuration.").ValidateOnStart();
+        Services.TryAddSingleton<WorkerStatus>();
         Services.AddHostedService<JobWorker>();
 
         return this;

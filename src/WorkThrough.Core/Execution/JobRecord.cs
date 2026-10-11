@@ -35,6 +35,19 @@ public sealed record JobRecord(
     /// <summary>Optional owning tenant for tenant-scoped admission. Independent of <see cref="PartitionKey"/>; not an access boundary.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TenantId { get; init; }
+
+    /// <summary>The producer's W3C trace context; the attempt's activity continues that trace. Never part of idempotency.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TraceParent { get; init; }
+}
+
+public static class TraceContext
+{
+    /// <summary>The longest W3C traceparent stored; anything else is not propagated.</summary>
+    public const int MaximumLength = 64;
+
+    /// <summary>The current activity's W3C ID, if there is one to continue.</summary>
+    public static string? Capture() => System.Diagnostics.Activity.Current is { IdFormat: System.Diagnostics.ActivityIdFormat.W3C, Id: { Length: <= MaximumLength } id } ? id : null;
 }
 
 public sealed record JobAttempt(

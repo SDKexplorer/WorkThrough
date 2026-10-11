@@ -20,21 +20,19 @@ public static class CheckoutFlow
     private const string Ship = "ship";
     private const string Notify = "notify";
 
-    // Bindings resolve to JSON property names now; no expression or code is persisted.
-    private static readonly string OrderId = JsonField.Of<OrderPlaced, string>(order => order.OrderId);
-
+    // Bindings and conditions resolve to JSON property names now; no expression or code is persisted.
     public static FlowDefinition Definition { get; } = new FlowBuilder(Key, Version)
         .Step(Reserve, ShopJobs.ReserveStock.Identity).Named("Reserve stock")
-            .BindInput(JsonField.Of<ReserveStock, string>(step => step.OrderId), OrderId)
+            .BindInput((ReserveStock step) => step.OrderId, (OrderPlaced order) => order.OrderId)
         .Step(Charge, ShopJobs.ChargePayment.Identity).Named("Charge payment").After(Reserve)
-            .BindInput(JsonField.Of<ChargePayment, string>(step => step.OrderId), OrderId)
-            .BindInput(JsonField.Of<ChargePayment, decimal>(step => step.Amount), JsonField.Of<OrderPlaced, decimal>(order => order.Amount))
+            .BindInput((ChargePayment step) => step.OrderId, (OrderPlaced order) => order.OrderId)
+            .BindInput((ChargePayment step) => step.Amount, (OrderPlaced order) => order.Amount)
         .WaitForSignal(Review, ReviewApproved, ReviewTimeout).Named("Manual review").After(Charge)
-            .WhenOutput(Charge, JsonField.Of<Payment, bool>(payment => payment.NeedsReview), true)
+            .WhenOutput(Charge, (Payment payment) => payment.NeedsReview, true)
         .Step(Ship, ShopJobs.ShipOrder.Identity, queue: ShopJobs.ShippingQueue).Named("Ship order").After(Charge, Review)
-            .BindInput(JsonField.Of<ShipOrder, string>(step => step.OrderId), OrderId)
+            .BindInput((ShipOrder step) => step.OrderId, (OrderPlaced order) => order.OrderId)
         .Step(Notify, ShopJobs.NotifyCustomer.Identity).Named("Notify customer").After(Ship)
-            .BindInput(JsonField.Of<NotifyCustomer, string>(step => step.OrderId), OrderId)
+            .BindInput((NotifyCustomer step) => step.OrderId, (OrderPlaced order) => order.OrderId)
         .Build();
 
     public static string Correlation(string orderId) => $"order:{orderId}";

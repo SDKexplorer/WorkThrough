@@ -213,6 +213,9 @@ public sealed partial class OracleJobStore
         new("DJ_JOBS", false, """
             ALTER TABLE dj_jobs ADD tenant_id VARCHAR2(256 CHAR)
             """, Column: "TENANT_ID"),
+        new("DJ_JOBS", false, """
+            ALTER TABLE dj_jobs ADD trace_parent VARCHAR2(64 CHAR)
+            """, Column: "TRACE_PARENT"),
         new("DJ_FLOWS", false, """
             ALTER TABLE dj_flows ADD max_parallel NUMBER(10) CHECK(max_parallel>0)
             """, Column: "MAX_PARALLEL"),
