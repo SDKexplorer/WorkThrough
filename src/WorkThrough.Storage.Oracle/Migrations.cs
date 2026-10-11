@@ -46,7 +46,7 @@ public sealed partial class OracleJobStore
             await StartUpgradeAsync(connection, state.Version, cancellationToken);
             checkpoint = state.Step;
         }
-        else if (state.Version > SchemaVersion && state.Status == MigrationReady)
+        else if (state.Version > SchemaVersion)
         {
             await UsesNewerSchemaAsync(connection, null, state.Version, cancellationToken);
 
@@ -101,6 +101,7 @@ public sealed partial class OracleJobStore
         await ExecuteAsync(connection, transaction,
             "INSERT INTO dj_store(id) SELECT @id FROM dual WHERE NOT EXISTS(SELECT 1 FROM dj_store)", cancellationToken, ("id", Guid.NewGuid().ToString("N")));
         await SeedCompatibilityAsync(connection, transaction, newStore: state is null, cancellationToken);
+        await SeedLimitLocksAsync(connection, transaction, cancellationToken);
         await ExecuteAsync(connection, transaction, "UPDATE dj_schema SET status=@status WHERE version=@version AND step=@step", cancellationToken,
             ("status", MigrationReady), ("version", SchemaVersion), ("step", OracleSchemaSteps.Length));
         await transaction.CommitAsync(cancellationToken);
@@ -130,7 +131,7 @@ public sealed partial class OracleJobStore
         return state;
     }
 
-    // Stop schema-4 and schema-5 writers first: they predate the compatibility record and would ignore newer semantics.
+    // Schema-4 and schema-5 writers must stop first: they predate the compatibility record. Later writers keep running (ADR-021).
     private Task StartUpgradeAsync(OracleConnection connection, int previous, CancellationToken ct) => MigrationWriteAsync(connection, """
         UPDATE dj_schema SET version=@version,status=@status,definition_hash=@hash WHERE version=@previous AND status=@ready
         """, ct, ("version", SchemaVersion), ("status", MigrationInstalling), ("hash", SchemaFingerprint),

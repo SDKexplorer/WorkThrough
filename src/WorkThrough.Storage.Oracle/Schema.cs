@@ -270,7 +270,15 @@ public sealed partial class OracleJobStore
             """),
     ];
 
-    private static readonly SchemaStep[] OracleSchemaSteps = [.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema];
+    /// <summary>Schema 7 additions (ADR-022), applied after the schema-6 steps.</summary>
+    private static readonly SchemaStep[] OracleLimitLockSchema =
+    [
+        new("DJ_LIMIT_LOCKS", false, """
+            CREATE TABLE dj_limit_locks (id NUMBER(10) PRIMARY KEY) SEGMENT CREATION IMMEDIATE
+            """),
+    ];
+
+    private static readonly SchemaStep[] OracleSchemaSteps = [.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema];
 
     /// <summary>Identifies the installed step list; any edit to a step's SQL changes it.</summary>
     private static readonly string SchemaFingerprint = Fingerprint(OracleSchemaSteps);
@@ -279,7 +287,9 @@ public sealed partial class OracleJobStore
     private static readonly (int Version, int Steps, string Fingerprint)[] Predecessors =
     [
         (4, OracleSchema.Length, Fingerprint(OracleSchema)),
-        (5, OracleSchema.Length + OracleAdmissionSchema.Length, Fingerprint([.. OracleSchema, .. OracleAdmissionSchema]))
+        (5, OracleSchema.Length + OracleAdmissionSchema.Length, Fingerprint([.. OracleSchema, .. OracleAdmissionSchema])),
+        (6, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length,
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema]))
     ];
 
     private static string Fingerprint(IEnumerable<SchemaStep> steps) => Convert.ToHexString(SHA256.HashData(

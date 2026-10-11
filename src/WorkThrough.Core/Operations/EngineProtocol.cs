@@ -12,8 +12,14 @@ public static class EngineProtocol
     /// <summary>Flow steps that expand into one item step per element of an earlier output (<see cref="FlowFanOut"/>).</summary>
     public const int FanOut = 2;
 
+    /// <summary>
+    /// Claims under shared limits lock per-limit rows instead of the store's admission lock (ADR-022). Every claimant must take those
+    /// locks, so older builds cannot claim once it is active.
+    /// </summary>
+    public const int ConcurrentLimits = 3;
+
     /// <summary>The highest level this build understands.</summary>
-    public const int Supported = FanOut;
+    public const int Supported = ConcurrentLimits;
 }
 
 /// <summary>A store's active protocol and, while a higher level waits, the workers that block it.</summary>

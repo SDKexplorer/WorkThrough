@@ -12,7 +12,7 @@ This compares design choices, not marketing claims. It reflects public documenta
 | Survives moving or renaming code | Yes, by design and tested | No: queued jobs break | No: the type name changes | Partly, through aliases | Partly, through message names | Yes, if names are kept | Yes, if names are kept |
 | Workflows | Persisted graphs: bindings, conditions, joins, fan-out, signals, incidents | Continuations; batches in Pro | No | Sagas | Sagas and routing slips | Code-first workflows, deterministic replay | Code-first orchestrations, replay |
 | Concurrency and tenant controls | Fleet, per-type, per-key, per-tenant and rate limits; weighted queues | Per-server workers; throttling in Pro | Thread pool and misfire rules | Per-endpoint parallelism | Concurrency and rate limits per endpoint | Task-queue rate limits | Per-function concurrency |
-| Throughput | About 300–800 jobs/s per store without limits | High | High | Very high | Very high | Very high | High |
+| Throughput | About 300–800 jobs/s per store; ~500/s with per-tenant quotas | High | High | Very high | Very high | Very high | High |
 | Dashboard | Built in, audited actions, tenant-scoped | Built in, mature | Third-party | Commercial add-on | No | Built in | Azure portal and tools |
 | AI assistant access | Read-only MCP endpoint | No | No | No | No | No | No |
 | License | Not chosen yet | LGPL-3.0 core; Pro is paid | Apache-2.0 | MIT | Apache-2.0 up to v8; v9 is commercial | MIT server; Temporal Cloud paid | MIT |
@@ -45,7 +45,7 @@ This compares design choices, not marketing claims. It reflects public documenta
 
 ## Trade-offs to weigh
 
-- **Throughput:** completions and unrestricted claims use row locks, but every event still takes one counter row so the journal stays gap-free. On the documented test host that gives about 800 jobs/s per PostgreSQL store, and a few hundred while limits are configured, because claims then serialize to keep limits exact ([ADR-020](adr/0020-write-path-throughput.md)). That is ample for business workflows; use a broker for event streams.
+- **Throughput:** completions and claims use row locks, but every event still takes one counter row so the journal stays gap-free. On the documented test host that gives about 800 jobs/s per PostgreSQL store, and about 500 with 50 tenant quotas ([ADR-020](adr/0020-write-path-throughput.md), [ADR-022](adr/0022-limit-locks.md)). A fleet-wide limit serializes claims. That is ample for business workflows; use a broker for event streams.
 - **Flow model:** flows are graphs, not code. Data-driven fan-out is built in, up to 1,000 items per step. Loops and child flows are not available yet; Temporal and Durable Functions express those naturally.
 - **Upgrades:** from schema 6, additive schema changes and new engine protocol levels roll out while workers run ([ADR-021](adr/0021-rolling-upgrades.md)). Upgrading a store from schema 5 or earlier still requires stopping its workers once.
 - **Availability:** packages are not published and the license is undecided. Neither is true of the alternatives.

@@ -48,7 +48,7 @@ Requirements derive from the conversation: assembly relocation first; extensible
 - Correctness: run the provider conformance suite on every advertised backend; physically test replacement deployment artifacts.
 - Portability: Core has no host/web/database references. A provider must not weaken guarantees silently.
 - Security: dashboard defaults to host authorization; mutations require anti-forgery validation; queries are parameterized; UI uses text rendering for untrusted values.
-- Performance: no production SLA is claimed. Record idle database traffic and admission/completion throughput before choosing production defaults. Admission serializes whenever a shared limit exists; settlements and unrestricted claims use row locks on providers that support them (ADR-020).
+- Performance: no production SLA is claimed. Record idle database traffic and admission/completion throughput before choosing production defaults. Claims serialize per limit and key through lock rows, settlements need no admission lock, and limits stay exact (ADR-020, ADR-022).
 - Maintainability: deterministic warning-clean builds, nullable references, reviewed schema/API changes, actual package-consumer validation, and preserved exception evidence without default payload logging.
 - Operations: cancellation is cooperative; delivery is at least once; interruption, failure, expiry, and success have distinct attempt outcomes.
 

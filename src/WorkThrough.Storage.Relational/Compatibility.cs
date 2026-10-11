@@ -11,7 +11,8 @@ public abstract partial class RelationalJobStore : IEngineProtocol
 
     /// <summary>
     /// The oldest code schema version that remains correct against the schema this package writes. An additive schema keeps it;
-    /// a schema that older code would misread raises it to its own version.
+    /// a schema that older code would misread raises it to its own version. Schema 7 only adds limit lock rows, which schema-6
+    /// hosts ignore; they stop claiming once engine protocol 3 is active.
     /// </summary>
     protected const int ReaderMinimum = CompatibilitySchemaVersion;
 

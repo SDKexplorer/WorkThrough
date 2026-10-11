@@ -20,7 +20,7 @@ flowchart TD
 
 Core owns stable identities, handler contracts, the pure workflow transition planner, enqueue/start use cases, and the persistence ports. It has no dependency on ASP.NET, hosting, database drivers, or an ORM. Read models are separated from atomic write operations because dashboard deployment and storage semantics require different capabilities. There is no mediator dependency and no generic application repository.
 
-The relational adapter shares data mapping and transactional operations. Each database provider must supply a real connection, a database clock, and a transaction that serializes admission writes. Providers whose row locks support it also run settlements, and claims while no limit exists, outside that transaction, ordered by flow and job row locks ([ADR-020](adr/0020-write-path-throughput.md)).
+The relational adapter shares data mapping and transactional operations. Each database provider must supply a real connection, a database clock, and a transaction that serializes admission writes. Providers whose row locks support it also run settlements and claims outside that transaction, ordered by flow, job and per-limit lock rows ([ADR-020](adr/0020-write-path-throughput.md), [ADR-022](adr/0022-limit-locks.md)). Sweeps and administration keep the admission transaction.
 
 ## Assembly moves
 

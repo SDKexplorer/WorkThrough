@@ -205,7 +205,7 @@ Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVE
 - Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation, checkpoint forks and child flows are planned.
 - Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
 - External OIDC sign-in requires a configured identity provider and has not been verified against a real account.
-- Throughput per store, on the documented test host with near-instant handlers and no limits: about 810–830/s on PostgreSQL, 720–810/s on SQLite, 430/s on SQL Server with `READ_COMMITTED_SNAPSHOT`, and 280/s on Oracle. Limits are exact because claims serialize while any limit exists; such stores reach a few hundred jobs per second ([ADR-020](docs/adr/0020-write-path-throughput.md)). WorkThrough suits business workflows; for high-volume event streams, use a message broker.
+- Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL and SQLite without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.
 - There is no production certification and no Native AOT support. Performance figures describe the documented test host.
 - Package publication and the project license are pending maintainer decisions.
 

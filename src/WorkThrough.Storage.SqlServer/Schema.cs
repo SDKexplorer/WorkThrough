@@ -168,6 +168,10 @@ public sealed partial class SqlServerJobStore
                 reader_minimum int NOT NULL,
                 protocol int NOT NULL
             );
+        IF OBJECT_ID(N'dj_limit_locks',N'U') IS NULL
+            CREATE TABLE dj_limit_locks (
+                id int PRIMARY KEY
+            );
         IF OBJECT_ID(N'dj_processor_aliases',N'U') IS NULL
             CREATE TABLE dj_processor_aliases (
                 alias_key nvarchar(120) COLLATE Latin1_General_100_BIN2 NOT NULL,

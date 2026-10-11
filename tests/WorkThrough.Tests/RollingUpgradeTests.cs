@@ -8,20 +8,23 @@ public sealed class RollingUpgradeTests
 {
     public static IEnumerable<object[]> Providers() => StorageConformanceTests.Providers();
 
+    // A schema version no release has used.
+    private const long FutureSchema = 1000;
+
     private static ClaimRequest Claim(string worker = "worker") => new(worker, [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1));
 
     [Theory, MemberData(nameof(Providers))]
     public async Task A_newer_schema_that_still_accepts_this_build_is_used_without_migrating(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await ExecuteAsync(harness, provider == "oracle" ? "UPDATE dj_schema SET version=7" : "INSERT INTO dj_schema(version) VALUES (7)");
+        await ExecuteAsync(harness, provider == "oracle" ? $"UPDATE dj_schema SET version={FutureSchema}" : $"INSERT INTO dj_schema(version) VALUES ({FutureSchema})");
 
         await harness.NewStore().InitializeAsync();
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("from an older host"));
         Assert.Equal(id, (await harness.Store.ClaimAsync(Claim()))!.Id);
-        Assert.Equal(7L, Convert.ToInt64(await ScalarAsync(harness, "SELECT MAX(version) FROM dj_schema")));
+        Assert.Equal(FutureSchema, Convert.ToInt64(await ScalarAsync(harness, "SELECT MAX(version) FROM dj_schema")));
 
-        await ExecuteAsync(harness, "UPDATE dj_compatibility SET reader_minimum=7");
+        await ExecuteAsync(harness, $"UPDATE dj_compatibility SET reader_minimum={FutureSchema}");
         await Assert.ThrowsAsync<InvalidOperationException>(() => harness.NewStore().InitializeAsync());
     }
 

@@ -76,14 +76,15 @@ public sealed partial class OracleJobStore : RelationalJobStore
             }
 
             version = reader.GetInt32(0);
-            var current = version == SchemaVersion && reader.GetInt32(2) == OracleSchemaSteps.Length && reader.GetString(3) == SchemaFingerprint;
-            if (reader.GetString(1) != MigrationReady || !current && version <= SchemaVersion || await reader.ReadAsync(ct))
+            var current = version == SchemaVersion && reader.GetString(1) == MigrationReady && reader.GetInt32(2) == OracleSchemaSteps.Length
+                && reader.GetString(3) == SchemaFingerprint;
+            if (!current && version <= SchemaVersion || await reader.ReadAsync(ct))
             {
                 throw IncompleteSchema();
             }
         }
 
-        // A newer schema is usable when it still declares this build a compatible reader.
+        // A newer schema, installed or still installing, is usable while it declares this build a compatible reader.
         await UsesNewerSchemaAsync(connection, transaction, version, ct);
     }
 
@@ -108,12 +109,19 @@ public sealed partial class OracleJobStore : RelationalJobStore
     protected override async Task<DbTransaction> BeginRowLockedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
 
+    protected override string SeedLimitLocksSql => $"""
+        INSERT INTO dj_limit_locks(id) SELECT i FROM (SELECT LEVEL-1 AS i FROM dual CONNECT BY LEVEL<={LimitLockRows}) n
+        WHERE NOT EXISTS (SELECT 1 FROM dj_limit_locks l WHERE l.id=n.i)
+        """;
+
     protected override string LockingSelectSql(string columns, string table, string predicate, bool skipLocked) =>
         $"SELECT {columns} FROM {table} WHERE {predicate} FOR UPDATE{(skipLocked ? " SKIP LOCKED" : "")}";
 
-    /// <summary>Oracle cannot lock a row-limited query, so the ordered page is chosen first and its still-queued rows are locked.</summary>
-    protected override string SkipLockedJobsSql(string predicate, string order, int limit) =>
-        $"SELECT * FROM dj_jobs WHERE status='Queued' AND id IN (SELECT j.id FROM dj_jobs j WHERE {predicate} ORDER BY {order} {PageSql(limit)}) FOR UPDATE SKIP LOCKED";
+    /// <summary>
+    /// Oracle cannot lock a row-limited query, and an ordered FOR UPDATE locks every matching row when it opens. Claims therefore read
+    /// candidate IDs first and lock only as many as they still need.
+    /// </summary>
+    protected override bool LocksCandidatesByIdentity => true;
 
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {

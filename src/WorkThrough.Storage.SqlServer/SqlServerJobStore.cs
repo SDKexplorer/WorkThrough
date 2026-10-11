@@ -97,6 +97,11 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
             : await BeginWriteAsync(connection, cancellationToken);
     }
 
+    protected override string SeedLimitLocksSql => $"""
+        WITH n(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM n WHERE i<{LimitLockRows - 1})
+        INSERT INTO dj_limit_locks(id) SELECT i FROM n WHERE NOT EXISTS (SELECT 1 FROM dj_limit_locks l WHERE l.id=n.i) OPTION (MAXRECURSION {LimitLockRows})
+        """;
+
     protected override string LockingSelectSql(string columns, string table, string predicate, bool skipLocked) =>
         $"SELECT {columns} FROM {table} WITH (UPDLOCK,ROWLOCK{(skipLocked ? ",READPAST" : "")}) WHERE {predicate}";
 
@@ -151,6 +156,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
         await ExecuteAsync(connection, transaction, SqlServerAdmissionSchema, ct);
         await ExecuteAsync(connection, transaction, SqlServerAdmissionIndexes, ct);
         await SeedCompatibilityAsync(connection, transaction, newStore: version is null, ct);
+        await SeedLimitLocksAsync(connection, transaction, ct);
         await ExecuteAsync(connection, transaction, """
             IF NOT EXISTS(SELECT 1 FROM dj_store) INSERT INTO dj_store(id) VALUES (@id);
             IF NOT EXISTS(SELECT 1 FROM dj_schema WHERE version=@version) INSERT INTO dj_schema(version) VALUES (@version);

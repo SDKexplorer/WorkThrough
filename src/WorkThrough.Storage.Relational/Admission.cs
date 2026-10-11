@@ -56,17 +56,32 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
               WHERE rd.job_key=rl.job_key AND rd.key_scope=rl.key_scope AND rd.rate_key={RateKeySql(job)} AND rd.started_at>@now-rl.window_ms))
         """;
 
-    /// <summary>Records an admitted start against every rate limit covering it, and drops starts older than any window can count.</summary>
-    private async Task RecordRateStartAsync(DbConnection connection, DbTransaction transaction, Guid jobId, long now, CancellationToken ct)
-    {
-        await ExecuteAsync(connection, transaction, $"""
+    /// <summary>Records an admitted start against every rate limit covering it.</summary>
+    private Task RecordRateStartAsync(DbConnection connection, DbTransaction transaction, Guid jobId, long now, CancellationToken ct) =>
+        ExecuteAsync(connection, transaction, $"""
             INSERT INTO dj_rate_ledger(job_key,key_scope,rate_key,started_at,job_id)
             SELECT rl.job_key,rl.key_scope,{RateKeySql("j")},@now,j.id FROM dj_rate_limits rl, dj_jobs j
             WHERE j.id=@id AND {RateAppliesSql("j")}
             """, ct, ("id", jobId.ToString()), ("now", now), ("all", AllJobsLimitKey));
-        await ExecuteAsync(connection, transaction, "DELETE FROM dj_rate_ledger WHERE started_at<=@expired", ct,
-            ("expired", now - (long)RateLimit.MaximumWindow.TotalMilliseconds));
-    }
+
+    /// <summary>
+    /// Drops starts older than any window can count. It runs in sweeps under the admission lock: concurrent claims deleting the same
+    /// rows could deadlock.
+    /// </summary>
+    private Task PruneRateLedgerAsync(DbConnection connection, DbTransaction transaction, long now, CancellationToken ct) =>
+        ExecuteAsync(connection, transaction, "DELETE FROM dj_rate_ledger WHERE started_at<=@expired", ct, ("expired", RateLedgerExpiry(now)));
+
+    private static long RateLedgerExpiry(long now) => now - (long)RateLimit.MaximumWindow.TotalMilliseconds;
+
+    /// <summary>True when a per-type limit covering the job has no free slot. Requires @now and @all.</summary>
+    private static string TypeBlockedSql(string job) => $"""
+        EXISTS (
+          SELECT 1 FROM dj_limits tl
+          WHERE tl.job_key<>@all AND {AdmissionGroupSql("tl.job_key")}={AdmissionGroupSql($"{job}.job_key")}
+            AND tl.maximum<=(
+              SELECT COUNT(*) FROM dj_jobs tr
+              WHERE tr.status='Running' AND tr.lease_expires_at>@now AND {AdmissionGroupSql("tr.job_key")}={AdmissionGroupSql($"{job}.job_key")}))
+        """;
 
     /// <summary>True when the job's flow run already holds its maximum number of admitted step leases. Requires @now.</summary>
     private static string FlowBoundedSql(string job) => $"""
@@ -165,7 +180,7 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
         ReadAsync(async (connection, transaction, ct) =>
         {
             var now = await NowAsync(connection, transaction, ct);
-            var parameters = new List<(string, object?)> { ("now", now), ("all", AllJobsLimitKey) };
+            var parameters = new List<(string, object?)> { ("now", now), ("all", AllJobsLimitKey), ("expired", RateLedgerExpiry(now)) };
             var queues = request.Queues.Select((queue, index) =>
             {
                 parameters.Add(($"queue{index}", queue));
@@ -176,6 +191,7 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
                 SELECT
                   CASE WHEN EXISTS (SELECT 1 FROM dj_jobs WHERE status='Running' AND lease_expires_at<=@now)
                     OR EXISTS (SELECT 1 FROM dj_jobs WHERE status='Queued' AND expires_at<=@now)
+                    OR EXISTS (SELECT 1 FROM dj_rate_ledger WHERE started_at<=@expired)
                     OR EXISTS (SELECT 1 FROM dj_signal_waits w WHERE w.deadline<=@now
                       OR EXISTS (SELECT 1 FROM dj_signals s WHERE s.run_id=w.run_id AND s.name=w.name))
                   THEN 1 ELSE 0 END,
@@ -185,7 +201,8 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
                   (SELECT COUNT(*) FROM dj_jobs WHERE status='Running' AND lease_expires_at>@now),
                   CASE WHEN EXISTS (SELECT 1 FROM dj_limits) OR EXISTS (SELECT 1 FROM dj_keyed_limits) OR EXISTS (SELECT 1 FROM dj_rate_limits)
                     OR EXISTS (SELECT 1 FROM dj_flows WHERE max_parallel IS NOT NULL AND status='Running')
-                  THEN 0 ELSE 1 END
+                  THEN 0 ELSE 1 END,
+                  (SELECT protocol FROM dj_compatibility WHERE id=1)
                 FROM dj_registry r WHERE r.id=1
                 """, parameters.ToArray());
             await using var reader = await command.ExecuteReaderAsync(ct);
@@ -194,10 +211,11 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
             var ready = Convert.ToInt32(reader.GetValue(1)) != 0;
             var fleetFull = !reader.IsDBNull(2) && Convert.ToInt64(reader.GetValue(3)) >= Convert.ToInt64(reader.GetValue(2));
 
-            return new ClaimOutlook(sweepDue || ready && !fleetFull, sweepDue, Unrestricted: Convert.ToInt32(reader.GetValue(4)) != 0);
+            return new ClaimOutlook(sweepDue || ready && !fleetFull, sweepDue, Unrestricted: Convert.ToInt32(reader.GetValue(4)) != 0,
+                Protocol: Convert.ToInt32(reader.GetValue(5)));
         }, cancellationToken);
 
-    private sealed record ClaimOutlook(bool Proceed, bool SweepDue, bool Unrestricted);
+    private sealed record ClaimOutlook(bool Proceed, bool SweepDue, bool Unrestricted, int Protocol);
 
     /// <summary>
     /// Claim configuration and the database clock, read in one round trip at the start of the admission transaction, so every value is exact for this claim.

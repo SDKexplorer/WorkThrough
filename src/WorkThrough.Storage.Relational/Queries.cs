@@ -132,12 +132,17 @@ public abstract partial class RelationalJobStore
     private async Task<JobRecord?> ReadJobAsync(DbConnection connection, DbTransaction? transaction, Guid id, CancellationToken ct) =>
         (await ReadJobsAsync(connection, transaction, "SELECT * FROM dj_jobs WHERE id=@id", ct, ("id", id.ToString()))).SingleOrDefault();
 
-    private async Task<List<JobRecord>> ReadJobsAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken ct, params (string, object?)[] values)
+    private Task<List<JobRecord>> ReadJobsAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken ct, params (string, object?)[] values) =>
+        ReadJobsAsync(connection, transaction, sql, int.MaxValue, ct, values);
+
+    /// <summary>Reads at most <paramref name="maximum"/> jobs and stops fetching there.</summary>
+    private async Task<List<JobRecord>> ReadJobsAsync(DbConnection connection, DbTransaction? transaction, string sql, int maximum, CancellationToken ct,
+        params (string, object?)[] values)
     {
         await using var command = Command(connection, transaction, sql, values);
         await using var reader = await command.ExecuteReaderAsync(ct);
         var jobs = new List<JobRecord>();
-        while (await reader.ReadAsync(ct))
+        while (jobs.Count < maximum && await reader.ReadAsync(ct))
         {
             jobs.Add(new(
                 Guid.Parse(reader.GetString(reader.GetOrdinal("id"))),

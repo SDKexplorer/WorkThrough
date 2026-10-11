@@ -254,4 +254,16 @@ The amendment moved settlement, and claims while no limit exists, out of the adm
 
 The SQL Server variant is selected with `WT_EXERCISE_SQLSERVER_VERSIONED_READS=1`. Stores with limits keep the serialized claim path; their throughput is unchanged. The multi-process admission exercise still held every limit on PostgreSQL and SQLite.
 
+### Claims under limits (ADR-022)
+
+Same exercise with 50 tenants, each limited to 4 running attempts (`throughput <provider> 5000 50`). The previous build (`fa1032f`) serializes claims under limits; this change locks per-limit rows. Two runs each:
+
+| Provider | Previous build (jobs/s) | This change (jobs/s) |
+|---|---:|---:|
+| PostgreSQL, 50 tenant quotas | 133–151 | 493–509 |
+| PostgreSQL, no limits | 780–787 | 746–804 |
+| SQLite, 50 tenant quotas | 791–812 | 782–811 |
+
+The multi-process admission exercise held every limit on PostgreSQL (two runs) and SQLite.
+
 Raw reports for the first decision: [SQLite](performance-results/2026-10-11-sqlite-throughput.json), [PostgreSQL](performance-results/2026-10-11-postgres-throughput.json), [SQL Server](performance-results/2026-10-11-sqlserver-throughput.json), [Oracle](performance-results/2026-10-11-oracle-throughput.json).

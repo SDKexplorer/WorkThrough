@@ -61,5 +61,5 @@ Limits stay exact: whenever a limit, a rate or a bounded flow exists, claims ser
 - A database error while committing a completion batch fails every completion in it. Those attempts remain recoverable through lease expiry, the same outcome as a failed single settlement.
 - `IJobStore` gains `ClaimBatchAsync` and `CompleteBatchAsync` with default implementations, so existing providers keep working unchanged.
 - Custom relational providers keep the serialized path unless they override `BeginRowLockedWriteAsync`, `LockingSelectSql` and `SkipLockedJobsSql` together.
-- A store with any limit, rate or bounded flow, or a worker serving several queues, still claims through the admission lock. Its throughput is the first decision's.
+- A store with any limit, rate or bounded flow, or a worker serving several queues, still claims through the admission lock here. [ADR-022](0022-limit-locks.md) removes that from engine protocol 3.
 - The event-sequence row remains the last serialization point. Removing it would mean giving up the gap-free, commit-ordered journal.

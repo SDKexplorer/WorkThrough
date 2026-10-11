@@ -32,7 +32,7 @@ else if (args[0] == "investigation")
 }
 else if (args[0] == "throughput")
 {
-    await ThroughputSuite.RunAsync(args[1], int.Parse(args.ElementAtOrDefault(2) ?? "5000"));
+    await ThroughputSuite.RunAsync(args[1], int.Parse(args.ElementAtOrDefault(2) ?? "5000"), int.Parse(args.ElementAtOrDefault(3) ?? "0"));
 }
 else if (args[0] == "soak")
 {

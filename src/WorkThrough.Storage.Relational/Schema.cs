@@ -39,6 +39,7 @@ public abstract partial class RelationalJobStore
         CREATE TABLE IF NOT EXISTS dj_registry (id INTEGER PRIMARY KEY,revision BIGINT NOT NULL);
         INSERT INTO dj_registry(id,revision) VALUES (1,0) ON CONFLICT DO NOTHING;
         CREATE TABLE IF NOT EXISTS dj_compatibility (id INTEGER PRIMARY KEY,reader_minimum INTEGER NOT NULL,protocol INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS dj_limit_locks (id INTEGER PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS dj_processor_aliases (
           alias_key TEXT NOT NULL,alias_version INTEGER NOT NULL,target_key TEXT NOT NULL,target_version INTEGER NOT NULL,
           PRIMARY KEY(alias_key,alias_version));

@@ -260,3 +260,18 @@ New coverage on every provider:
   - items settled concurrently in mixed batches complete the step once. On SQL Server this runs both ways.
 
 The `dotnet new` templates build with every provider, and their SQLite projects run, in `scripts/check-templates.sh`.
+
+Exact limits without the admission lock (2026-10-11, ADR-022, schema 7, engine protocol 3), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 329 | 3 |
+| SQL Server 2022 (emulated), with and without `READ_COMMITTED_SNAPSHOT` | 335 | 3 |
+| Oracle Free 26ai | 329 | 0 |
+
+- **Race tests:** claims from eight stores at once never exceed tenant, partition, type, fleet, rate or flow limits. They run at protocol 2, the serialized path, and at protocol 3, the lock rows, and on SQL Server both ways. Removing the lock rows makes the protocol-3 tests fail every time on PostgreSQL.
+- **Admission exercise:** the multi-process exercise held every limit on PostgreSQL in three runs, and on SQLite.
+- **Oracle:** the runs found two problems, both fixed.
+  - An ordered `FOR UPDATE` locks every matching row when it opens. Oracle claims now read candidate IDs and lock only what they need.
+  - A claim whose candidates all failed the exact check gave up. Claims on every provider now try two further pages.
+

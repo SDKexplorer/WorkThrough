@@ -10,7 +10,7 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobAdministration, IWorkflowDefinitions, IJobDiagnostics, IJobSchedules, IDeploymentQueries, IProcessorRegistry
 {
     /// <summary>The schema version this package writes. Providers refuse other versions.</summary>
-    protected const int SchemaVersion = 6;
+    protected const int SchemaVersion = 7;
 
     // Version 3 added expiry, causation and terminal timestamps to existing job tables.
     private const int TerminalTimestampsVersion = 3;
@@ -89,6 +89,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             }
 
             await SeedCompatibilityAsync(connection, transaction, newStore: version is null, ct);
+            await SeedLimitLocksAsync(connection, transaction, ct);
             await ExecuteAsync(connection, transaction, """
                 INSERT INTO dj_definition_lifecycle(flow_key,version,definition,status,revision)
                 SELECT flow_key,version,definition,'Published',1 FROM dj_definitions WHERE 1=1 ON CONFLICT DO NOTHING;
@@ -247,8 +248,20 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             return [];
         }
 
-        if (outlook.Unrestricted && !outlook.SweepDue && request.Queues.Count == 1
-            && await ClaimUnrestrictedAsync(request, cancellationToken) is { } claimed)
+        // From protocol 3 every claim takes row locks, so sweeps run in a short admission transaction of their own.
+        var concurrentLimits = outlook.Protocol >= EngineProtocol.ConcurrentLimits;
+        if (concurrentLimits && outlook.SweepDue)
+        {
+            await WriteAsync(async (connection, transaction, ct) =>
+            {
+                await SweepAsync(connection, transaction, await NowAsync(connection, transaction, ct), ct);
+
+                return true;
+            }, cancellationToken);
+        }
+
+        if ((concurrentLimits || outlook.Unrestricted && !outlook.SweepDue && request.Queues.Count == 1)
+            && await ClaimWithRowLocksAsync(request, cancellationToken) is { } claimed)
         {
             return claimed;
         }
@@ -262,9 +275,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             // Sweeps run when the snapshot saw something to sweep; anything newer is swept by the next claim.
             if (outlook.SweepDue)
             {
-                await RecoverExpiredAsync(connection, transaction, now, ct);
-                await ExpireQueuedAsync(connection, transaction, now, ct);
-                await DispatchSignalsCoreAsync(connection, transaction, now, SweepBatchSize, ct);
+                await SweepAsync(connection, transaction, now, ct);
             }
 
             var leased = new List<JobRecord>();
@@ -290,58 +301,174 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         }, cancellationToken);
     }
 
+    /// <summary>Recovers expired leases, expires overdue queued work, resolves due signals and drops rate starts no window counts.</summary>
+    private async Task SweepAsync(DbConnection connection, DbTransaction transaction, long now, CancellationToken ct)
+    {
+        await RecoverExpiredAsync(connection, transaction, now, ct);
+        await ExpireQueuedAsync(connection, transaction, now, ct);
+        await DispatchSignalsCoreAsync(connection, transaction, now, SweepBatchSize, ct);
+        await PruneRateLedgerAsync(connection, transaction, now, ct);
+    }
+
     /// <summary>
-    /// Claims a page of ready jobs outside the admission lock while nothing needs it: no limit, rate or bounded flow, no sweep, one
-    /// queue. Each job is row-locked and jobs another claim holds are skipped, so concurrent claims lease disjoint jobs. Returns null,
-    /// for the serialized path, when policies appeared since the outlook.
+    /// Claims outside the admission lock. Candidates are row-locked and jobs another claim holds are skipped, so concurrent claims
+    /// lease disjoint jobs. Under shared limits, the claim also locks the limit rows of its candidates and counts admitted leases
+    /// again before each lease (ADR-022). Below engine protocol 3 this runs only while no limit exists, for one queue; it returns
+    /// null, for the serialized path, when that no longer holds.
     /// </summary>
-    private Task<IReadOnlyList<JobRecord>?> ClaimUnrestrictedAsync(ClaimRequest request, CancellationToken cancellationToken) =>
+    private Task<IReadOnlyList<JobRecord>?> ClaimWithRowLocksAsync(ClaimRequest request, CancellationToken cancellationToken) =>
         RowLockedWriteAsync<IReadOnlyList<JobRecord>?>(async (connection, transaction, ct) =>
         {
             var settings = await ReadClaimSettingsAsync(connection, transaction, request.WorkerId, ct);
             settings.RequireClaimable(request);
-
             if (settings.Draining)
             {
                 return [];
             }
 
-            if (!settings.Unrestricted)
+            var competing = request.Queues.Count > 1;
+            if (settings.Protocol < EngineProtocol.ConcurrentLimits && (!settings.Unrestricted || competing))
             {
                 return null;
             }
 
+            var policies = settings.Unrestricted ? null : await ReadLimitPoliciesAsync(connection, transaction, settings, ct);
+            if (competing)
+            {
+                // Claims for several queues serialize on the queue clock, which keeps their weighted turns exact.
+                await ScalarAsync(connection, transaction, LockingSelectSql("id", "dj_queue_clock", "id=1", skipLocked: false), ct);
+            }
+
             var budgets = new LocalBudgets(request.Budgets);
             var leased = new List<JobRecord>();
-            var progressed = true;
-            while (progressed && leased.Count < request.MaximumJobs)
+            var rejected = new HashSet<Guid>();
+            var fruitless = 0;
+            var holdsLimitLocks = false;
+            while (leased.Count < request.MaximumJobs && fruitless < MaximumFruitlessPages)
             {
                 // A page can exhaust a local budget part way; the next page asks only for contracts that still have slots.
                 var contracts = request.Contracts.Where(contract => budgets.Allows(contract.Key)).ToArray();
-                if (contracts.Length == 0)
+                if (contracts.Length == 0 || await GlobalLimitReachedAsync(connection, transaction, settings.GlobalMaximum, settings.Now, ct))
                 {
                     break;
                 }
 
-                var parameters = new List<(string, object?)> { ("now", settings.Now), ("queue", request.Queues.Single()) };
-                var candidates = await ReadJobsAsync(connection, transaction,
-                    SkipLockedJobsSql(ReadyJobSql(contracts, parameters), ClaimOrderSql, request.MaximumJobs - leased.Count), ct, parameters.ToArray());
-                progressed = false;
-                foreach (var candidate in candidates.OrderBy(job => job.AvailableAt).ThenBy(job => job.CreatedAt))
+                // Competing queues lease one job per turn; a single queue leases a page.
+                var order = await FairQueueOrderAsync(connection, transaction, request, settings.Now, ct);
+                JobRecord[] candidates = [];
+                foreach (var queue in order.Queues)
                 {
-                    if (budgets.Allows(candidate.Contract.Key) && await LeaseAsync(connection, transaction, candidate, request, settings.Now, ct) is { } job)
+                    candidates = await ReadCandidatesAsync(connection, transaction, contracts, queue, settings, competing ? 1 : request.MaximumJobs - leased.Count,
+                        rejected, ct);
+                    if (candidates.Length > 0)
                     {
-                        leased.Add(job);
-                        budgets.Spend(job.Contract.Key);
-                        progressed = true;
+                        break;
                     }
                 }
+
+                if (candidates.Length == 0)
+                {
+                    break;
+                }
+
+                if (policies is not null)
+                {
+                    var rows = candidates.SelectMany(candidate => LimitScopes(candidate, settings, policies)).Select(LimitLockRow).ToArray();
+                    if (!await LockLimitRowsAsync(connection, transaction, rows, wait: !holdsLimitLocks, ct))
+                    {
+                        break;
+                    }
+
+                    holdsLimitLocks |= rows.Length > 0;
+                }
+
+                var progressed = false;
+                foreach (var candidate in candidates)
+                {
+                    if (leased.Count >= request.MaximumJobs || !budgets.Allows(candidate.Contract.Key))
+                    {
+                        continue;
+                    }
+
+                    if (await LeaseAdmittedAsync(connection, transaction, request, candidate, settings, ct) is not { } job)
+                    {
+                        rejected.Add(candidate.Id);
+
+                        continue;
+                    }
+
+                    leased.Add(job);
+                    budgets.Spend(job.Contract.Key);
+                    progressed = true;
+                    if (order.Competing)
+                    {
+                        await AdvanceQueueTurnAsync(connection, transaction, job.Queue, order.Clock, ct);
+                    }
+                }
+
+                // The snapshot pre-filter can offer candidates that the exact check rejects; later pages may still hold admissible work.
+                fruitless = progressed ? 0 : fruitless + 1;
             }
 
             return leased;
         }, cancellationToken);
 
+    /// <summary>Ready jobs of one queue in claim order, locked for this transaction and skipping jobs other claims hold.</summary>
+    /// <remarks>The admission predicates narrow the page from a snapshot; the exact check runs again under the limit locks.</remarks>
+    private async Task<JobRecord[]> ReadCandidatesAsync(DbConnection connection, DbTransaction transaction, IEnumerable<JobContractId> contracts, string queue,
+        ClaimSettings settings, int limit, IReadOnlyCollection<Guid> rejected, CancellationToken ct)
+    {
+        var parameters = new List<(string, object?)> { ("now", settings.Now), ("queue", queue), ("all", AllJobsLimitKey) };
+        var predicate = ReadyJobSql(contracts, parameters) + (settings.HasTypeLimits ? $"\n  AND NOT {TypeBlockedSql("j")}" : "") + AdmissionPredicatesSql("j", settings);
+        if (rejected.Count > 0)
+        {
+            var excluded = rejected.Select((id, index) =>
+            {
+                parameters.Add(($"rejected{index}", id.ToString()));
+
+                return $"@rejected{index}";
+            });
+            predicate += $"\n  AND j.id NOT IN ({string.Join(",", excluded)})";
+        }
+
+        var candidates = await LockCandidatesAsync(connection, transaction, predicate, limit, parameters.ToArray(), ct);
+
+        return [.. candidates.OrderBy(job => job.AvailableAt).ThenBy(job => job.CreatedAt)];
+    }
+
+    /// <summary>
+    /// Leases a locked candidate. Under limits it first repeats the exact admission check, then starts the attempt on a clock read
+    /// after that check, as the serialized path does.
+    /// </summary>
+    private async Task<JobRecord?> LeaseAdmittedAsync(DbConnection connection, DbTransaction transaction, ClaimRequest request, JobRecord candidate,
+        ClaimSettings settings, CancellationToken ct)
+    {
+        if (settings.Unrestricted)
+        {
+            return await LeaseAsync(connection, transaction, candidate, request, settings.Now, ct);
+        }
+
+        if (await GlobalLimitReachedAsync(connection, transaction, settings.GlobalMaximum, settings.Now, ct)
+            || await FindClaimableAsync(connection, transaction, request with { Contracts = [candidate.Contract] }, candidate.Queue, settings, settings.Now, ct,
+                only: candidate.Id) is null)
+        {
+            return null;
+        }
+
+        var started = await NowAsync(connection, transaction, ct);
+        var leased = await LeaseAsync(connection, transaction, candidate, request, started, ct);
+        if (leased is not null && settings.HasRateLimits)
+        {
+            await RecordRateStartAsync(connection, transaction, leased.Id, started, ct);
+        }
+
+        return leased;
+    }
+
     private const string ClaimOrderSql = "j.available_at,j.created_at,j.id";
+
+    /// <summary>Pages in a row whose every candidate failed the exact admission check before a claim gives up for this poll.</summary>
+    private const int MaximumFruitlessPages = 3;
 
     /// <summary>Ready jobs of the given contracts in queue @queue as of @now, whose queue is not paused and whose flow is running.</summary>
     private static string ReadyJobSql(IEnumerable<JobContractId> contracts, List<(string, object?)> parameters)
@@ -435,9 +562,14 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     }
 
     private async Task<JobRecord?> FindClaimableAsync(DbConnection connection, DbTransaction transaction, ClaimRequest request, string queue,
-        ClaimSettings settings, long now, CancellationToken ct)
+        ClaimSettings settings, long now, CancellationToken ct, Guid? only = null)
     {
         var parameters = new List<(string, object?)> { ("now", now), ("all", AllJobsLimitKey), ("queue", queue) };
+        if (only is not null)
+        {
+            parameters.Add(("only", only.Value.ToString()));
+        }
+
         var sql = $"""
             WITH active_counts AS (
               SELECT COALESCE(g.group_key,a.job_key) AS group_key,COUNT(*) AS total
@@ -454,6 +586,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             WHERE {ReadyJobSql(request.Contracts, parameters)}
               AND {AdmissionGroupSql("j.job_key")} NOT IN (SELECT group_key FROM blocked_groups)
               {AdmissionPredicatesSql("j", settings)}
+              {(only is null ? "" : "AND j.id=@only")}
             ORDER BY {ClaimOrderSql} {PageSql(1)}
             """;
 

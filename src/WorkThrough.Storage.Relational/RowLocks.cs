@@ -24,10 +24,57 @@ public abstract partial class RelationalJobStore
 
     /// <summary>
     /// Selects up to <paramref name="limit"/> jobs in order, locking each and skipping any that another transaction holds, so
-    /// concurrent claims receive disjoint jobs. The default takes no row locks, which suffices while every write holds the admission lock.
+    /// concurrent claims receive disjoint jobs. The caller stops reading at <paramref name="limit"/>, so a provider that locks rows as
+    /// they are fetched may omit the row limit. The default takes no row locks, which suffices while every write holds the admission lock.
     /// </summary>
     protected virtual string SkipLockedJobsSql(string predicate, string order, int limit) =>
         $"SELECT * FROM dj_jobs j WHERE {predicate} ORDER BY {order} {PageSql(limit)}";
+
+    /// <summary>
+    /// True for providers that cannot lock a row-limited, ordered page. Claims then read candidate IDs from a snapshot and lock them in
+    /// chunks of the jobs they still need, skipping held rows, so no claim locks more jobs than it can lease.
+    /// </summary>
+    protected virtual bool LocksCandidatesByIdentity => false;
+
+    /// <summary>
+    /// Extra candidate IDs read when locking by identity. Concurrent claims hold or limits block the first IDs, so a claim needs room
+    /// beyond its own page to find free work.
+    /// </summary>
+    private const int CandidateIdentitySlack = 64;
+
+    /// <summary>Ready jobs in claim order, locked for this transaction, skipping jobs other claims hold.</summary>
+    private async Task<List<JobRecord>> LockCandidatesAsync(DbConnection connection, DbTransaction transaction, string predicate, int limit,
+        (string, object?)[] parameters, CancellationToken ct)
+    {
+        if (!LocksCandidatesByIdentity)
+        {
+            return await ReadJobsAsync(connection, transaction, SkipLockedJobsSql(predicate, ClaimOrderSql, limit), limit, ct, parameters);
+        }
+
+        var ids = new List<string>();
+        await using (var command = Command(connection, transaction,
+            $"SELECT j.id FROM dj_jobs j WHERE {predicate} ORDER BY {ClaimOrderSql} {PageSql(limit + CandidateIdentitySlack)}", parameters))
+        {
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                ids.Add(reader.GetString(0));
+            }
+        }
+
+        var locked = new List<JobRecord>();
+        for (var next = 0; locked.Count < limit && next < ids.Count;)
+        {
+            var chunk = ids.Skip(next).Take(limit - locked.Count).ToArray();
+            next += chunk.Length;
+            var values = chunk.Select((id, index) => ($"c{index}", (object?)id)).ToArray();
+            locked.AddRange(await ReadJobsAsync(connection, transaction,
+                LockingSelectSql("*", "dj_jobs", $"status='Queued' AND id IN ({string.Join(",", values.Select(value => "@" + value.Item1))})", skipLocked: true),
+                ct, values));
+        }
+
+        return [.. locked.OrderBy(job => ids.IndexOf(job.Id.ToString()))];
+    }
 
     private Task<T> RowLockedWriteAsync<T>(Func<DbConnection, DbTransaction, CancellationToken, Task<T>> action, CancellationToken ct) =>
         TransactAsync(BeginRowLockedWriteAsync, action, ct);

@@ -93,7 +93,7 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 
 - [x] Raise write-path throughput without weakening admission: a lock-free claim pre-check, batched claims and completions, batched statements, owned writes outside the admission lock, and the SQLite busy timeout (ADR-020). Drain throughput rose 2.4–3.6× on every provider.
 - [x] Settlement outside the admission lock with flow-first row locks, journal events appended at commit, and `SKIP LOCKED`/`READPAST` claims while no limit exists (ADR-020 amendment). PostgreSQL drain rose 3.3×, SQL Server with versioned reads 2.1×, Oracle 1.5×.
-- [ ] Concurrent claims while limits exist, which needs per-limit counter rows to stay exact.
+- [x] Concurrent claims while limits exist: per-limit lock rows under engine protocol 3 (ADR-022). Tenant-limited PostgreSQL drain rose from about 140 to 500 jobs/s.
 
 ## Product review findings — 2026-10-11
 
