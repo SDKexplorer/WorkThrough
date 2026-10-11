@@ -181,3 +181,27 @@ Each limit is checked from the database's recorded attempt intervals, and a brea
 - **No-policy claim path:** paired, interleaved PostgreSQL runs against `e2de671` (six repetitions each) measured medians of 83.6 / 61.1 / 50.6 jobs/s before and 83.8 / 60.7 / 50.6 after (mixed / flows / outbox). Reading the extra policy kinds in the claim's first query costs nothing measurable.
 
 Raw reports: [SQLite](performance-results/2026-10-11-sqlite-admission.json), [PostgreSQL](performance-results/2026-10-11-postgres-admission.json), [SQL Server](performance-results/2026-10-11-sqlserver-admission.json), [Oracle](performance-results/2026-10-11-oracle-admission.json).
+
+## Two-hour soak — 2026-10-11
+
+`WorkThrough.Exercises soak postgres 120` ran for 120 minutes on PostgreSQL 17 at revision `f8f9a7c` (clean tree), on the host above, with retention disabled so history accumulated.
+
+- **Load:** three worker processes (12 slots) and an open-loop producer offering 25 operations per second. The actual rate was about 24.9/s, because ticks the producer could not keep up with were skipped and recorded.
+- **Mix:** 10% four-step flow runs with `MaxParallelSteps: 2`, 10% rate-limited jobs, and the rest keyed jobs across 10 tenants and 200 partitions.
+- **Policies:** partition maximum 1, tenant maximum 4, and 5 starts per second for the rate-limited type.
+- **Checks:** every minute, every limit was checked against the database's recorded attempt intervals. After the run, the store had to drain and every job had to have exactly one successful attempt.
+
+| Result | Value |
+|---|---|
+| Jobs | 233,469 (179,592 operations, of which 17,959 were flow starts); all succeeded once, zero retries |
+| Highest per-minute peaks | partition 1 / 1, tenant 3 / 4, flow run 2 / 2, rate window 5 / 5 |
+| Completed per minute | 1,779–1,956, matching the offered load |
+| Backlog | 0–33 throughout; 0 at the end, so no drain was needed |
+| Queue wait p95 | 426 ms average over the first 10 minutes, 244 ms over the last 10; single highest minute 1.36 s |
+| Worker resident memory (sum of 3) | 318 MiB at the start, 325 MiB at minute 10, 331 MiB at the end |
+| Worker CPU | 72.8 s/min over the first 10 minutes, 68.9 s/min over the last 10 |
+| Stored jobs at the end | 233,469 |
+
+Throughput, latency and CPU did not degrade as history grew to 233k jobs. Worker memory rose 6 MiB between minute 10 and minute 120. That rate is too small to call a leak or to rule one out, so longer soaks remain advisable before production. The early latency was higher while workloads in this session (builds and tests) shared the host. This was one provider on one machine; it is not a multi-host or failover campaign.
+
+Raw report: [PostgreSQL soak](performance-results/2026-10-11-postgres-soak.json).

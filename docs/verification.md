@@ -179,3 +179,20 @@ Tenant IDs, keyed limits, the rate ledger and `MaxParallelSteps` (2026-10-11), o
 | Oracle Free 26ai | 276 | 0 |
 
 New provider theories cover tenant limits that are independent of partitions, per-tenant rate limits, and gradual fan-out release with `FlowParallelism` readiness. The multi-process admission exercise passed on all four databases ([performance](performance.md)). The schema-4 upgrade fixture passes on every provider with the final schema 5.
+
+Tenant access isolation, schedule seeding, worker/dispatch resilience fixes and the Shop sample (2026-10-11), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 285 | 3 |
+| SQL Server 2022 (emulated) | 282 | 3 |
+| Oracle Free 26ai | 285 | 0 |
+
+New coverage:
+
+- dashboard and MCP tenant scoping on every provider, including absent-looking lookups, store-wide denial and a scoped command;
+- schedule seeding across three racing hosts that respects operator changes;
+- renewal surviving a transient storage failure;
+- outbox and event dispatch draining full batches.
+
+The renewal and drain tests fail without their fixes. `Shop.Api --smoke` and `Shop.Worker --preflight` pass locally. The two-hour PostgreSQL soak passed ([performance](performance.md)).
