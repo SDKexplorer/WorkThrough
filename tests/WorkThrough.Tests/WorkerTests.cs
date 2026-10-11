@@ -100,6 +100,61 @@ public sealed class WorkerTests
         }
     }
 
+    [Fact]
+    public async Task Event_subscribers_read_full_batches_without_waiting_for_the_next_interval()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var events = new BacklogEvents(available: 300);
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddSingleton(events);
+        builder.Services.AddWorkThrough().UseSqlite(harness.ConnectionString).AddEventSubscriber<CountingHandler>("tests.backlog");
+        builder.Services.AddSingleton<IExecutionEvents>(events);
+        using var host = builder.Build();
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        await host.StartAsync();
+        try
+        {
+            await EventuallyAsync(() => Task.FromResult(events.Handled == 300));
+            Assert.True(started.Elapsed < TimeSpan.FromSeconds(1), $"Catching up took {started.Elapsed}.");
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    private sealed class BacklogEvents(int available) : IExecutionEvents
+    {
+        private long acknowledged;
+        private int handled;
+        public int Handled => Volatile.Read(ref handled);
+        public void Handle() => Interlocked.Increment(ref handled);
+
+        public Task<EventPosition> EventPositionAsync(CancellationToken cancellationToken = default) => Task.FromResult(new EventPosition(available, 0));
+        public Task<long> SubscribeAsync(string subscriber, long startAfter = 0, CancellationToken cancellationToken = default) => Task.FromResult(Interlocked.Read(ref acknowledged));
+
+        public Task<IReadOnlyList<ExecutionEvent>> ReadEventsAsync(long after, int limit = 100, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ExecutionEvent>>(Enumerable.Range(1, (int)Math.Min(limit, available - after))
+                .Select(offset => new ExecutionEvent(after + offset, Guid.NewGuid(), null, DateTimeOffset.UtcNow, "Succeeded", 1)).ToArray());
+
+        public Task<bool> AcknowledgeAsync(string subscriber, long expectedSequence, long sequence, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Interlocked.CompareExchange(ref acknowledged, sequence, expectedSequence) == expectedSequence);
+
+        public Task<Result<int>> TrimEventsAsync(long through, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class CountingHandler(BacklogEvents events) : IExecutionEventHandler
+    {
+        public Task HandleAsync(ExecutionEvent entry, CancellationToken cancellationToken)
+        {
+            events.Handle();
+
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class FullBatchesOutbox(int fullBatches) : IJobOutbox
     {
         private int calls;
