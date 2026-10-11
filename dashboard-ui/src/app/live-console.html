@@ -11,8 +11,8 @@
         </div>
         <p class="nav-label">WORKSPACE</p>
         <nav aria-label="Console sections">
-            @if (can(permission.ReadExecutions)) { @for (item of ['executions', 'definitions',
-            'schedules', 'workers', 'archives']; track item) {
+            @if (can(permission.ReadExecutions)) { @for (item of storeWide() ? ['executions',
+            'definitions', 'schedules', 'workers', 'archives'] : ['executions']; track item) {
             <button
                 type="button"
                 [attr.aria-current]="section() === item ? 'page' : null"
@@ -22,7 +22,7 @@
                 : item === 'workers' ? 'Workers & capacity' : item === 'archives' ? 'Archives' :
                 'Executions' }}
             </button>
-            } } @if (can(permission.ReadAudit)) {
+            } } @if (storeWide() && can(permission.ReadAudit)) {
             <button
                 type="button"
                 [attr.aria-current]="section() === 'audit' ? 'page' : null"
@@ -33,10 +33,14 @@
             }
         </nav>
         <div class="live-sidebar-bottom">
-            <span class="muted">{{ user() }}</span
-            ><button class="outline" type="button" (click)="light.set(!light())">
-                {{ light() ? 'Dark appearance' : 'Light appearance' }}</button
-            ><small class="muted">WorkThrough · alpha</small>
+            <span class="muted">{{ user() }}</span>
+            @if (tenants(); as visible) {
+            <small class="muted">Tenants: {{ visible.join(', ') || 'none' }}</small>
+            }
+            <button class="outline" type="button" (click)="light.set(!light())">
+                {{ light() ? 'Dark appearance' : 'Light appearance' }}
+            </button>
+            <small class="muted">WorkThrough · alpha</small>
         </div>
     </aside>
     <main id="live-content" class="live-main">
@@ -65,7 +69,7 @@
         </header>
         @if (error()) {
         <p class="live-alert" role="alert">{{ error() }} Displayed data may be stale.</p>
-        } @if (can(permission.ReadExecutions)) {
+        } @if (storeWide() && can(permission.ReadExecutions)) {
         <section class="live-metrics" aria-label="Stored job totals">
             @for (state of ['Queued', 'Running', 'Succeeded', 'Failed']; track state) {
             <article>

@@ -8,7 +8,8 @@ using ModelContextProtocol.Server;
 
 namespace WorkThrough;
 
-internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorizationService authorization, IMcpAccessSink accessSink)
+internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorizationService authorization, IMcpAccessSink accessSink,
+    McpTenantScope tenantScope, ITenantAccessResolver? tenants = null)
 {
     /// <summary>The response budget advertised to clients.</summary>
     internal const int MaximumResponseBytes = 65536;
@@ -37,7 +38,14 @@ internal sealed class McpToolGuard(WorkThroughMcpOptions options, IAuthorization
             _ => null
         };
 
-        return additional is null || (await authorization.AuthorizeAsync(principal, resource, OperationPermissions.Policy(additional))).Succeeded;
+        if (additional is not null && !(await authorization.AuthorizeAsync(principal, resource, OperationPermissions.Policy(additional))).Succeeded)
+        {
+            return false;
+        }
+
+        tenantScope.Access = tenants is null ? TenantAccess.AllTenants : await tenants.ResolveAsync(principal, CancellationToken.None);
+
+        return !tenantScope.Access.IsRestricted || tool is null || McpTenantScope.TenantCapableTools.Contains(tool, StringComparer.Ordinal);
     }
 
     internal async ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> context,

@@ -34,6 +34,7 @@ public static class McpHostingExtensions
         services.AddSingleton(options);
         services.AddSingleton<McpHttpGuard>();
         services.AddScoped<McpToolGuard>();
+        services.AddScoped<McpTenantScope>();
         services.TryAddSingleton<IMcpAccessSink, LoggingMcpAccessSink>();
         services.TryAddSingleton<IMcpDiagnosticRedactor, StoredDiagnosticRedactor>();
         services.AddAuthentication().AddJwtBearer(AuthenticationScheme, jwt =>

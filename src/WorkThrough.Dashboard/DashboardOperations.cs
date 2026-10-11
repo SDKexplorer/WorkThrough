@@ -25,9 +25,9 @@ public static partial class DashboardEndpoints
         group.MapPost("/api/workers", async (WorkerControlCommand request, HttpContext context, IExecutionOperations operations, CancellationToken ct) =>
             ToHttp(await operations.SetWorkerDrainingAsync(request.WorkerId, request.Draining, request.Command.ExpectedRevision, Command(context, options, request.Command), ct)))
             .Mutation(options, OperationPermissions.ManageWorkers);
-        group.MapPost("/api/jobs/{id:guid}/replay", async (Guid id, DashboardCommand request, HttpContext context, IExecutionOperations operations, CancellationToken ct) =>
-            ToHttp(await operations.ReplayAsync(id, Command(context, options, request), ct)))
-            .Mutation(options, OperationPermissions.ReplayJobs);
+        group.MapPost("/api/jobs/{id:guid}/replay", (Guid id, DashboardCommand request, HttpContext context, IExecutionOperations operations, CancellationToken ct) =>
+            ForVisibleJobAsync(context, id, async () => ToHttp(await operations.ReplayAsync(id, Command(context, options, request), ct))))
+            .ForTenants().Mutation(options, OperationPermissions.ReplayJobs);
         group.MapGet("/api/archives", async (string? correlationId, IExecutionArchives archives, CancellationToken ct) =>
             Results.Json(await archives.ArchivesAsync(correlationId, cancellationToken: ct), JsonOptions))
             .WithPermission(options, OperationPermissions.ReadExecutions);

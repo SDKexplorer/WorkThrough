@@ -72,7 +72,8 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
 
     private static bool IsIdentityParameter(string name) => name is "id" or "job" or "run" or "flow" or "worker" or "key" or "partition" or "tenant"
         or "name" or "correlation" or "queue" or "step" or "target" or "alias" or "group" or "destination" or "action"
-        || name.StartsWith("queue", StringComparison.Ordinal) || name.StartsWith("key", StringComparison.Ordinal);
+        || name.StartsWith("queue", StringComparison.Ordinal) || name.StartsWith("key", StringComparison.Ordinal)
+        || name.StartsWith("tenant", StringComparison.Ordinal);
 
     protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(IsolationLevel.Snapshot, cancellationToken);

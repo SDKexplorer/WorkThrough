@@ -41,7 +41,11 @@ public sealed record JobAttempt(
     Guid JobId, int Number, string WorkerId, DateTimeOffset StartedAt,
     DateTimeOffset? FinishedAt, AttemptStatus Status, string? Error, string? Handler);
 
-public sealed record JobFilter(string? CorrelationId = null, JobStatus? Status = null, int Limit = 100, int Offset = 0);
+public sealed record JobFilter(string? CorrelationId = null, JobStatus? Status = null, int Limit = 100, int Offset = 0)
+{
+    /// <summary>Matches any of these tenants; empty matches nothing. Tenant-scoped hosts set it from <see cref="TenantAccess"/>.</summary>
+    public IReadOnlyList<string>? TenantIds { get; init; }
+}
 
 public sealed record ClaimRequest(
     string WorkerId, IReadOnlyCollection<JobContractId> Contracts,

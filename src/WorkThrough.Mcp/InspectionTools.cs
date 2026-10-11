@@ -8,7 +8,8 @@ namespace WorkThrough;
 public sealed record McpDiagnosticResult(ExecutionDiagnostic Diagnostic, bool Redacted);
 
 [McpServerToolType]
-internal sealed class InspectionTools(IMcpDiagnosticRedactor redactor, IExecutionInspectionQueries? queries = null)
+internal sealed class InspectionTools(IMcpDiagnosticRedactor redactor, IExecutionQueries executions, McpTenantScope tenantScope,
+    IExecutionInspectionQueries? queries = null)
 {
     internal const string Diagnostics = "workthrough_get_diagnostics";
     internal const string Flow = "workthrough_get_flow";
@@ -40,7 +41,8 @@ internal sealed class InspectionTools(IMcpDiagnosticRedactor redactor, IExecutio
         int dependencyOffset = 0, long afterEvent = 0, int limit = 25) => ReadSafelyAsync(() => Queries
         .ReadFlowAsync(runId, nodeOffset, dependencyOffset, afterEvent, limit, cancellationToken));
 
-    private IExecutionInspectionQueries Queries => queries ?? throw new NotSupportedException("Inspection queries are not registered.");
+    private IExecutionInspectionQueries Queries =>
+        (queries ?? throw new NotSupportedException("Inspection queries are not registered.")).ScopedTo(executions, tenantScope.Access);
 
     internal static async Task<T> ReadSafelyAsync<T>(Func<Task<T>> read)
     {

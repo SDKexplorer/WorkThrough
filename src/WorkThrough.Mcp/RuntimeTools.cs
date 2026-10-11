@@ -4,7 +4,7 @@ using ModelContextProtocol.Server;
 namespace WorkThrough;
 
 [McpServerToolType]
-internal sealed class RuntimeTools(IRuntimeQueries? queries = null)
+internal sealed class RuntimeTools(IExecutionQueries executions, McpTenantScope tenantScope, IRuntimeQueries? queries = null)
 {
     internal const string Capacity = "workthrough_get_capacity";
     internal const string Metrics = "workthrough_get_metrics";
@@ -20,5 +20,6 @@ internal sealed class RuntimeTools(IRuntimeQueries? queries = null)
     public Task<RuntimeMetrics> GetMetrics(RuntimeMetricsQuery query, CancellationToken cancellationToken) =>
         InspectionTools.ReadSafelyAsync(() => Queries.ReadRuntimeMetricsAsync(query, cancellationToken));
 
-    private IRuntimeQueries Queries => queries ?? throw new NotSupportedException("Runtime queries are not registered.");
+    private IRuntimeQueries Queries =>
+        (queries ?? throw new NotSupportedException("Runtime queries are not registered.")).ScopedTo(executions, tenantScope.Access);
 }

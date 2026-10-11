@@ -95,30 +95,7 @@ public sealed class DashboardTests
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("SECRET-PAYLOAD"), new(MaxAttempts: 1));
         var job = (await harness.Store.ClaimAsync(new("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromSeconds(30))))!;
         await harness.Store.FailWithDetailsAsync(id, job.LeaseToken!.Value, new("Failure", "SECRET-MESSAGE", "SECRET-STACK"), TimeSpan.Zero);
-        var builder = WebApplication.CreateBuilder();
-        builder.Logging.ClearProviders();
-        builder.WebHost.UseTestServer();
-        builder.Services.AddSingleton<IJobStore>(harness.Store);
-        builder.Services.AddSingleton<IJobQueries>(harness.Store);
-        builder.Services.AddSingleton<IJobDiagnostics>(harness.Store);
-        builder.Services.AddSingleton<IJobAdministration>(harness.Store);
-        builder.Services.AddSingleton<IWorkflowDefinitions>(harness.Store);
-        builder.Services.AddSingleton<IJobSchedules>(harness.Store);
-        builder.Services.AddSingleton<IDeploymentQueries>(harness.Store);
-        builder.Services.AddSingleton<IExecutionOperations>(harness.Store);
-        builder.Services.AddSingleton<IExecutionArchives>(harness.Store);
-        builder.Services.AddSingleton<IProcessorRegistry>(harness.Store);
-        builder.Services.AddSingleton<IAdmissionPolicies>(harness.Store);
-        builder.Services.AddSingleton<IRuntimeQueries>(harness.Store);
-        builder.Services.AddSingleton<IRetentionQueries>(harness.Store);
-        builder.Services.AddSingleton<IRetentionAdministration>(harness.Store);
-        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ =>
-        {
-        });
-        builder.Services.AddWorkThroughDashboard();
-        await using var app = builder.Build();
-        app.MapWorkThroughDashboard();
-        await app.StartAsync();
+        await using var app = await StartDashboardAsync(harness);
         var client = app.GetTestClient();
         client.DefaultRequestHeaders.Add("X-Test-User", "viewer");
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/jobs/api/metrics")).StatusCode);
@@ -172,6 +149,30 @@ public sealed class DashboardTests
         Assert.All(audit, entry => Assert.Equal("operator", entry.Actor.Subject));
     }
 
+    /// <summary>A dashboard over every port of one store, authenticated by <see cref="TestAuthentication"/>.</summary>
+    internal static async Task<WebApplication> StartDashboardAsync(StoreHarness harness, Action<IServiceCollection>? configure = null)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseTestServer();
+        var store = harness.Store;
+        builder.Services.AddSingleton<IJobStore>(store).AddSingleton<IJobQueries>(store).AddSingleton<IJobDiagnostics>(store)
+            .AddSingleton<IJobAdministration>(store).AddSingleton<IWorkflowDefinitions>(store).AddSingleton<IJobSchedules>(store)
+            .AddSingleton<IDeploymentQueries>(store).AddSingleton<IExecutionOperations>(store).AddSingleton<IExecutionArchives>(store)
+            .AddSingleton<IProcessorRegistry>(store).AddSingleton<IAdmissionPolicies>(store).AddSingleton<IRuntimeQueries>(store)
+            .AddSingleton<IRetentionQueries>(store).AddSingleton<IRetentionAdministration>(store).AddSingleton<IExecutionQueries>(store);
+        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthentication>("Test", _ =>
+        {
+        });
+        builder.Services.AddWorkThroughDashboard();
+        configure?.Invoke(builder.Services);
+        var app = builder.Build();
+        app.MapWorkThroughDashboard();
+        await app.StartAsync();
+
+        return app;
+    }
+
     public sealed class TestAuthentication(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
     {
@@ -197,6 +198,11 @@ public sealed class DashboardTests
                 _ => DashboardPermissions.All
             };
             claims.AddRange(permissions.Select(p => new Claim(DashboardPermissions.ClaimType, p)));
+            if (user.StartsWith(TenantIsolationTests.TenantUserPrefix, StringComparison.Ordinal))
+            {
+                claims.Add(new(TenantIsolationTests.TenantClaim, user[TenantIsolationTests.TenantUserPrefix.Length..]));
+            }
+
             var identity = new ClaimsIdentity(claims, Scheme.Name);
 
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));

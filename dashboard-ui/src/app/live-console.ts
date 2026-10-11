@@ -1,4 +1,4 @@
-import { Component, ElementRef, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, signal, viewChild } from '@angular/core';
 import { DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { SavedFlowGraph } from './saved-flow-graph';
 import { CsrfHeader, Permission, SignalProcessorKey } from './permissions';
@@ -253,6 +253,9 @@ export class LiveConsoleComponent {
     readonly updated = signal<Date | null>(null);
     readonly permissions = signal<string[]>([]);
     readonly user = signal('');
+    /** Null for store-wide access; otherwise the only tenants this user can see (ADR-019). */
+    readonly tenants = signal<string[] | null>(null);
+    readonly storeWide = computed(() => this.tenants() === null);
     readonly jobs = signal<Job[]>([]);
     readonly stats = signal<Statistics>({ counts: {}, limits: [] });
     readonly metrics = signal<RuntimeMetrics | null>(null);
@@ -322,12 +325,19 @@ export class LiveConsoleComponent {
     }
     async initialize() {
         try {
-            const access = await this.request<{ permissions: string[]; user: string }>(
-                '/api/access',
-            );
+            const access = await this.request<{
+                permissions: string[];
+                user: string;
+                tenants: string[] | null;
+            }>('/api/access');
             this.permissions.set(access.permissions);
             this.user.set(access.user);
-            if (!this.can(Permission.ReadExecutions) && this.can(Permission.ReadAudit))
+            this.tenants.set(access.tenants ?? null);
+            if (
+                !this.can(Permission.ReadExecutions) &&
+                this.storeWide() &&
+                this.can(Permission.ReadAudit)
+            )
                 this.section.set('audit');
             await this.refresh();
         } catch (e) {
@@ -339,7 +349,12 @@ export class LiveConsoleComponent {
         this.busy.set(true);
         this.error.set('');
         try {
-            if (this.can(Permission.ReadExecutions)) {
+            if (this.can(Permission.ReadExecutions) && !this.storeWide()) {
+                const filter = new URLSearchParams({ offset: String(this.offset) });
+                if (this.correlation) filter.set('correlationId', this.correlation);
+                if (this.status) filter.set('status', this.status);
+                this.jobs.set(await this.request<Job[]>('/api/jobs?' + filter));
+            } else if (this.can(Permission.ReadExecutions)) {
                 const filter = new URLSearchParams({ offset: String(this.offset) });
                 if (this.correlation) filter.set('correlationId', this.correlation);
                 if (this.status) filter.set('status', this.status);
@@ -383,9 +398,13 @@ export class LiveConsoleComponent {
                     );
                 }
             }
-            if (this.can(Permission.ReadAudit))
+            if (this.storeWide() && this.can(Permission.ReadAudit))
                 this.audit.set(await this.request<Audit[]>('/api/audit'));
-            if (this.can(Permission.ReadExecutions) && this.can(Permission.ReadRetention)) {
+            if (
+                this.storeWide() &&
+                this.can(Permission.ReadExecutions) &&
+                this.can(Permission.ReadRetention)
+            ) {
                 try {
                     this.retention.set(await this.request<RetentionStatus>('/api/retention'));
                     this.retentionError.set('');

@@ -38,7 +38,12 @@ public sealed record ExecutionQuery(
     int Limit = OperationQueryLimits.DefaultPageSize,
     string? Cursor = null,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? PartitionKey = null,
-    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? TenantId = null);
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? TenantId = null)
+{
+    /// <summary>Matches any of these tenants; empty matches nothing. Tenant-scoped hosts set it from <see cref="TenantAccess"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? TenantIds { get; init; }
+}
 
 /// <summary>Metadata only: no payload, output, exception, implementation name, lease token or idempotency key.</summary>
 /// <remarks>Queue, correlation and step text are bounded to 512 characters; MetadataTruncated identifies clipping.</remarks>

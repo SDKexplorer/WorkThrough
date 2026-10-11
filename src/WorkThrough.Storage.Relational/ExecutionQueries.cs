@@ -169,6 +169,10 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         Add("workflow_run_id", "flow", query.WorkflowRunId?.ToString());
         Add("partition_key", "partition", query.PartitionKey);
         Add("tenant_id", "tenant", query.TenantId);
+        if (query.TenantIds is not null)
+        {
+            conditions.Add(TenantFilterSql("j.tenant_id", query.TenantIds, values));
+        }
 
         void Add(string column, string parameter, object? value)
         {

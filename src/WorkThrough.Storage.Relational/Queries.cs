@@ -15,6 +15,30 @@ public abstract partial class RelationalJobStore
     public Task<JobRecord?> GetAsync(Guid jobId, CancellationToken cancellationToken = default) =>
         ReadAsync((connection, transaction, ct) => ReadJobAsync(connection, transaction, jobId, ct), cancellationToken);
 
+    /// <summary>A bounded any-of tenant condition; an empty set matches nothing.</summary>
+    private static string TenantFilterSql(string column, IReadOnlyList<string> tenantIds, List<(string, object?)> values)
+    {
+        if (tenantIds.Count > TenantAccess.MaximumTenants)
+        {
+            throw new ArgumentException($"Tenant filters are limited to {TenantAccess.MaximumTenants} tenants.", nameof(tenantIds));
+        }
+
+        if (tenantIds.Count == 0)
+        {
+            return "1=0";
+        }
+
+        var names = tenantIds.Select((tenant, index) =>
+        {
+            AdmissionKeys.Validate(tenant, KeyScope.Tenant, nameof(tenantIds));
+            values.Add(($"tenant{index}", tenant));
+
+            return $"@tenant{index}";
+        }).ToArray();
+
+        return $"{column} IN ({string.Join(",", names)})";
+    }
+
     public Task<IReadOnlyList<JobRecord>> ListAsync(JobFilter filter, CancellationToken cancellationToken = default)
     {
         if (filter.Limit is < 1 or > MaximumListPage || filter.Offset < 0)
@@ -34,6 +58,11 @@ public abstract partial class RelationalJobStore
         {
             conditions.Add("status=@status");
             values.Add(("status", filter.Status.ToString()));
+        }
+
+        if (filter.TenantIds is not null)
+        {
+            conditions.Add(TenantFilterSql("tenant_id", filter.TenantIds, values));
         }
 
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
