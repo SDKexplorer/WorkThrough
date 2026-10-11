@@ -81,7 +81,7 @@ The dashboard adapter reads versioned data models without application processor 
 
 ## Run the live console
 
-Build `dashboard-ui` with `npm ci && npm run build`, then build and run Demo.Host as described in the repository README. Open `/operations/jobs`. The .NET host serves the compiled bundle and engine APIs together; a standalone static server does not provide those APIs. The build output remains `artifacts/console-preview/browser` for embedding.
+Build `dashboard-ui` with `npm ci && npm run build`, then run `samples/Shop.Api` in Development as described in the [sample guide](../samples/README.md). Open `/operations`. The .NET host serves the compiled bundle and engine APIs together; a standalone static server does not provide those APIs. The build output remains `artifacts/console-preview/browser` for embedding.
 
 ## Sources informing the recommendation
 

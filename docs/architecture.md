@@ -9,7 +9,7 @@ flowchart TD
     Sample[Application composition root] --> Hosting
     Sample --> Dashboard
     Sample --> Mcp[Optional MCP adapter]
-    Sample --> Provider[SQLite or PostgreSQL provider]
+    Sample --> Provider[SQLite, PostgreSQL, SQL Server or Oracle provider]
     Provider --> Relational[Relational persistence mechanics]
     Hosting --> Core
     Dashboard --> Core
@@ -50,7 +50,7 @@ The .NET host owns address/port/TLS and authentication. The dashboard defaults t
 1. Enqueue commits before acknowledging acceptance. An ambiguous commit result can still require caller reconciliation; a caller idempotency key makes repeating the enqueue safe.
 2. Claim uses a short transaction and provider-specific write serialization to recover expired work, check limits, select a supported contract/queue, issue a fresh ownership token, and record an attempt.
 3. The worker resolves a scoped handler, records diagnostic implementation metadata, and invokes it outside the storage transaction.
-4. A renewal loop extends ownership. Loss of ownership requests cooperative cancellation.
+4. A renewal loop extends ownership every third of the lease. A refused renewal means ownership is lost and requests cooperative cancellation; a failed renewal is retried while the lease can still be valid, so a brief storage outage does not abandon healthy handlers.
 5. Completion/failure is accepted only for the current unexpired token. Completion and any workflow advancement commit together.
 
 Execution is **at least once**. A process can perform an external effect and die before saving success. `JobExecutionContext.IdempotencyKey` identifies the logical job across attempts. External services or application transactions must enforce effect deduplication; engine deduplication is not an external exactly-once guarantee.
@@ -59,7 +59,7 @@ Shutdown stops acquisition and asks executing handlers to cancel. Cooperatively 
 
 ## Concurrency
 
-There are four independent controls: local total capacity, local per-job-key capacity, shared total admission, and shared per-job-key admission. Per-job limits cover all versions of a stable key. Correlation IDs are not locking keys.
+Local controls bound one worker: total capacity and per-job-key capacity. Shared controls bound the fleet: total and per-job-key admission, keyed limits per partition key or tenant, rate limits and flow parallelism (ADR-018). Per-job limits cover all versions of a stable key. Correlation IDs are not locking keys.
 
 All applicable limits must admit an attempt. Throttled work stays queued and consumes no handler slot. Shared policies reside in `dj_limits`; `SeedClusterLimits` inserts missing defaults without overwriting operator changes. `SetLimitAsync` is the explicit update operation. Zero pauses admission; lowering a limit lets existing work finish and prevents new admission until capacity is available.
 
@@ -92,7 +92,7 @@ Recurring schedule lifecycle is independent of enable/pause admission. Cronos ca
 Typed definitions/manual registration, coordinated aliases with shared admission, middleware/validation/retry policies, durable subscriptions, business transaction/outbox acceptance, signals, queue controls, replay, and bounded archival are implemented. See ADR-010, `identity-evolution.md`, `processor-lifecycle-and-extensibility.md`, and `operations-and-retention.md` for current contracts. The original design notes above remain useful context; these guides supersede earlier statements that those features were only planned.
 
 
-Schema 4 adds opt-in fenced retention maintenance, whole-unit holds, persisted policies, verified directory exports and bounded journal cleanup. See [ADR-013](adr/0013-fenced-retention-maintenance.md) and the operations guide. Older writers must stop before upgrade; active flows remain in one store. Tenant/partition controls remain planned. SQL Server and Oracle implement the same engine operations through the provider boundaries below.
+Schema 4 adds opt-in fenced retention maintenance, whole-unit holds, persisted policies, verified directory exports and bounded journal cleanup. See [ADR-013](adr/0013-fenced-retention-maintenance.md) and the operations guide. Older writers must stop before upgrade; active flows remain in one store. Schema 5 adds the admission controls of ADR-018 additively. SQL Server and Oracle implement the same engine operations through the provider boundaries below.
 
 SQL Server uses the shared state transitions with provider-owned schema/JSON projections, small SQL-fragment seams, transaction-owned application locking and snapshot inspection. Its explicit key bounds and trailing-space restriction are recorded in [ADR-014](adr/0014-sql-server-storage.md). Business transaction callbacks retain the original ADO.NET connection and SQL dialect.
 

@@ -4,168 +4,163 @@
 
 **Move your code. Keep your work.**
 
-A .NET 8 library for durable jobs, persisted flows, and recurring schedules, verified on .NET 8 and .NET 10. **Move a processor between classes, namespaces, projects, and assemblies without rewriting queued job metadata.**
+Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite, PostgreSQL, SQL Server or Oracle. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so processors can move between classes, namespaces, projects and assemblies while jobs are queued.
 
-WorkThrough is an alpha. SQLite, PostgreSQL, SQL Server and Oracle are implemented and pass their documented [provider verification](docs/verification.md); packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
+> **Status: alpha.** All four providers pass their [verification](docs/verification.md), packages are built locally and not yet published, and there is no production certification. See [release boundaries](#release-boundaries).
 
-The optional [read-only MCP endpoint](docs/mcp.md) supports bounded execution/attempt investigation, protected failure details, saved-flow inspection, audit/archive metadata, waiting/capacity explanations, windowed attempt metrics and retention status/preview. Opt-in [automatic retention](docs/operations-and-retention.md#opt-in-automatic-maintenance) includes holds and verified-copy purge. Controlled MCP actions and large load/restore qualification remain in the [plan](specs/storage-evolution.spec.md). The [remaining delivery order](docs/plan.md#remaining-delivery-order) makes those gaps explicit. Development uses `develop` with release promotion to `main`; see [branching and public-release preparation](docs/branching-and-release.md).
+## Why WorkThrough
 
-## Repository map
+- **Refactor-safe:** dispatch by explicit, versioned addresses. A [published relocation proof](scripts/check-refactor.sh) runs queued work after its processors moved to a renamed assembly on another runtime.
+- **Honest delivery:** at least once, with fenced leases, so a stale worker can never settle an attempt. Crashes neither lose work nor manufacture success. Transactional enqueue and an outbox commit work together with business data.
+- **Flows:** persisted graphs with bindings, conditions, joins, durable signals, idempotent starts, incident recovery and immutable, versioned definitions.
+- **Admission control:** fleet and per-type limits, per-key concurrency (serialize a customer), tenant quotas, sliding-window rate limits, bounded flow fan-out and weighted fair queues. All are exact across hosts.
+- **Operations:** an embedded Angular console with audited commands, tenant-scoped access, retention with holds, deployment preflight, a read-only MCP endpoint for AI assistants, and OpenTelemetry traces and metrics.
 
-| Location | Purpose |
-|---|---|
-| `src/WorkThrough.Core` | Stable processor identities, flows, state rules, and persistence contracts |
-| `src/WorkThrough.Hosting` | DI composition, background workers, and schedule dispatch |
-| `src/WorkThrough.Storage.*` | SQLite/PostgreSQL/SQL Server/Oracle adapters and shared transactional operations |
-| `src/WorkThrough.Dashboard`, `dashboard-ui` | Protected HTTP APIs and the embedded Angular console |
-| `src/WorkThrough.Generators` | Compile-time processor discovery and registration |
-| `src/WorkThrough.Mcp` | Optional bearer-protected, read-only MCP endpoint without a dashboard dependency |
-| `samples` | API, worker, dashboard-only, direct-processor, and relocation examples |
-| `tests`, `scripts` | Real-provider conformance, package consumers, and deployment proofs |
-| `docs`, `specs` | Architecture decisions, requirements, evidence, and the remaining plan |
+## Quick start
 
-Start with the [samples](samples/README.md). Contributors should read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md); security boundaries are in [SECURITY.md](SECURITY.md). CI runs the verification workflow on pushes and pull requests. A green build is evidence for the tested scenarios, not a production maturity claim.
-
-## Processor identity survives refactoring
+Define an address and a processor. Producers need only the address.
 
 ```csharp
 public static class InvoiceJobs
 {
-    public static JobDefinition<InvoiceInput> Generate { get; } =
-        new("invoices.generate", displayName: "Generate invoice");
-}
-
-[ManualProcessorRegistration]
-public sealed class GenerateInvoice : IProcessor<InvoiceInput>
-{
-    public async Task<JobResult> ProcessAsync(
-        InvoiceInput invoice, JobExecutionContext context, CancellationToken ct)
-    {
-        await context.ReportProgressAsync("Input validated", ct);
-        // Call your service; deduplicate effects using context.IdempotencyKey.
-
-        return JobResult.From(new InvoiceOutput(invoice.InvoiceId, Generated: true));
-    }
+    public static JobDefinition<InvoiceInput> Generate { get; } = new("invoices.generate", displayName: "Generate invoice");
 }
 
 public sealed record InvoiceInput(string InvoiceId);
-public sealed record InvoiceOutput(string InvoiceId, bool Generated);
-```
 
-The database stores the permanent processor key, contract version, and input. It never dispatches using a stored CLR type, method, or assembly-qualified name. Several processors can accept the same input type, including `string`. Typed `[JobContract]` / `IJobHandler<T>` registration remains available through the same registry.
-
-Keep `invoices.generate/v1` and its compatible input/output meaning when moving the class. Reference and deploy its new assembly; explicit or generated registration maps the existing identity to the new implementation. Existing and newly created jobs use that mapping. Historical attempt diagnostics retain the implementation actually used. A [deployment preflight](docs/deployment-preflight.md) checks whether the proposed worker fleet covers the processor versions and queues still required by saved work. Folder moves need no engine action unless they change the compiled namespace/assembly. Incompatible business or payload changes require a new version or an explicit adapter.
-
-The [published relocation proof](scripts/check-refactor.sh) creates typed, future-due raw-string, and persisted flow-step invocations on .NET 8, removes the original assembly, and executes them through a renamed processor assembly on .NET 10. It checks unchanged processor identities and inputs.
-
-## Setup and hosting
-
-Ten local NuGet packages separate Core, Hosting, Dashboard, MCP, Generators, relational mechanics, SQLite, PostgreSQL, SQL Server, and Oracle. Consumers do not need Node. The Angular console is embedded in the Dashboard package.
-
-```csharp
-builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=jobs.db") // Or UsePostgreSql / UseSqlServer / UseOracle with a connection string.
-    .AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)
-    .SeedClusterLimits(new(null, 20), new(InvoiceJobs.Generate.Identity.Key, 3))
-    .AddScheduler()
-    .AddWorker(options =>
+public sealed class GenerateInvoice(IInvoiceService invoices) : IProcessor<InvoiceInput>
+{
+    public async Task<JobResult> ProcessAsync(InvoiceInput input, JobExecutionContext context, CancellationToken ct)
     {
-        options.MaxConcurrentJobs = 8;
-        options.PerJobLimits[InvoiceJobs.Generate.Identity.Key] = 2;
-        options.ExecutionTimeout = TimeSpan.FromMinutes(5);
-        options.ProgressTimeout = TimeSpan.FromMinutes(1);
-    });
+        // Attempts can repeat after a crash: let the external service deduplicate on the stable key.
+        var number = await invoices.CreateAsync(input.InvoiceId, context.IdempotencyKey, ct);
+
+        return JobResult.From(new { number });
+    }
+}
 ```
 
-Reference `WorkThrough.Generators` with `PrivateAssets="all"` in processor projects and the worker composition root, or register explicitly with `.AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)`. Generated registration rejects inaccessible processors and missing stable IDs; conflicting implementations fail at catalog composition. Worker startup resolves handler dependencies before claiming work.
-
-Inject `JobClient`:
-
-```csharp
-await jobs.EnqueueAsync(InvoiceJobs.Generate, invoice,
-    new(CorrelationId: correlationId, IdempotencyKey: requestKey), ct);
-await jobs.EnqueueAsync(InvoiceJobs.Generate, invoice,
-    new(NotBefore: scheduledAt), ct);
-```
-
-The explicit key overload lets producer-only hosts enqueue without the processor DLL. Producer, scheduler, BackgroundService worker, API dashboard, and standalone dashboard roles can be deployed independently. The host controls port/address; `MapWorkThroughDashboard("/operations/jobs")` controls the mount path. Generic workers need no HTTP listener. SQLite requires a shared **absolute local file path** for separate local processes; use a qualified server database for a multi-machine fleet.
-
-Local total/type concurrency and shared total/type limits all apply. Shared limits count valid admitted leases; lowering a limit does not terminate current handlers. A partitioned process can outlive its lease, so external effects still require idempotency/fencing.
-
-Jobs may carry a `PartitionKey` (a business resource) and a `TenantId` (its owner) on enqueue, outbox, schedules and flow runs, separate from `CorrelationId`:
+Register storage, the processor, a worker and a recurring schedule:
 
 ```csharp
 builder.Services.AddWorkThrough()
-    .SeedKeyedLimits(new(KeyScope.Partition, null, 1), new(KeyScope.Tenant, null, 10))
-    .SeedRateLimits(new(InvoiceJobs.Generate.Identity.Key, 100, TimeSpan.FromMinutes(1), PerKey: KeyScope.Tenant));
-
-await jobs.EnqueueAsync(InvoiceJobs.Generate, invoice, new(TenantId: tenant, PartitionKey: $"{tenant}/{invoiceId}"), ct);
-await flows.StartAsync(definition, input, new FlowStart(TenantId: tenant, MaxParallelSteps: 4), ct);
+    .UsePostgreSql(connectionString) // or UseSqlite / UseSqlServer / UseOracle
+    .AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)
+    .SeedSchedules(ScheduleDefinition.Create("invoices.nightly", "0 2 * * *", InvoiceJobs.Generate, new InvoiceInput("batch")))
+    .AddScheduler()
+    .AddWorker(options => options.MaxConcurrentJobs = 8);
 ```
 
-Partition limits serialize or bound each key, tenant limits keep one tenant's backlog from taking every slot, rate limits cap attempt starts per sliding window, and `MaxParallelSteps` releases a wide flow stage gradually. Queues sharing a worker are served by weighted stride scheduling (`SetQueueWeightAsync`, default weight 1). All rules are evaluated in the claim transaction, so they hold across hosts (ADR-018). Partition keys are global; namespace them per tenant when tenants reuse business IDs.
-
-## Flows and recovery
-
-`FlowBuilder` supports sequences, parallel roots, joins, output property bindings, equality conditions, and raw/typed processor input. Every run pins an immutable definition version. `CorrelationId` groups executions; it is not an authorization, deduplication, or locking key.
-
-Flow definitions have **Draft → Published → Retired** lifecycle. Draft edits require an expected revision. Publication validates and freezes the graph. Retiring prevents new starts while existing runs retain their graph. Create a new version to edit published content. The code-first `WorkflowClient.StartAsync(definition, ...)` convenience registers previously unseen graphs as published; it cannot bypass an existing Draft or Retired state.
-
-New builders suspend on exhausted retries: the failed node creates an **Incident**, dependent steps remain waiting, and admission stops until recovery. `OnFailure(FlowFailurePolicy.Stop)` preserves terminal fail-and-skip behavior; schema-1 definitions retain that behavior. Recovery retries the failed step with its original logical job ID, attempts, and idempotency key. Pause/resume controls admission while allowing running attempts to settle.
-
-Flow starts also accept a caller idempotency key:
+Enqueue from anywhere that can reach the store:
 
 ```csharp
-var runId = await flows.StartAsync(definition, input,
-    correlationId: "order:123", idempotencyKey: "process-order:123", cancellationToken: ct);
+await jobs.EnqueueAsync(InvoiceJobs.Generate, new InvoiceInput("INV-42"),
+    new(IdempotencyKey: "invoice:INV-42", NotBefore: DateTimeOffset.UtcNow.AddMinutes(5)), ct);
 ```
 
-Repeat the identical serialized definition/input/correlation and key to recover the accepted run ID after a lost response, even if that definition has since retired. Conflicting reuse fails. Keys are case-sensitive, scoped to the configured store, and distinct from individual-job keys. Without a key, every call creates a new run. This deduplicates logical starts; handlers still execute at least once. See [flow-start semantics](docs/adr/0009-idempotent-flow-starts.md).
+Run several processes, or several machines on a server database, against the same store. Workers claim work under leases; a crashed worker's attempt is recovered when its lease expires. The [Shop sample](samples/README.md) is a complete system: intake API, workers, an approval flow, tenants, limits, a standalone OIDC console and MCP.
 
-Failed attempts retain exception type, message, and stack trace behind diagnostics permission. Configure `DescribeFailure` to redact before storage. Optional progress reporting and execution deadlines distinguish a live lease from useful progress. Deadlines request cooperative cancellation; non-cooperative handlers remain visibly suspected-stalled and occupy their local slot until they return. Expired leases are recovered; stale tokens cannot settle work.
+## Concepts
 
-[Scheduling](docs/scheduling.md) covers cron time zones, draft/publication, enable/pause, overlap, misfires, and transactional occurrence creation. Recurrence currently targets individual processors.
+### Addresses and relocation
 
-## Dashboard and security
+A processor's address is its key and contract version. The database stores that address and the JSON input, never a type, method or assembly name. To move a processor, keep its address and map it to the new class (`AddProcessor`, or the `WorkThrough.Generators` source generator with `[Processor("…")]`). Change the version when the input's meaning changes.
 
-The Angular console reads real storage data: correlation/status filters, saved flow diagrams, attempts and protected stack traces, waiting explanations, draft lifecycle, schedules, worker observations, limits, and an administrative audit trail. It does not load application processor DLLs.
+Retired addresses can be [aliased](docs/identity-evolution.md) to new ones under fleet fencing. [Deployment preflight](docs/deployment-preflight.md) checks that a proposed worker fleet covers every address, version and queue that stored work still needs.
 
-[Bounded execution queries](docs/execution-queries.md) add metadata-only processor/queue/time filters and failed-attempt searches through `IExecutionQueries`, protected `/api/executions` routes, and the optional [MCP package](docs/mcp.md). They include recovered jobs and paginate without loading input/output. MCP uses dedicated bearer authentication, resource authorization, access events and request/query limits; it exposes no administrative actions.
+### Delivery
 
-Configure host authentication before mapping the dashboard. Default policies require `workthrough.permission` claims; hosts can override policies and inspect route resources. Metadata, payloads, recovery, publication, schedules, limits, and audit reads have separate permissions. Administrative actions require CSRF protection, a trusted actor, a reason, a command ID, and state preconditions. Mutation, command deduplication, and successful audit commit together.
+Execution is at least once. Handlers receive `context.IdempotencyKey`, which stays stable across retries.
 
-The [standalone OIDC sample and security guide](docs/dashboard-security.md) reuse an identity provider for user management. The initial isolation boundary is one configured store/environment, not row-scoped multi-tenancy. `AllowAnonymous` is only for an explicitly isolated development host.
+- **Results:** `JobResult.Reject` stops without retrying invalid input. `Defer` reschedules without spending the retry budget. Retries use a configurable policy.
+- **Deadlines:** progress reporting and execution deadlines separate a live lease from useful work. Non-cooperative handlers are reported as suspected-stalled.
+- **Transactions:** `InTransactionAsync` commits jobs with business rows in the same database. `SendAsync` plus an outbox dispatcher delivers to a separate job store.
+- **Failures:** exception details are kept behind a separate permission. Redact them before storage with `DescribeFailure`.
 
-Subscribe to the `WorkThrough` ActivitySource and Meter with OpenTelemetry to export attempt traces/counts/durations. Job/correlation IDs are trace attributes, never metric labels. The console's counts describe stored state; they are not invented throughput or SLA measurements.
+### Flows
 
-## Run and verify
+```csharp
+var fulfil = new FlowBuilder("orders.fulfil", 1)
+    .Step("reserve", Stock.Reserve.Identity).BindInput("orderId", "orderId")
+    .Step("ship", Shipping.Ship.Identity).After("reserve").BindInput("orderId", "orderId")
+    .Build();
 
-Repository builds use SDK 10; SDK/runtime 8 is also required for the compatibility gate. Node 24 builds the Angular assets. NuGet consumers use .NET 8 or 10 without Node.
+var run = await flows.StartAsync(fulfil, new { orderId = "42" }, new FlowStart(IdempotencyKey: "fulfil:42"), ct);
+```
+
+- **Structure:** steps bind inputs from the flow input or earlier outputs. Equality conditions, parallel branches, joins and `WaitForSignal` steps all hold no worker slot while waiting.
+- **Versioning:** every run pins an immutable definition version. Definitions move Draft → Published → Retired.
+- **Failure:** a step that fails by default suspends the run as an **incident**; operators recover the step with its history and idempotency key intact. See [flow starts](docs/adr/0009-idempotent-flow-starts.md) and [architecture](docs/architecture.md).
+
+### Admission control
+
+All limits are evaluated in the claim transaction, so they hold across every host. They count admitted, unexpired leases ([ADR-018](docs/adr/0018-execution-admission-controls.md)).
+
+```csharp
+builder.Services.AddWorkThrough()
+    .SeedClusterLimits(new(null, 50), new(Shipping.Ship.Identity.Key, 5))      // fleet-wide and per type
+    .SeedKeyedLimits(new(KeyScope.Partition, null, 1),                        // one at a time per partition key
+                     new(KeyScope.Tenant, null, 10))                          // at most 10 slots per tenant
+    .SeedRateLimits(new RateLimit(Payments.Charge.Identity.Key, 100, TimeSpan.FromMinutes(1), KeyScope.Tenant));
+
+await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, PartitionKey: $"{tenant}/customer/{id}"), ct);
+```
+
+- **Fan-out:** `FlowStart.MaxParallelSteps` releases a wide flow stage gradually.
+- **Weighted queues:** queues sharing workers are served by weighted fair scheduling.
+- **Seeding:** seeded values are created once. Afterwards operators change them in the console, and redeployments never overwrite those changes.
+- **Partition keys:** keys are global, so namespace them by tenant when tenants reuse IDs.
+
+### Operations and security
+
+- **Console:** the [dashboard](docs/dashboard-security.md) reuses the host's ASP.NET Core authentication.
+  - Permissions are separate for metadata, payloads, recovery, publication, schedules, limits and audit.
+  - Every command is CSRF-protected, attributed to a trusted actor, deduplicated, and committed together with its audit record.
+- **Tenant scoping:** register an `ITenantAccessResolver` to scope users to their tenants ([ADR-019](docs/adr/0019-tenant-access-isolation.md)).
+- **Data operations:** [operations and retention](docs/operations-and-retention.md) covers queue pause, worker drain, replay, archives, retention with holds and verified exports, and event subscriptions.
+- **MCP:** the [MCP endpoint](docs/mcp.md) gives AI assistants bounded, read-only, audited investigation tools behind bearer authentication.
+- **OpenTelemetry:** subscribe to the `WorkThrough` ActivitySource and Meter. Job IDs are trace attributes, never metric labels.
+
+## Documentation
+
+| Topic | Where |
+|---|---|
+| Design and invariants | [Architecture](docs/architecture.md), [decision records](docs/adr), [requirements](specs/durable-jobs.spec.md) |
+| Storage providers and schema upgrades | [Providers](docs/providers.md) |
+| Scheduling | [Scheduling](docs/scheduling.md) |
+| Address changes and aliases | [Identity evolution](docs/identity-evolution.md), [deployment preflight](docs/deployment-preflight.md) |
+| Console, permissions, tenants | [Dashboard security](docs/dashboard-security.md) |
+| Queries and MCP | [Execution queries](docs/execution-queries.md), [MCP](docs/mcp.md) |
+| Operations and retention | [Operations and retention](docs/operations-and-retention.md) |
+| Evidence | [Verification](docs/verification.md), [performance](docs/performance.md) |
+| Roadmap | [Plan](docs/plan.md) |
+
+## Build and verify
+
+Repository builds need .NET SDK 10, a .NET 8 runtime for the compatibility gate, and Node 24 for the console assets. Package consumers need neither Node nor SDK 10.
 
 ```sh
-cd dashboard-ui && npm ci && npm run build && cd ..
-dotnet restore WorkThrough.slnx --disable-parallel -m:1
-dotnet build WorkThrough.slnx -m:1
-ASPNETCORE_ENVIRONMENT=Development dotnet run --project samples/Demo.Host --urls http://127.0.0.1:5295
+./scripts/verify.sh
 ```
 
-Open `/operations/jobs`. In Development, POST `{ "orderId": "123", "amount": 250 }` to `/demo/orders`; an amount above 1000 selects the review branch, and a negative amount creates an intentional incident. The [direct processor sample](samples/Demo.Processor) demonstrates typed definitions, configurable delayed and recurring work; `--once` performs a smoke test.
+The script:
 
-`./scripts/verify.sh` builds the frontend and libraries, tests both runtimes, proves cross-runtime assembly relocation, packs NuGet artifacts, and runs isolated package-only consumers with SDK 8 and SDK 10. Set `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVER` or `DURABLEJOBS_ORACLE` to disposable test databases/servers to include those providers; see [provider instructions](docs/providers.md). If .NET 8 is installed separately, set `WORKTHROUGH_DOTNET8` to its absolute executable path. Local packages are written to `artifacts/packages`.
+- builds the console and libraries;
+- runs the test suite on .NET 10 and .NET 8;
+- runs the relocation proof;
+- packs the ten packages into `artifacts/packages`;
+- runs NuGet-only consumers on SDK 8 and 10;
+- runs the Shop sample's smoke test and preflight;
+- runs process-kill and load smoke exercises.
 
-## Operational extensions and performance
-
-Typed `JobDefinition<T>` addresses let producers and processors share contracts without sharing implementation DLLs. Assign identities at registration, add compatible historical aliases, and activate the reviewed mapping with fleet fencing. See [identity evolution](docs/identity-evolution.md).
-
-The engine includes scoped middleware/validation/retry policies, rejection/deferral, local observers, durable event cursors, queue pause, worker drain, expiry, causation-aware replay, signals/timeouts, transaction/outbox acceptance, and bounded whole-execution archives. The [operations guide](docs/operations-and-retention.md) explains their boundaries; schema-4 upgrades require stopping old engine writers.
-
-Run `scripts/format.sh` for braces, statement spacing, and the requested blank lines; CI enforces `--check`. `scripts/performance.sh --full` starts independent worker processes on disposable SQLite/PostgreSQL/SQL Server stores and records latency distributions, throughput, CPU/memory, environment, and correctness assertions. See [performance methodology and results](docs/performance.md).
+Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVER` or `DURABLEJOBS_ORACLE` point at disposable databases ([providers](docs/providers.md)). Set `WORKTHROUGH_DOTNET8` when .NET 8 lives elsewhere. `scripts/format.sh` applies the code style that CI enforces.
 
 ## Release boundaries
 
-Execution is at least once. Arbitrary side effects cannot be undone by rewinding engine state. Compensation/checkpoint forks, child flows, further providers, optional interoperability/upcasting, partition/rate limits, and deployment-specific production soak/partition campaigns remain in the [plan](docs/plan.md). External OIDC login requires a configured identity provider and has not been verified against a real account. There is no production certification or Native AOT claim.
+- Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation, checkpoint forks and child flows are planned.
+- Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
+- External OIDC sign-in requires a configured identity provider and has not been verified against a real account.
+- There is no production certification and no Native AOT support. Performance figures describe the documented test host.
+- Package publication and the project license are pending maintainer decisions.
 
-The [typed processor and lifecycle exploration](docs/processor-lifecycle-and-extensibility.md) distinguishes existing APIs from implemented middleware, retry policies, and durable subscriptions.
-The [identity evolution design](docs/identity-evolution.md) covers defining a processor before assigning its key and coordinated old-ID aliases, including shared concurrency and rollout requirements.
-
-See [architecture](docs/architecture.md), [decisions](docs/adr), [requirements](specs/durable-jobs.spec.md), [community research](docs/research.md), [verification](docs/verification.md), and [contributor guardrails](AGENTS.md).
+Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Security reports: [SECURITY.md](SECURITY.md). Branching and releases: [branching and release](docs/branching-and-release.md).

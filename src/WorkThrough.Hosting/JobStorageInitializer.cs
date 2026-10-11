@@ -71,8 +71,10 @@ internal sealed class JobStorageInitializer(IJobStore store, StorageInitializati
             var enabled = published.IsSuccess
                 ? await schedules.SetScheduleEnabledAsync(definition.Key, definition.Version, published.Value, true, Command(definition, "enable"), ct)
                 : published;
-            if (enabled.Error is { Type: ErrorType.Conflict })
+            if (enabled.Error is { Type: ErrorType.Conflict } conflict)
             {
+                logger.LogWarning("Seeded schedule {Key} v{Version} was left for an operator: {Reason}", definition.Key, definition.Version, conflict.Message);
+
                 continue;
             }
 

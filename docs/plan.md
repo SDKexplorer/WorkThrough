@@ -58,7 +58,6 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [x] Define execution deadlines and progress reporting separately from worker lease renewal; a live worker is not evidence that its handler is progressing.
 - [x] Add business-write/outbox integration before claiming atomic business operation plus enqueue. Specify supported local transaction boundaries and do not imply cross-database atomicity.
 - [x] Define tenant/environment isolation, viewer/operator permissions and payload redaction for shared hosting: tenant-scoped dashboard/MCP access (ADR-019), separate payload permission (ADR-007) and diagnostic redaction. CorrelationId is never an authorization boundary.
-- [ ] Secret-reference handling for job inputs (store references, resolve in handlers) remains a documented pattern, not an engine feature.
 - [x] Test process-kill, ambiguous commit, database disconnection, SQLite restoration, and resumption scenarios. Document restore reconciliation for external effects; retain the existing at-least-once guarantee. PostgreSQL PITR and multi-machine partition campaigns remain deployment readiness work.
 
 - [x] Implement scoped attempt middleware, typed validation, configurable retry classification, and post-settlement observers as defined in `processor-lifecycle-and-extensibility.md`. Durable lifecycle subscriptions require a separate persisted delivery/outbox contract; local callbacks must not masquerade as reliable delivery.
@@ -67,7 +66,8 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 
 - [x] Add recurring schedules with explicit overlap policies: allow, skip-if-active, and coalesce. Keep schedule identity separate from processor identity.
 - [x] Define named schedule lifecycle, update ownership, pause/resume, and atomic/idempotent occurrence creation. Reuse one processor across immediate jobs, one-time schedules, recurring schedules, and flow steps.
-- [x] Deliver the executable sample set in `samples/README.md`, starting with the .NET 8 direct-processor quickstart and scheduling example. Build and smoke-test runnable samples in CI.
+- [x] Deliver the executable sample in `samples/README.md`: one Shop system (shared definitions, processors, intake API, headless worker, OIDC console, MCP) smoke-tested by `verify.sh`. Relocation fixtures live in `tests/Relocation`.
+- [x] Seed recurring schedules from code (`SeedSchedules`), through the audited lifecycle and without overriding operators.
 - [ ] Optional: add import/export adapters for other engines, such as Hangfire or Wolverine, with explicit identity/payload mappings, supported version shapes and semantic-loss reports. Nice to have; not a release prerequisite.
 - [ ] Add contract upcasters and rolling-deployment capability checks. Preserve pending old versions until compatible consumers exist.
 - [ ] Evaluate automatic canonical flow revisions with optional human labels; pin executions to the chosen revision and make activation/migration explicit. Mandatory integer versions remain the current API.
@@ -88,6 +88,17 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [x] Benchmark idle polling, admission contention, and completion throughput before replacing conservative locking. Independent worker processes, three repeated workloads, raw latency/resource reports, and correctness assertions are in `performance.md`; conservative transaction serialization remains in place.
 - [ ] Define supported platforms/TFMs, compatibility policy, license, final package name, and public release process.
 - [x] Apply the accepted WorkThrough working brand consistently to source/API/package/sample/UI names, with build and package-consumer verification. Package/domain clearance and publication remain separate; persisted processor keys must not change during the rename.
+
+## Product review findings — 2026-10-11
+
+Gaps found when reviewing WorkThrough as an adopter would. None blocks the current guarantees; each needs a maintainer priority.
+
+- [ ] Propagate W3C trace context from enqueue, flow start and outbox delivery to attempt activities, so a producer's trace continues into job execution.
+- [ ] ASP.NET Core health checks for storage reachability, schema version and worker acquisition failures.
+- [ ] Dynamic fan-out: a step that expands into N child steps from its output, joined afterwards. Flows are static graphs today; `MaxParallelSteps` already bounds wide stages.
+- [ ] Payload protection: encryption at rest or a supported secret-reference pattern for sensitive inputs. Today inputs are stored as JSON, protected by database access and the payload permission.
+- [ ] MySQL/MariaDB provider, a common request from Hangfire users.
+- [ ] One recommended programming model in public docs: `JobDefinition` + `IProcessor` is the primary path; `[JobContract]` + `IJobHandler` remains supported for type-addressed messages.
 
 ## Exit criteria for the initial repository
 

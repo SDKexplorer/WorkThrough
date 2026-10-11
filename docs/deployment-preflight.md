@@ -26,11 +26,11 @@ The dashboard's **Workers & capacity → Processor coverage** view compares requ
 
 ```sh
 # JSON describing the sample worker's registered processor identities and queues:
-dotnet run --project samples/Demo.Worker -- --describe-worker
+dotnet run --project samples/Shop.Worker -- --describe-worker
 
 # Read an existing initialized store and exit 0 for complete coverage, 2 otherwise:
-Jobs__ConnectionString='Data Source=/absolute/path/jobs.db' \
-  dotnet run --project samples/Demo.Worker -- --preflight
+Shop__Sqlite='Data Source=/absolute/path/shop.db' \
+  dotnet run --project samples/Shop.Worker -- --preflight
 ```
 
 These command modes build the composition root but do not start hosted workers, seed limits, initialize storage, or process jobs. The sample checks its own profile; use the SDK to combine profiles. Connection/schema failures remain errors, never a successful empty report.
