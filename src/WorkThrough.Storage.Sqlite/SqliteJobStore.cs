@@ -4,7 +4,13 @@ using Microsoft.Data.Sqlite;
 namespace WorkThrough.Storage;
 
 /// <summary>File-backed SQLite provider. Admission writes serialize through an immediate transaction.</summary>
-public sealed record SqliteStorageOptions(bool UseWriteAheadLogging = true);
+public sealed record SqliteStorageOptions(bool UseWriteAheadLogging = true)
+{
+    /// <summary>
+    /// For tests: shifts the store's clock, which every delay, retry, deadline, schedule and lease reads. Leave unset in production.
+    /// </summary>
+    public Func<TimeSpan>? ClockOffset { get; init; }
+}
 
 public sealed class SqliteJobStore : RelationalJobStore
 {
@@ -28,6 +34,7 @@ public sealed class SqliteJobStore : RelationalJobStore
     private readonly string connectionString;
     private readonly bool useWriteAheadLogging;
     private readonly int busyTimeoutMilliseconds;
+    private readonly Func<TimeSpan>? clockOffset;
 
     public SqliteJobStore(string connectionString) : this(connectionString, new SqliteStorageOptions())
     {
@@ -37,6 +44,7 @@ public sealed class SqliteJobStore : RelationalJobStore
     {
         ArgumentNullException.ThrowIfNull(options);
         useWriteAheadLogging = options.UseWriteAheadLogging;
+        clockOffset = options.ClockOffset;
         var builder = new SqliteConnectionStringBuilder(connectionString);
         if (builder.Mode == SqliteOpenMode.Memory || builder.DataSource == ":memory:" || string.IsNullOrWhiteSpace(builder.DataSource))
         {
@@ -85,7 +93,9 @@ public sealed class SqliteJobStore : RelationalJobStore
     }
 
     protected override DbConnection CreateConnection() => new SqliteConnection(connectionString);
-    protected override string ClockSql => "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)";
+    protected override string ClockSql => clockOffset is null
+        ? "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)"
+        : $"SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER) + {(long)clockOffset().TotalMilliseconds}";
     protected override string FlowDependencySql => """
         SELECT DISTINCT predecessor_job.id,successor_job.id
         FROM dj_flows f JOIN dj_definitions d ON d.flow_key=f.flow_key AND d.version=f.version

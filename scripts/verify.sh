@@ -9,6 +9,7 @@ dotnet restore WorkThrough.slnx --disable-parallel -m:1 -nr:false
 dotnet build WorkThrough.slnx -c Release --no-restore -m:1 -nr:false -p:UseSharedCompilation=false
 ./scripts/format.sh --check
 dotnet test tests/WorkThrough.Tests -c Release -f net10.0 --no-build --no-restore -m:1 -nr:false
+dotnet test samples/Shop.Tests -c Release --no-build --no-restore -m:1 -nr:false
 sdk8_dir="$(mktemp -d "$repo_dir/artifacts/consumer-sdk8-XXXXXXXX")"
 cp tests/PackageConsumer/PackageConsumer.csproj tests/PackageConsumer/*.cs "$sdk8_dir/"
 cat > "$sdk8_dir/global.json" <<'JSON'

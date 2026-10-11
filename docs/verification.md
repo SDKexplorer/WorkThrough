@@ -297,3 +297,5 @@ New coverage on every provider:
   - a flow that starts itself stops at depth 8, and the failure reaches the outermost run;
   - child flows wait for protocol 4.
 
+`WorkThrough.Testing` (2026-10-11): the test host runs delayed work and retry backoff after `AdvanceAsync`, exposes typed step outputs, and describes every step when an assertion fails. `samples/Shop.Tests` runs the checkout flow through it, and the package consumer uses it from the packed NuGet package. SQLite + PostgreSQL: 341 passed, 3 skipped.
+

@@ -6,6 +6,7 @@
     <PackageReference Include="WorkThrough.Storage.SqlServer" Version="0.1.0-alpha.1" />
     <PackageReference Include="WorkThrough.Storage.Sqlite" Version="0.1.0-alpha.1" />
     <PackageReference Include="WorkThrough.Mcp" Version="0.1.0-alpha.1" />
+    <PackageReference Include="WorkThrough.Testing" Version="0.1.0-alpha.1" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="WorkThrough.Generators" Version="0.1.0-alpha.1" PrivateAssets="all" />
   </ItemGroup>

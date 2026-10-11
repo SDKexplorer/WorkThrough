@@ -94,6 +94,7 @@ finally
     File.Delete(database);
 }
 
+await TestingPackageSmoke.RunAsync();
 await SqlServerPackageSmoke.RunAsync();
 await OraclePackageSmoke.RunAsync();
 

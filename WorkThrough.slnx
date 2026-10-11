@@ -8,6 +8,7 @@
     <Project Path="samples/Shop.Worker/Shop.Worker.csproj" />
     <Project Path="samples/Shop.Dashboard/Shop.Dashboard.csproj" />
     <Project Path="samples/Shop.Mcp/Shop.Mcp.csproj" />
+    <Project Path="samples/Shop.Tests/Shop.Tests.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/WorkThrough.Core/WorkThrough.Core.csproj" />
@@ -20,6 +21,7 @@
     <Project Path="src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
     <Project Path="src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
     <Project Path="src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
+    <Project Path="src/WorkThrough.Testing/WorkThrough.Testing.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/WorkThrough.CodeStyle/WorkThrough.CodeStyle.csproj" />

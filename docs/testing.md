@@ -22,56 +22,42 @@ public async Task Rejects_non_positive_amounts()
 
 `context.IdempotencyKey` derives from `JobId`, so a test can check that an external call receives the same key on every attempt. Progress reports go nowhere unless you set `Progress` on the context.
 
-## Integration tests: a temporary SQLite file
+## Integration tests: `WorkThrough.Testing`
 
-For flows, retries, limits or the outbox, run the real engine against a throwaway file. SQLite needs no server, and a file per test keeps tests independent:
+For flows, retries, delays, signals, schedules or limits, use `WorkThroughTestHost` from the `WorkThrough.Testing` package. It runs the real store, worker and scheduler on a throwaway SQLite file, so tests exercise the same SQL and admission rules as production. Its clock can move forward.
 
 ```csharp
-public sealed class CheckoutTests : IAsyncLifetime
+[Fact]
+public async Task A_small_order_completes_its_checkout()
 {
-    private readonly string path = Path.Combine(Path.GetTempPath(), $"workthrough-{Guid.NewGuid():N}.db");
-    private IHost host = null!;
+    // The Shop sample's jobs; a second callback replaces their dependencies, e.g. services.AddSingleton<IMailer, FakeMailer>().
+    await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough.AddShopJobs(), queues: ShopJobRegistration.Queues);
 
-    public async Task InitializeAsync()
-    {
-        var builder = Host.CreateApplicationBuilder();
-        builder.Services.AddWorkThrough()
-            .UseSqlite($"Data Source={path}")
-            .AddShopJobs()
-            .AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
-        host = builder.Build();
-        await host.StartAsync();
-    }
+    var order = new OrderPlaced("order-1", "tenant-a", "ada", 40m);
+    var run = await host.Flows.StartAsync(CheckoutFlow.Definition, order, CheckoutFlow.Start(order));
 
-    [Fact]
-    public async Task A_small_order_completes_its_checkout()
-    {
-        var flows = host.Services.GetRequiredService<WorkflowClient>();
-        var queries = host.Services.GetRequiredService<IJobQueries>();
-        var order = new OrderPlaced("order-1", "tenant-a", "ada", 40m);
-        var run = await flows.StartAsync(CheckoutFlow.Definition, order, CheckoutFlow.Start(order));
-
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        while ((await queries.GetWorkflowAsync(run, timeout.Token))?.Status != FlowStatus.Succeeded)
-        {
-            await Task.Delay(50, timeout.Token);
-        }
-    }
-
-    public async Task DisposeAsync()
-    {
-        await host.StopAsync();
-        host.Dispose();
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        File.Delete(path);
-    }
+    var flow = (await host.WaitForFlowAsync(run)).AssertSucceeded();
+    Assert.False(flow.Step("charge").Output<Payment>().NeedsReview);
 }
 ```
 
-- Poll for the expected state with a deadline rather than sleeping a fixed time; workers run asynchronously.
-- To test a step in isolation, enqueue its job with `JobClient` and wait for `IJobQueries.GetAsync` to report `Succeeded`.
-- To test a failure path, make a fake dependency throw and assert on `AttemptsAsync` and `FailuresAsync`, which also show retries.
-- For PostgreSQL, SQL Server or Oracle, point the same test at a disposable database or schema created per test run. `tests/WorkThrough.Tests/StoreHarness.cs` in this repository does that for all four providers.
+This test runs in [`samples/Shop.Tests`](../samples/Shop.Tests/CheckoutTests.cs).
+
+- **Queues:** the worker serves the default queue unless you pass `queues`. A wait that times out names any queue with work the host does not serve.
+- **Dependencies:** jobs are resolved from DI as in production. Replace their dependencies, such as a payment client, with test doubles in the second callback.
+- **Time:**
+  - `AdvanceAsync(TimeSpan)` moves the store's clock, which every delay, retry backoff, signal deadline, schedule and lease reads.
+  - `host.UtcNow` is the moved time, for `NotBefore` values.
+  - Advance while no job is running: moving past a running job's lease makes it look abandoned, as a crashed worker would.
+- **Waits:**
+  - `WaitForJobAsync` waits until a job is terminal.
+  - `WaitForFlowAsync` waits until a run succeeds, fails or needs an operator.
+  - `WaitUntilIdleAsync` waits until nothing runs and nothing is due.
+
+  Each fails after 30 seconds with the current state, for example every step's status and error.
+- **Assertions:** `AssertSucceeded()` and `AssertStatus(...)` describe every step when they fail. `Step("id").Output<T>()` and `Input<T>()` read DTOs. Fan-out items are `step[0]`, `step[1]`, and so on.
+- **Direct access:** `host.Jobs`, `host.Flows`, `host.Queries` and `host.Store` are the production clients. For example, `host.Store.RecoverStepAsync(...)` drives an incident's recovery.
+- **Other databases:** for PostgreSQL, SQL Server or Oracle, point the same tests at a disposable database or schema created per test run. `tests/WorkThrough.Tests/StoreHarness.cs` in this repository does that for all four providers.
 
 ## Contract tests: stored work still reads
 

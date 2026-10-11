@@ -176,7 +176,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 | Console, permissions, tenants | [Dashboard security](docs/dashboard-security.md) |
 | Queries and MCP | [Execution queries](docs/execution-queries.md), [MCP](docs/mcp.md) |
 | Operations and retention | [Operations and retention](docs/operations-and-retention.md) |
-| Testing jobs and flows | [Testing](docs/testing.md) |
+| Testing jobs and flows, `WorkThrough.Testing` | [Testing](docs/testing.md) |
 | Evidence | [Verification](docs/verification.md), [performance](docs/performance.md) |
 | Roadmap | [Plan](docs/plan.md) |
 
@@ -193,7 +193,7 @@ The script:
 - builds the console and libraries;
 - runs the test suite on .NET 10 and .NET 8;
 - runs the relocation proof;
-- packs the ten packages and the `WorkThrough.Templates` package into `artifacts/packages`;
+- packs the eleven packages and the `WorkThrough.Templates` package into `artifacts/packages`;
 - creates and builds every template with every storage provider, and runs the SQLite projects;
 - runs NuGet-only consumers on SDK 8 and 10;
 - runs the Shop sample's smoke test and preflight;

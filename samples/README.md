@@ -26,6 +26,7 @@ One small shop, deployed the way a real system would be: shared definitions, job
 | `Shop.Worker` | Headless worker for scaling out. `--describe-worker` prints its capabilities; `--preflight` checks that it covers the stored work. |
 | `Shop.Dashboard` | Standalone console with OIDC sign-in, role-based permissions and tenant-scoped users. References no job code. |
 | `Shop.Mcp` | Read-only MCP endpoint for AI assistants, with bearer authentication and the same tenant scoping. |
+| `Shop.Tests` | The checkout flow tested on the real engine with `WorkThrough.Testing`. |
 
 ## Run it
 
