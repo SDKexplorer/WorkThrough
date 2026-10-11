@@ -2,10 +2,10 @@ using WorkThrough;
 
 namespace NewCompany.Documents;
 
-[Processor("documents.raw")]
-public sealed class RelocatedRawProcessor : IProcessor<string>
+[Job("documents.raw")]
+public sealed class RelocatedRawProcessor : IJob<string>
 {
-    public Task<JobResult> ProcessAsync(string input, JobExecutionContext context, CancellationToken cancellationToken)
+    public Task<JobResult> ExecuteAsync(string input, JobExecutionContext context, CancellationToken cancellationToken)
     {
         using var document = System.Text.Json.JsonDocument.Parse(input);
 
@@ -20,9 +20,9 @@ public sealed class RelocatedRawProcessor : IProcessor<string>
 [JobContract("documents.generate")]
 public sealed record DocumentRequest(string DocumentId);
 
-public sealed class RenamedProcessor : IJobHandler<DocumentRequest>
+public sealed class RenamedProcessor : IJob<DocumentRequest>
 {
-    public Task<JobResult> HandleAsync(DocumentRequest job, JobExecutionContext context, CancellationToken cancellationToken) =>
+    public Task<JobResult> ExecuteAsync(DocumentRequest job, JobExecutionContext context, CancellationToken cancellationToken) =>
         Task.FromResult(JobResult.From(new
         {
             job.DocumentId,
@@ -30,10 +30,10 @@ public sealed class RenamedProcessor : IJobHandler<DocumentRequest>
         }));
 }
 
-[ManualProcessorRegistration]
-public sealed class RenamedAddressProcessor : IProcessor<string>
+[ManualJobRegistration]
+public sealed class RenamedAddressProcessor : IJob<string>
 {
     private readonly RelocatedRawProcessor processor = new();
-    public Task<JobResult> ProcessAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
-        processor.ProcessAsync(input, context, cancellationToken);
+    public Task<JobResult> ExecuteAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
+        processor.ExecuteAsync(input, context, cancellationToken);
 }

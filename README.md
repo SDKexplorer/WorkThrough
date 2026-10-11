@@ -4,13 +4,13 @@
 
 **Move your code. Keep your work.**
 
-Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite, PostgreSQL, SQL Server or Oracle. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so processors can move between classes, namespaces, projects and assemblies while jobs are queued.
+Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite, PostgreSQL, SQL Server or Oracle. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so job classes can move between classes, namespaces, projects and assemblies while jobs are queued.
 
 > **Status: alpha.** All four providers pass their [verification](docs/verification.md), packages are built locally and not yet published, and there is no production certification. See [release boundaries](#release-boundaries).
 
 ## Why WorkThrough
 
-- **Refactor-safe:** dispatch by explicit, versioned addresses. A [published relocation proof](scripts/check-refactor.sh) runs queued work after its processors moved to a renamed assembly on another runtime.
+- **Refactor-safe:** dispatch by explicit, versioned addresses. A [published relocation proof](scripts/check-refactor.sh) runs queued work after its job classes moved to a renamed assembly on another runtime.
 - **Honest delivery:** at least once, with fenced leases, so a stale worker can never settle an attempt. Crashes neither lose work nor manufacture success. Transactional enqueue and an outbox commit work together with business data.
 - **Flows:** persisted graphs with bindings, conditions, joins, durable signals, idempotent starts, incident recovery and immutable, versioned definitions.
 - **Admission control:** fleet and per-type limits, per-key concurrency (serialize a customer), tenant quotas, sliding-window rate limits, bounded flow fan-out and weighted fair queues. All are exact across hosts.
@@ -18,7 +18,7 @@ Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite
 
 ## Quick start
 
-Define an address and a processor. Producers need only the address.
+Define an address and a job. Producers need only the address.
 
 ```csharp
 public static class InvoiceJobs
@@ -28,9 +28,9 @@ public static class InvoiceJobs
 
 public sealed record InvoiceInput(string InvoiceId);
 
-public sealed class GenerateInvoice(IInvoiceService invoices) : IProcessor<InvoiceInput>
+public sealed class GenerateInvoice(IInvoiceService invoices) : IJob<InvoiceInput>
 {
-    public async Task<JobResult> ProcessAsync(InvoiceInput input, JobExecutionContext context, CancellationToken ct)
+    public async Task<JobResult> ExecuteAsync(InvoiceInput input, JobExecutionContext context, CancellationToken ct)
     {
         // Attempts can repeat after a crash: let the external service deduplicate on the stable key.
         var number = await invoices.CreateAsync(input.InvoiceId, context.IdempotencyKey, ct);
@@ -40,12 +40,12 @@ public sealed class GenerateInvoice(IInvoiceService invoices) : IProcessor<Invoi
 }
 ```
 
-Register storage, the processor, a worker and a recurring schedule:
+Register storage, the job, a worker and a recurring schedule:
 
 ```csharp
 builder.Services.AddWorkThrough()
     .UsePostgreSql(connectionString) // or UseSqlite / UseSqlServer / UseOracle
-    .AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)
+    .AddJob<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)
     .SeedSchedules(ScheduleDefinition.Create("invoices.nightly", "0 2 * * *", InvoiceJobs.Generate, new InvoiceInput("batch")))
     .AddScheduler()
     .AddWorker(options => options.MaxConcurrentJobs = 8);
@@ -64,9 +64,9 @@ Run several processes, or several machines on a server database, against the sam
 
 ### Addresses and relocation
 
-A processor's address is its key and contract version. The database stores that address and the JSON input, never a type, method or assembly name. To move a processor, keep its address and map it to the new class (`AddProcessor`, or the `WorkThrough.Generators` source generator with `[Processor("…")]`). Change the version when the input's meaning changes.
+A job's address is its key and contract version. The database stores that address and the JSON input, never a type, method or assembly name. To move a job class, keep its address and map it to the new class (`AddJob`, or the `WorkThrough.Generators` source generator with `[Job("…")]`). Change the version when the input's meaning changes.
 
-Prefer `JobDefinition` + `IProcessor<T>`: the address is declared once and several processors may accept the same input type. `[JobContract]` on a message type with `IJobHandler<T>` remains supported when the type itself should be the address.
+Every job implements `IJob<TInput>`. Its address comes from a `JobDefinition` passed to `AddJob` (preferred: declared once, shared with producers, and several jobs may accept the same input type), from `[Job("key")]` on the class, or from `[JobContract("key")]` on the input type when the message type itself should be the address.
 
 Retired addresses can be [aliased](docs/identity-evolution.md) to new ones under fleet fencing. [Deployment preflight](docs/deployment-preflight.md) checks that a proposed worker fleet covers every address, version and queue that stored work still needs.
 
@@ -131,6 +131,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 
 | Topic | Where |
 |---|---|
+| How it compares with Hangfire, Quartz.NET, Wolverine, MassTransit, Temporal | [Comparison](docs/comparison.md) |
 | Design and invariants | [Architecture](docs/architecture.md), [decision records](docs/adr), [requirements](specs/durable-jobs.spec.md) |
 | Storage providers and schema upgrades | [Providers](docs/providers.md) |
 | Scheduling | [Scheduling](docs/scheduling.md) |
@@ -138,7 +139,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 | Console, permissions, tenants | [Dashboard security](docs/dashboard-security.md) |
 | Queries and MCP | [Execution queries](docs/execution-queries.md), [MCP](docs/mcp.md) |
 | Operations and retention | [Operations and retention](docs/operations-and-retention.md) |
-| Testing processors and flows | [Testing](docs/testing.md) |
+| Testing jobs and flows | [Testing](docs/testing.md) |
 | Evidence | [Verification](docs/verification.md), [performance](docs/performance.md) |
 | Roadmap | [Plan](docs/plan.md) |
 

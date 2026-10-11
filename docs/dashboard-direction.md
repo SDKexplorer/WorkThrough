@@ -29,7 +29,7 @@ The first flow view is an **execution inspector** of the saved definition revisi
 
 ## The distinctive processor view
 
-Show the stable `ProcessorId` prominently, supported input/output contract versions, deployment capability coverage, queues, and current implementation diagnostics. Implementation class and assembly names are observations, never execution identity.
+Show the stable job address prominently, supported input/output contract versions, deployment capability coverage, queues, and current implementation diagnostics. Implementation class and assembly names are observations, never execution identity.
 
 Show old and new implementation names across attempt/deployment history without suggesting that old rows need migration. During a rolling deployment, multiple compatible implementations may exist at once: do not present one global class name as authoritative. Explain unsupported processor/version/queue combinations before a developer discovers a backlog.
 

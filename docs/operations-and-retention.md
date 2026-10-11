@@ -81,6 +81,8 @@ if (!result.IsSuccess)
 
 Administrative commands return `Result`/`Result<T>` instead of throwing for expected failures (ADR 017).
 
+From deployment code or scripts, build a command in one line: `AdministrativeCommand.New(OperationActor.Service("billing-deploy"), "Raise invoice concurrency")`. Each command is audited under that service name. To retry after a lost response, resend the same command instance: its ID makes the retry return the original result instead of applying the change twice.
+
 These durations are an example, not defaults. Omit `FailedAfter` to retain unsuccessful executions indefinitely. Omit both `PurgeAfter` and `ExportDestination` to keep archive bodies. `EventsAfter` is a separate opt-in age for journal cleanup, additionally bounded by every subscriber and live/held evidence. Maintenance does not expire acceptance receipts or audit records. Policy revisions survive deployments; do not overwrite them on every application startup.
 
 `SetRetentionHoldAsync(unitId, held, expectedRevision, command)` protects a whole unit from manual/automatic archival, body purge and event trimming. For a live flow step, use the returned flow ID for future hold reads/changes. Holds do not restore previously removed evidence. Hold reasons remain in protected audit data. Release holds and retry incidents only after reviewing why evidence was retained.

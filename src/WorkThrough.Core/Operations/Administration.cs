@@ -1,9 +1,19 @@
 namespace WorkThrough;
 
 /// <summary>A trusted host supplies the issuer and stable subject; display names are historical labels.</summary>
-public sealed record OperationActor(string Issuer, string Subject, string? DisplayName = null);
+public sealed record OperationActor(string Issuer, string Subject, string? DisplayName = null)
+{
+    public const string ServiceIssuer = "service";
 
-public sealed record AdministrativeCommand(Guid Id, OperationActor Actor, string Reason);
+    /// <summary>An application, script or deployment acting through code rather than a signed-in user.</summary>
+    public static OperationActor Service(string name) => new(ServiceIssuer, name, name);
+}
+
+public sealed record AdministrativeCommand(Guid Id, OperationActor Actor, string Reason)
+{
+    /// <summary>A command with a fresh ID. To retry the same command safely after a lost response, resend this same instance.</summary>
+    public static AdministrativeCommand New(OperationActor actor, string reason) => new(Guid.NewGuid(), actor, reason);
+}
 
 public sealed record AuditEntry(Guid CommandId, DateTimeOffset At, OperationActor Actor, string Action, string Target, string Reason, string Outcome, string? Changes = null);
 

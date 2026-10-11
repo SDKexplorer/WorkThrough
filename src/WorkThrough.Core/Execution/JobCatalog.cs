@@ -12,28 +12,24 @@ public sealed class JobCatalog : IJobRegistrar
     public IReadOnlyList<ProcessorAliasMapping> Aliases => registrations.Values.Where(r => r.Identity != r.CanonicalIdentity)
         .Select(r => new ProcessorAliasMapping(r.Identity, r.CanonicalIdentity)).OrderBy(r => r.Alias.Key, StringComparer.Ordinal).ThenBy(r => r.Alias.Version).ToArray();
 
-    public void Register<TJob, THandler>() where THandler : class, IJobHandler<TJob> =>
-        Add<TJob, THandler>(JobContractId.For<TJob>(), null, [], (handler, input, context, ct) => handler.HandleAsync(input, context, ct));
+    public void Register<TInput, TJob>() where TJob : class, IJob<TInput> =>
+        Register<TInput, TJob>(new JobDefinition<TInput>(JobIdentity.For<TJob>(), JobIdentity.DisplayName(typeof(TJob))));
 
-    public void RegisterProcessor<TInput, TProcessor>() where TProcessor : class, IProcessor<TInput> =>
-        RegisterProcessor<TInput, TProcessor>(new JobDefinition<TInput>(ProcessorId.For<TProcessor>(),
-            typeof(TProcessor).GetCustomAttribute<ProcessorAttribute>()?.DisplayName));
-
-    /// <summary>Registers behavior independently from implementation attributes.</summary>
-    public void RegisterProcessor<TInput, TProcessor>(JobDefinition<TInput> definition, params JobContractId[] aliases)
-        where TProcessor : class, IProcessor<TInput>
+    /// <summary>Binds an address to a job class at the composition root; a [Job] attribute on the class must agree with it.</summary>
+    public void Register<TInput, TJob>(JobDefinition<TInput> definition, params JobContractId[] aliases)
+        where TJob : class, IJob<TInput>
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(aliases);
-        if (typeof(TProcessor).GetCustomAttribute<ProcessorAttribute>() is { } attribute
-            && new JobContractId(attribute.Id, attribute.Version) != definition.Identity)
+        if (typeof(TJob).GetCustomAttribute<JobAttribute>() is { } attribute
+            && new JobContractId(attribute.Key, attribute.Version) != definition.Identity)
         {
-            throw new InvalidOperationException("Explicit and attributed processor identities must agree.");
+            throw new InvalidOperationException("Explicit and attributed job addresses must agree.");
         }
 
-        var declared = typeof(TProcessor).GetCustomAttributes<ProcessorAliasAttribute>().Select(a => new JobContractId(a.Id, a.Version));
-        Add<TInput, TProcessor>(definition.Identity, definition.DisplayName, declared.Concat(aliases).Distinct().ToArray(),
-            (processor, input, context, ct) => processor.ProcessAsync(input, context, ct));
+        var declared = typeof(TJob).GetCustomAttributes<JobAliasAttribute>().Select(a => new JobContractId(a.Key, a.Version));
+        Add<TInput, TJob>(definition.Identity, definition.DisplayName, declared.Concat(aliases).Distinct().ToArray(),
+            (job, input, context, ct) => job.ExecuteAsync(input, context, ct));
     }
 
     private void Add<TJob, THandler>(JobContractId identity, string? displayName, JobContractId[] aliases,
@@ -46,7 +42,7 @@ public sealed class JobCatalog : IJobRegistrar
 
         if (sealedCatalog)
         {
-            throw new InvalidOperationException("Processor registration is closed after worker startup.");
+            throw new InvalidOperationException("Job registration is closed after worker startup.");
         }
 
         if (aliases.Any(a => a is null || a == identity))
@@ -85,7 +81,7 @@ public sealed class JobCatalog : IJobRegistrar
     }
 
     public JobRegistration Get(JobContractId identity) => registrations.TryGetValue(identity, out var registration)
-        ? registration : throw new InvalidOperationException($"No handler is registered for {identity}.");
+        ? registration : throw new InvalidOperationException($"No job is registered for {identity}.");
     public string CapacityKey(string key) => registrations.Values.FirstOrDefault(r => r.Identity.Key == key)?.CanonicalIdentity.Key ?? key;
     public void Seal() => sealedCatalog = true;
 

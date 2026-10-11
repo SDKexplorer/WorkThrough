@@ -9,12 +9,10 @@ namespace WorkThrough.Generators;
 [Generator]
 public sealed class JobModuleGenerator : IIncrementalGenerator
 {
-    private static readonly DiagnosticDescriptor InvalidContract = new("WT001", "Missing stable contract identity",
-        "Handler '{0}' handles '{1}', which has no JobContract attribute", "WorkThrough", DiagnosticSeverity.Error, true);
-    private static readonly DiagnosticDescriptor InaccessibleHandler = new("WT002", "Handler must be public and concrete",
-        "Handler '{0}' must be a public, top-level class", "WorkThrough", DiagnosticSeverity.Error, true);
-    private static readonly DiagnosticDescriptor InvalidProcessor = new("WT003", "Missing stable processor identity",
-        "Processor '{0}' has no Processor attribute", "WorkThrough", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor InaccessibleJob = new("WT002", "Job must be public and top-level",
+        "Job '{0}' must be a public, top-level class", "WorkThrough", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor MissingAddress = new("WT003", "Missing stable job address",
+        "Job '{0}' needs a [Job] address, or an input type with a [JobContract] address", "WorkThrough", DiagnosticSeverity.Error, true);
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -57,12 +55,10 @@ public sealed class JobModuleGenerator : IIncrementalGenerator
                     continue;
                 }
 
-                foreach (var contract in handler.AllInterfaces.Where(x => x.OriginalDefinition.ToDisplayString()
-                    is "WorkThrough.IJobHandler<TJob>" or "WorkThrough.IProcessor<TInput>"))
+                foreach (var contract in handler.AllInterfaces.Where(x => x.OriginalDefinition.ToDisplayString() == "WorkThrough.IJob<TInput>"))
                 {
-                    var isProcessor = contract.OriginalDefinition.Name == "IProcessor";
-                    var request = contract.TypeArguments[0];
-                    if (isProcessor && handler.GetAttributes().Any(x => x.AttributeClass?.ToDisplayString() == "WorkThrough.ManualProcessorRegistrationAttribute"))
+                    var input = contract.TypeArguments[0];
+                    if (HasAttribute(handler, "WorkThrough.ManualJobRegistrationAttribute"))
                     {
                         continue;
                     }
@@ -75,23 +71,17 @@ public sealed class JobModuleGenerator : IIncrementalGenerator
 
                     if (handler.TypeKind != TypeKind.Class || handler.DeclaredAccessibility != Accessibility.Public || handler.ContainingType is not null)
                     {
-                        output.ReportDiagnostic(Diagnostic.Create(InaccessibleHandler, handler.Locations.FirstOrDefault(), handler.Name));
+                        output.ReportDiagnostic(Diagnostic.Create(InaccessibleJob, handler.Locations.FirstOrDefault(), handler.Name));
                         continue;
                     }
 
-                    if (isProcessor && !handler.GetAttributes().Any(x => x.AttributeClass?.ToDisplayString() == "WorkThrough.ProcessorAttribute"))
+                    if (!HasAttribute(handler, "WorkThrough.JobAttribute") && !HasAttribute(input, "WorkThrough.JobContractAttribute"))
                     {
-                        output.ReportDiagnostic(Diagnostic.Create(InvalidProcessor, handler.Locations.FirstOrDefault(), handler.Name));
+                        output.ReportDiagnostic(Diagnostic.Create(MissingAddress, handler.Locations.FirstOrDefault(), handler.Name));
                         continue;
                     }
 
-                    if (!isProcessor && !request.GetAttributes().Any(x => x.AttributeClass?.ToDisplayString() == "WorkThrough.JobContractAttribute"))
-                    {
-                        output.ReportDiagnostic(Diagnostic.Create(InvalidContract, handler.Locations.FirstOrDefault(), handler.Name, request.Name));
-                        continue;
-                    }
-
-                    source.Append(isProcessor ? "registrar.RegisterProcessor<" : "registrar.Register<").Append(request.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append(", ")
+                    source.Append("registrar.Register<").Append(input.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append(", ")
                         .Append(handler.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append(">();\n");
                 }
             }
@@ -100,4 +90,7 @@ public sealed class JobModuleGenerator : IIncrementalGenerator
             output.AddSource("WorkThrough.Module.g.cs", SourceText.From(source.ToString(), Encoding.UTF8));
         });
     }
+
+    private static bool HasAttribute(ISymbol symbol, string attribute) =>
+        symbol.GetAttributes().Any(x => x.AttributeClass?.ToDisplayString() == attribute);
 }

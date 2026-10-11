@@ -7,14 +7,14 @@ var database = Path.Combine(Path.GetTempPath(), $"durablejobs-package-{Guid.NewG
 var manualDefinition = new JobDefinition<InvoiceInput>("smoke.manual", displayName: "Explicit invoice");
 var builder = Host.CreateApplicationBuilder();
 builder.Services.AddWorkThrough().UseSqlite($"Data Source={database};Pooling=False")
-    .AddGeneratedJobs(typeof(Program).Assembly).AddProcessor<InvoiceInput, ExplicitInvoiceProcessor>(manualDefinition).AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
+    .AddGeneratedJobs(typeof(Program).Assembly).AddJob<InvoiceInput, ExplicitInvoiceProcessor>(manualDefinition).AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
 using var host = builder.Build();
 await host.StartAsync();
 try
 {
     var id = await host.Services.GetRequiredService<JobClient>().EnqueueAsync(new PackageJob("package-only"));
-    var rawId = await host.Services.GetRequiredService<JobClient>().EnqueueAsync(ProcessorId.For<RawProcessor>(), "{\"raw\":true}");
-    var typedId = await host.Services.GetRequiredService<JobClient>().EnqueueAsync(ProcessorId.For<InvoiceProcessor>(), new InvoiceInput("INV-123"));
+    var rawId = await host.Services.GetRequiredService<JobClient>().EnqueueAsync(JobIdentity.For<RawProcessor>(), "{\"raw\":true}");
+    var typedId = await host.Services.GetRequiredService<JobClient>().EnqueueAsync(JobIdentity.For<InvoiceProcessor>(), new InvoiceInput("INV-123"));
     var manualId = await host.Services.GetRequiredService<JobClient>().EnqueueAsync(manualDefinition, new InvoiceInput("INV-MANUAL"));
     var queries = host.Services.GetRequiredService<IJobQueries>();
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -54,8 +54,8 @@ try
     }
 
     var flows = host.Services.GetRequiredService<WorkflowClient>();
-    var flow = new FlowBuilder("smoke.flow", 1).Step("raw", ProcessorId.For<RawProcessor>(), "flow input")
-        .Step("last", ProcessorId.For<RawProcessor>(), "follow-up").After("raw").Build();
+    var flow = new FlowBuilder("smoke.flow", 1).Step("raw", JobIdentity.For<RawProcessor>(), "flow input")
+        .Step("last", JobIdentity.For<RawProcessor>(), "follow-up").After("raw").Build();
     var run = await flows.StartAsync(flow, new { }, "package-smoke", "start-once");
     if (run != await flows.StartAsync(flow, new { }, "package-smoke", "start-once"))
     {
@@ -88,37 +88,37 @@ await OraclePackageSmoke.RunAsync();
 
 [JobContract("smoke.package")]
 public sealed record PackageJob(string Value);
-public sealed record class PackageHandler : IJobHandler<PackageJob>
+public sealed record class PackageHandler : IJob<PackageJob>
 {
-    public Task<JobResult> HandleAsync(PackageJob job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(job.Value));
+    public Task<JobResult> ExecuteAsync(PackageJob job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(job.Value));
 }
 
-[Processor("smoke.raw")]
-public sealed class RawProcessor : IProcessor<string>
+[Job("smoke.raw")]
+public sealed class RawProcessor : IJob<string>
 {
-    public Task<JobResult> ProcessAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(input));
+    public Task<JobResult> ExecuteAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(input));
 }
 
 public sealed record InvoiceInput(string InvoiceId);
 
 // Generated registration skips abstract generic bases and registers their concrete processors.
-public abstract class EchoProcessor<TInput> : IProcessor<TInput>
+public abstract class EchoProcessor<TInput> : IJob<TInput>
 {
-    public Task<JobResult> ProcessAsync(TInput input, JobExecutionContext context, CancellationToken cancellationToken) =>
+    public Task<JobResult> ExecuteAsync(TInput input, JobExecutionContext context, CancellationToken cancellationToken) =>
         Task.FromResult(JobResult.From(Echo(input)));
 
     protected abstract string Echo(TInput input);
 }
 
-[Processor("smoke.invoice")]
+[Job("smoke.invoice")]
 public sealed class InvoiceProcessor : EchoProcessor<InvoiceInput>
 {
     protected override string Echo(InvoiceInput input) => input.InvoiceId;
 }
 
-[ManualProcessorRegistration]
-public sealed class ExplicitInvoiceProcessor : IProcessor<InvoiceInput>
+[ManualJobRegistration]
+public sealed class ExplicitInvoiceProcessor : IJob<InvoiceInput>
 {
-    public Task<JobResult> ProcessAsync(InvoiceInput input, JobExecutionContext context, CancellationToken cancellationToken) =>
+    public Task<JobResult> ExecuteAsync(InvoiceInput input, JobExecutionContext context, CancellationToken cancellationToken) =>
         Task.FromResult(JobResult.From(input.InvoiceId));
 }

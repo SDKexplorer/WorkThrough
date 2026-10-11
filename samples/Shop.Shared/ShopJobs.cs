@@ -3,8 +3,8 @@ using WorkThrough;
 namespace Shop;
 
 /// <summary>
-/// Typed addresses of the shop's work. The keys and versions are persisted: they stay fixed when processor classes move
-/// between namespaces, projects or deployments. Producers need only these definitions, never the processor assemblies.
+/// Typed addresses of the shop's work. The keys and versions are persisted: they stay fixed when job classes move
+/// between namespaces, projects or deployments. Producers need only these definitions, never the job assemblies.
 /// </summary>
 public static class ShopJobs
 {

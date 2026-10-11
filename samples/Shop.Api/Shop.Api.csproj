@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup><IsPackable>false</IsPackable><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../Shop.Processors/Shop.Processors.csproj" />
+    <ProjectReference Include="../Shop.Jobs/Shop.Jobs.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Dashboard/WorkThrough.Dashboard.csproj" />
   </ItemGroup>
 </Project>

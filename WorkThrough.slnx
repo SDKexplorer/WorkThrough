@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/Shop.Shared/Shop.Shared.csproj" />
-    <Project Path="samples/Shop.Processors/Shop.Processors.csproj" />
+    <Project Path="samples/Shop.Jobs/Shop.Jobs.csproj" />
     <Project Path="samples/Shop.Api/Shop.Api.csproj" />
     <Project Path="samples/Shop.Worker/Shop.Worker.csproj" />
     <Project Path="samples/Shop.Dashboard/Shop.Dashboard.csproj" />

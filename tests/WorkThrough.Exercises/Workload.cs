@@ -42,7 +42,7 @@ internal static class Workload
         }
 
         jobs.InitializeStorageOnStart(false)
-            .AddProcessor<WorkItem, Processor>(Fast).AddProcessor<WorkItem, LimitedProcessor>(Limited)
+            .AddJob<WorkItem, Processor>(Fast).AddJob<WorkItem, LimitedProcessor>(Limited)
             .AddWorker(options =>
             {
                 options.WorkerId = $"exercise-{Environment.ProcessId}";
@@ -59,9 +59,9 @@ internal static class Workload
         await host.WaitForShutdownAsync();
     }
 
-    public sealed class Processor(EffectStore effects) : IProcessor<WorkItem>
+    public sealed class Processor(EffectStore effects) : IJob<WorkItem>
     {
-        public async Task<JobResult> ProcessAsync(WorkItem input, JobExecutionContext context, CancellationToken ct)
+        public async Task<JobResult> ExecuteAsync(WorkItem input, JobExecutionContext context, CancellationToken ct)
         {
             if (input.DelayMs > 0)
             {
@@ -80,10 +80,10 @@ internal static class Workload
             return JobResult.From(input.Index);
         }
     }
-    public sealed class LimitedProcessor(EffectStore effects) : IProcessor<WorkItem>
+    public sealed class LimitedProcessor(EffectStore effects) : IJob<WorkItem>
     {
         private readonly Processor inner = new(effects);
-        public Task<JobResult> ProcessAsync(WorkItem input, JobExecutionContext context, CancellationToken ct) => inner.ProcessAsync(input, context, ct);
+        public Task<JobResult> ExecuteAsync(WorkItem input, JobExecutionContext context, CancellationToken ct) => inner.ExecuteAsync(input, context, ct);
     }
 }
 

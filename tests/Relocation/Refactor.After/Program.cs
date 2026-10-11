@@ -93,7 +93,7 @@ _ = (await store.SetProcessorAliasesAsync([new(oldAddress, newAddress.Identity)]
     new(Guid.NewGuid(), new("refactor-proof", "deployment"), "Activate the reviewed processor address alias"))).Value;
 var replacement = Host.CreateApplicationBuilder();
 RefactorStorage.Configure(replacement.Services.AddWorkThrough(), args[0])
-    .AddProcessor<string, NewCompany.Documents.RenamedAddressProcessor>(newAddress, oldAddress)
+    .AddJob<string, NewCompany.Documents.RenamedAddressProcessor>(newAddress, oldAddress)
     .AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
 using var renamedHost = replacement.Build();
 await renamedHost.StartAsync();

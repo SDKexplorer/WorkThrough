@@ -52,41 +52,33 @@ public sealed class WorkThroughBuilder
         return this;
     }
 
-    public WorkThroughBuilder AddJob<TJob, THandler>() where THandler : class, IJobHandler<TJob>
+    /// <summary>Registers a job at the address its [Job] attribute, or its input's [JobContract], declares.</summary>
+    public WorkThroughBuilder AddJob<TInput, TJob>() where TJob : class, IJob<TInput>
     {
-        Catalog.Register<TJob, THandler>();
-        Services.TryAddScoped<THandler>();
+        Catalog.Register<TInput, TJob>();
+        Services.TryAddScoped<TJob>();
 
         return this;
     }
 
-    /// <summary>Registers a processor by its attributed permanent identity.</summary>
-    public WorkThroughBuilder AddProcessor<TInput, TProcessor>() where TProcessor : class, IProcessor<TInput>
+    /// <summary>Binds a typed permanent address to a job class at the composition root.</summary>
+    public WorkThroughBuilder AddJob<TInput, TJob>(JobDefinition<TInput> definition, params JobContractId[] aliases)
+        where TJob : class, IJob<TInput>
     {
-        Catalog.RegisterProcessor<TInput, TProcessor>();
-        Services.TryAddScoped<TProcessor>();
+        Catalog.Register<TInput, TJob>(definition, aliases);
+        Services.TryAddScoped<TJob>();
 
         return this;
     }
 
-    /// <summary>Binds a typed permanent address to an implementation at the composition root.</summary>
-    public WorkThroughBuilder AddProcessor<TInput, TProcessor>(JobDefinition<TInput> definition, params JobContractId[] aliases)
-        where TProcessor : class, IProcessor<TInput>
-    {
-        Catalog.RegisterProcessor<TInput, TProcessor>(definition, aliases);
-        Services.TryAddScoped<TProcessor>();
-
-        return this;
-    }
-
-    /// <summary>Binds an explicit permanent identity to an implementation.</summary>
-    public WorkThroughBuilder AddProcessor<TInput, TProcessor>(JobContractId identity, params JobContractId[] aliases)
-        where TProcessor : class, IProcessor<TInput> => AddProcessor<TInput, TProcessor>(new JobDefinition<TInput>(identity), aliases);
+    /// <summary>Binds an explicit permanent address to a job class.</summary>
+    public WorkThroughBuilder AddJob<TInput, TJob>(JobContractId identity, params JobContractId[] aliases)
+        where TJob : class, IJob<TInput> => AddJob<TInput, TJob>(new JobDefinition<TInput>(identity), aliases);
 
     public WorkThroughBuilder AddGeneratedJobs(Assembly assembly)
     {
         var marker = assembly.GetCustomAttribute<JobModuleAttribute>()
-            ?? throw new InvalidOperationException($"No generated job manifest in {assembly.GetName().Name}. Reference WorkThrough.Generators or register handlers explicitly.");
+            ?? throw new InvalidOperationException($"No generated job manifest in {assembly.GetName().Name}. Reference WorkThrough.Generators or register jobs explicitly with AddJob.");
         var module = (IJobModule)Activator.CreateInstance(marker.ModuleType)!;
         module.Register(Catalog);
         foreach (var registration in Catalog.Registrations)

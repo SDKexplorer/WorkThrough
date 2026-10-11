@@ -103,7 +103,7 @@ Gaps found when reviewing WorkThrough as an adopter would. None blocks the curre
 - [ ] Dynamic fan-out: a step that expands into N child steps from its output, joined afterwards. Flows are static graphs today; `MaxParallelSteps` already bounds wide stages.
 - [ ] Payload protection: encryption at rest or a supported secret-reference pattern for sensitive inputs. Today inputs are stored as JSON, protected by database access and the payload permission.
 - [ ] MySQL/MariaDB provider, a common request from Hangfire users.
-- [x] One recommended programming model in public docs: `JobDefinition` + `IProcessor` is the primary path; `[JobContract]` + `IJobHandler` remains supported for type-addressed messages.
+- [x] One programming model: `IJob<TInput>` with `ExecuteAsync`, replacing `IProcessor<T>` and `IJobHandler<T>`. Addresses come from a `JobDefinition`, `[Job]` on the class, or `[JobContract]` on the input type; `AddJob` registers all three.
 - [x] Typed flow bindings and conditions (`BindInput((Target t) => t.X, (Source s) => s.Y)`) and a [testing guide](testing.md).
 - [ ] A `dotnet new` template and rolling (zero-downtime) schema upgrades.
 

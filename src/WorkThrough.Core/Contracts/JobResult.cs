@@ -2,12 +2,6 @@ using System.Text.Json;
 
 namespace WorkThrough;
 
-/// <summary>Executes one attempt. Implementations must tolerate repeated execution.</summary>
-public interface IJobHandler<in TJob>
-{
-    Task<JobResult> HandleAsync(TJob job, JobExecutionContext context, CancellationToken cancellationToken);
-}
-
 public enum JobOutcome
 {
     Succeeded, Rejected, Deferred

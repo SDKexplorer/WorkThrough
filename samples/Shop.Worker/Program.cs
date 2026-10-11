@@ -4,12 +4,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Shop;
-using Shop.Processors;
+using Shop.Jobs;
 using WorkThrough;
 
 // A headless worker: no HTTP listener. Scale out by running more copies against the same store.
 //   --describe-worker  prints what this build can execute
-//   --preflight        checks that this build covers every processor, version and queue the store still needs (exit 2 if not)
+//   --preflight        checks that this build covers every job address, version and queue the store still needs (exit 2 if not)
 var preflight = args.Contains("--preflight", StringComparer.Ordinal);
 var describe = args.Contains("--describe-worker", StringComparer.Ordinal);
 var builder = Host.CreateApplicationBuilder(args.Where(arg => arg is not ("--preflight" or "--describe-worker")).ToArray());
@@ -17,12 +17,12 @@ var settings = ShopSetup.Settings(builder.Configuration);
 builder.Services.AddWorkThrough()
     .UseShopStorage(settings)
     .SeedShopPolicies(settings)
-    .AddShopProcessors()
+    .AddShopJobs()
     .AddScheduler()
     .AddWorker(options =>
     {
         options.MaxConcurrentJobs = settings.WorkerSlots;
-        options.Queues = ShopProcessors.Queues;
+        options.Queues = ShopJobRegistration.Queues;
     });
 using var host = builder.Build();
 if (!preflight && !describe)

@@ -1,6 +1,6 @@
 using Shop;
 using Shop.Api;
-using Shop.Processors;
+using Shop.Jobs;
 using WorkThrough;
 using WorkThrough.Storage;
 
@@ -17,12 +17,12 @@ var settings = ShopSetup.Settings(builder.Configuration);
 builder.Services.AddWorkThrough()
     .UseShopStorage(settings)
     .SeedShopPolicies(settings)
-    .AddShopProcessors()
+    .AddShopJobs()
     .AddScheduler()
     .AddWorker(options =>
     {
         options.MaxConcurrentJobs = settings.WorkerSlots;
-        options.Queues = ShopProcessors.Queues;
+        options.Queues = ShopJobRegistration.Queues;
     });
 
 // Transactional intake needs the relational store itself, not only its job ports.

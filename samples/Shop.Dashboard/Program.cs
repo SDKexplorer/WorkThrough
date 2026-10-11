@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Shop;
 using WorkThrough;
 
-// An operations console with no processor code: it reads the shared store and needs neither workers nor handlers.
+// An operations console with no job code: it reads the shared store and needs neither workers nor job classes.
 const string ConsolePath = "/operations";
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddWorkThrough().UseShopStorage(ShopSetup.Settings(builder.Configuration)).InitializeStorageOnStart(false);

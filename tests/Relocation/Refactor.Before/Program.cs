@@ -16,17 +16,17 @@ var id = await jobs.EnqueueAsync(new Legacy.Application.GenerateDocument("invoic
     new(CorrelationId: "refactor-proof"));
 var due = DateTimeOffset.UtcNow.AddSeconds(3);
 const string rawInput = "{\"documentId\":\"invoice-raw\"}";
-var rawId = await jobs.EnqueueAsync(ProcessorId.For<Legacy.Application.OldRawProcessor>(), rawInput,
+var rawId = await jobs.EnqueueAsync(JobIdentity.For<Legacy.Application.OldRawProcessor>(), rawInput,
     new(CorrelationId: "refactor-proof", NotBefore: due));
 var store = host.Services.GetRequiredService<IJobStore>();
-var premature = await store.ClaimAsync(new("proof", [ProcessorId.For<Legacy.Application.OldRawProcessor>()], ["default"], TimeSpan.FromSeconds(30)));
+var premature = await store.ClaimAsync(new("proof", [JobIdentity.For<Legacy.Application.OldRawProcessor>()], ["default"], TimeSpan.FromSeconds(30)));
 if (premature is not null)
 {
     throw new InvalidOperationException("Future-due work executed too early.");
 }
 
 var flowId = await host.Services.GetRequiredService<WorkflowClient>().StartAsync(
-    new FlowBuilder("documents.raw-flow", 1).Step("generate", ProcessorId.For<Legacy.Application.OldRawProcessor>(), rawInput).Build(), new
+    new FlowBuilder("documents.raw-flow", 1).Step("generate", JobIdentity.For<Legacy.Application.OldRawProcessor>(), rawInput).Build(), new
     {
     });
 await File.WriteAllTextAsync(args[1], System.Text.Json.JsonSerializer.Serialize(new { id, rawId, flowId, due, rawInput }));
@@ -35,19 +35,19 @@ await host.StopAsync();
 
 namespace Legacy.Application
 {
-    [Processor("documents.raw")]
-    public sealed class OldRawProcessor : IProcessor<string>
+    [Job("documents.raw")]
+    public sealed class OldRawProcessor : IJob<string>
     {
-        public Task<JobResult> ProcessAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
+        public Task<JobResult> ExecuteAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("The old processor must never execute in this proof.");
     }
 
     [JobContract("documents.generate")]
     public sealed record GenerateDocument(string DocumentId);
 
-    public sealed class OldDocumentProcessor : IJobHandler<GenerateDocument>
+    public sealed class OldDocumentProcessor : IJob<GenerateDocument>
     {
-        public Task<JobResult> HandleAsync(GenerateDocument job, JobExecutionContext context, CancellationToken cancellationToken) =>
+        public Task<JobResult> ExecuteAsync(GenerateDocument job, JobExecutionContext context, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("The old handler must never execute in this proof.");
     }
 }

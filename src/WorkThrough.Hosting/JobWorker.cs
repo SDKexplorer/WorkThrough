@@ -30,7 +30,7 @@ internal sealed class JobWorker(
     {
         if (catalog.Registrations.Count == 0)
         {
-            throw new InvalidOperationException("A worker requires handlers. Use AddGeneratedJobs or AddJob before starting it.");
+            throw new InvalidOperationException("A worker requires jobs. Use AddJob or AddGeneratedJobs before starting it.");
         }
 
         // Validate the actual deployment and scoped DI graph before claiming work.

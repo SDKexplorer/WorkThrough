@@ -1,20 +1,20 @@
-# Testing your processors
+# Testing your jobs
 
 WorkThrough has no in-memory store: a test that claims, retries or settles should exercise the same SQL as production. Two levels cover most needs.
 
-## Unit tests: call the processor
+## Unit tests: call the job
 
-A processor is a plain class. Construct it with its dependencies and call `ProcessAsync` with a context you build yourself:
+A job is a plain class. Construct it with its dependencies and call `ExecuteAsync` with a context you build yourself:
 
 ```csharp
 [Fact]
 public async Task Rejects_non_positive_amounts()
 {
-    var processor = new ChargePaymentProcessor();
+    var job = new ChargePaymentJob();
     var context = new JobExecutionContext(JobId: Guid.NewGuid(), Attempt: 1, CorrelationId: null,
         WorkflowRunId: null, StepId: null, LeaseToken: Guid.NewGuid());
 
-    var result = await processor.ProcessAsync(new ChargePayment("order-1", Amount: 0), context, CancellationToken.None);
+    var result = await job.ExecuteAsync(new ChargePayment("order-1", Amount: 0), context, CancellationToken.None);
 
     Assert.Equal(JobOutcome.Rejected, result.Outcome);
 }
@@ -37,7 +37,7 @@ public sealed class CheckoutTests : IAsyncLifetime
         var builder = Host.CreateApplicationBuilder();
         builder.Services.AddWorkThrough()
             .UseSqlite($"Data Source={path}")
-            .AddShopProcessors()
+            .AddShopJobs()
             .AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
         host = builder.Build();
         await host.StartAsync();

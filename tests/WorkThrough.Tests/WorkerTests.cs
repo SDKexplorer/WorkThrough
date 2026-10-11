@@ -335,9 +335,9 @@ public sealed class WorkerTests
     {
         public Guid Id { get; } = Guid.NewGuid();
     }
-    public sealed class BlockingHandler(Probe probe, ScopeMarker marker) : IJobHandler<Alpha>
+    public sealed class BlockingHandler(Probe probe, ScopeMarker marker) : IJob<Alpha>
     {
-        public async Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken)
+        public async Task<JobResult> ExecuteAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken)
         {
             probe.Enter(marker.Id);
             try
@@ -353,9 +353,9 @@ public sealed class WorkerTests
         }
     }
     public interface IMissingDependency;
-    public sealed class NeedsDependency(IMissingDependency dependency) : IJobHandler<Alpha>
+    public sealed class NeedsDependency(IMissingDependency dependency) : IJob<Alpha>
     {
-        public Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(dependency.ToString()));
+        public Task<JobResult> ExecuteAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(dependency.ToString()));
     }
 
     private sealed class FlakyRenewalStore(IJobStore inner) : DelegatingJobStore(inner)

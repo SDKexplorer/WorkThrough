@@ -87,9 +87,9 @@ public sealed class ObservabilityTests
         return builder.Build();
     }
 
-    public sealed class EchoHandler : IJobHandler<Alpha>
+    public sealed class EchoHandler : IJob<Alpha>
     {
-        public Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) =>
+        public Task<JobResult> ExecuteAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) =>
             Task.FromResult(JobResult.From(job.Value));
     }
 

@@ -1,14 +1,14 @@
 # Shop sample
 
-One small shop, deployed the way a real system would be: shared definitions, processors in their own project, an API that also runs work, a headless worker, a standalone operations console and an MCP endpoint. Every host points at the same store.
+One small shop, deployed the way a real system would be: shared definitions, jobs in their own project, an API that also runs work, a headless worker, a standalone operations console and an MCP endpoint. Every host points at the same store.
 
 | Project | Role |
 |---|---|
 | `Shop.Shared` | Typed job addresses (`ShopJobs`), the checkout flow, settings, storage choice, seeded policies and schedule, and the tenant-claim resolver. Producers need only this project. |
-| `Shop.Processors` | The `IProcessor<T>` implementations and the one place that maps addresses to classes (`AddShopProcessors`). |
+| `Shop.Jobs` | The `IJob<T>` implementations and the one place that maps addresses to classes (`AddShopJobs`). |
 | `Shop.Api` | Order intake and review approval, a worker and scheduler, and the embedded dashboard. `--smoke` runs an end-to-end check. |
 | `Shop.Worker` | Headless worker for scaling out. `--describe-worker` prints its capabilities; `--preflight` checks that it covers the stored work. |
-| `Shop.Dashboard` | Standalone console with OIDC sign-in, role-based permissions and tenant-scoped users. References no processor code. |
+| `Shop.Dashboard` | Standalone console with OIDC sign-in, role-based permissions and tenant-scoped users. References no job code. |
 | `Shop.Mcp` | Read-only MCP endpoint for AI assistants, with bearer authentication and the same tenant scoping. |
 
 ## Run it
@@ -40,7 +40,7 @@ Shop__PostgreSql="Host=...;Database=shop" dotnet run --project samples/Shop.Work
 
 ## What to look at
 
-- **Stable addresses** (`ShopJobs`, `AddShopProcessors`): stored work names `shop.payment.charge` v1, never a CLR type. Move or rename a processor class and existing work still runs.
+- **Stable addresses** (`ShopJobs`, `AddShopJobs`): stored work names `shop.payment.charge` v1, never a CLR type. Move or rename a job class and existing work still runs.
 - **Flow** (`CheckoutFlow`): steps pass outputs to inputs by property name. The review step runs only when the payment output says so, and shipping waits for it only then.
 - **Policies** (`ShopSetup.SeedShopPolicies`), created once and afterwards owned by operators in the console:
   - at most 12 running attempts fleet-wide and 2 shipments at a time;
@@ -49,7 +49,7 @@ Shop__PostgreSql="Host=...;Database=shop" dotnet run --project samples/Shop.Work
   - 120 payment starts per tenant per minute;
   - a daily report at 06:00 UTC.
 - **Tenants:** orders carry their tenant; partition keys are namespaced with it. Users whose identity token has `tenant` claims see only those tenants in `Shop.Dashboard` and `Shop.Mcp` (`TenantClaimResolver`).
-- **Effects:** processors receive `context.IdempotencyKey`, stable across retries; pass it to payment and shipping providers. Delivery is at least once.
+- **Effects:** jobs receive `context.IdempotencyKey`, stable across retries; pass it to payment and shipping providers. Delivery is at least once.
 
 ## Configuration
 
@@ -66,4 +66,4 @@ SQL Server and Oracle work the same way through `UseSqlServer` / `UseOracle`; se
 
 ## Verification
 
-`scripts/verify.sh` runs `Shop.Api --smoke`: two orders in different tenants, one requiring review approval, both completing. It then runs `Shop.Worker --preflight` against the resulting store. The relocation proof (work created by one build, executed after its processors moved to another assembly) lives in `tests/Relocation` and runs from `scripts/check-refactor.sh`.
+`scripts/verify.sh` runs `Shop.Api --smoke`: two orders in different tenants, one requiring review approval, both completing. It then runs `Shop.Worker --preflight` against the resulting store. The relocation proof (work created by one build, executed after its job classes moved to another assembly) lives in `tests/Relocation` and runs from `scripts/check-refactor.sh`.
