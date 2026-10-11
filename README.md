@@ -54,6 +54,15 @@ await jobs.EnqueueAsync(new GenerateInvoice("INV-42"),
 
 Run several processes, or several machines on a server database, against the same store. Workers claim work under leases; a crashed worker's attempt is recovered when its lease expires.
 
+Or start from a template. Packages are not published yet, so install it from a local build (`./scripts/verify.sh` packs it):
+
+```bash
+dotnet new install artifacts/packages/WorkThrough.Templates.0.1.0-alpha.1.nupkg
+dotnet new workthrough-web -n MyApp --storage postgresql    # API + worker + console; or workthrough-worker
+```
+
+`--storage` takes `sqlite` (default), `postgresql`, `sqlserver` or `oracle`.
+
 Three samples build on each other ([samples](samples/README.md)):
 
 - [`QuickStart`](samples/QuickStart/Program.cs): one file, SQLite, one job.
@@ -176,7 +185,8 @@ The script:
 - builds the console and libraries;
 - runs the test suite on .NET 10 and .NET 8;
 - runs the relocation proof;
-- packs the ten packages into `artifacts/packages`;
+- packs the ten packages and the `WorkThrough.Templates` package into `artifacts/packages`;
+- creates and builds every template with every storage provider, and runs the SQLite projects;
 - runs NuGet-only consumers on SDK 8 and 10;
 - runs the Shop sample's smoke test and preflight;
 - runs process-kill and load smoke exercises.

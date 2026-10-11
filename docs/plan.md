@@ -107,7 +107,8 @@ Gaps found when reviewing WorkThrough as an adopter would. None blocks the curre
 - [x] One programming model: `IJob<TInput>` with `ExecuteAsync`, replacing `IProcessor<T>` and `IJobHandler<T>`. Addresses come from a `JobDefinition`, `[Job]` on the class, or `[JobContract]` on the input type; `AddJob` registers all three.
 - [x] Typed flow bindings and conditions (`BindInput((Target t) => t.X, (Source s) => s.Y)`) and a [testing guide](testing.md).
 - [x] An easier first job: `AddJobs(assembly)` registers attributed jobs without the generator, storage registration needs no extra `using`, and `QuickStart` and `QuickStart.Web` samples sit beside Shop.
-- [ ] A `dotnet new` template and rolling (zero-downtime) schema upgrades.
+- [x] `dotnet new workthrough-worker` and `workthrough-web` templates for every storage provider, checked in `verify.sh`.
+- [ ] Rolling (zero-downtime) schema upgrades.
 
 ## Exit criteria for the initial repository
 

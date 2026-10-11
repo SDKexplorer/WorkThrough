@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WorkThrough.Hosting" Version="WORKTHROUGH_VERSION" />
+    <PackageReference Include="WorkThrough.Dashboard" Version="WORKTHROUGH_VERSION" />
+<!--#if (UseSqlite) -->
+    <PackageReference Include="WorkThrough.Storage.Sqlite" Version="WORKTHROUGH_VERSION" />
+<!--#elif (UsePostgreSql) -->
+    <PackageReference Include="WorkThrough.Storage.PostgreSql" Version="WORKTHROUGH_VERSION" />
+<!--#elif (UseSqlServer) -->
+    <PackageReference Include="WorkThrough.Storage.SqlServer" Version="WORKTHROUGH_VERSION" />
+<!--#else -->
+    <PackageReference Include="WorkThrough.Storage.Oracle" Version="WORKTHROUGH_VERSION" />
+<!--#endif -->
+  </ItemGroup>
+</Project>
