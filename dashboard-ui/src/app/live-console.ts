@@ -94,6 +94,11 @@ interface Schedule {
     overlap: string;
     misfire: string;
 }
+interface EngineProtocolState {
+    active: number;
+    supported: number;
+    blockers: string[];
+}
 interface Worker {
     acquisition?: {
         lastAttemptAt: string | null;
@@ -104,7 +109,9 @@ interface Worker {
         identity: Processor;
         canonicalIdentity: Processor;
         displayName: string | null;
+        upcastTo?: Processor | null;
     }[];
+    protocol?: number;
     workerId: string;
     seenAt: string;
     processors: Processor[];
@@ -281,6 +288,7 @@ export class LiveConsoleComponent {
     readonly metricsError = signal('');
     readonly definitions = signal<Definition[]>([]);
     readonly workers = signal<Worker[]>([]);
+    readonly protocol = signal<EngineProtocolState | null>(null);
     readonly schedules = signal<Schedule[]>([]);
     readonly deployment = signal<DeploymentReport | null>(null);
     readonly controls = signal<Controls>({ queues: [], workers: [] });
@@ -408,6 +416,11 @@ export class LiveConsoleComponent {
                 this.workers.set(workers);
                 this.schedules.set(schedules);
                 this.deployment.set(deployment);
+                try {
+                    this.protocol.set(await this.request<EngineProtocolState>('/api/protocol'));
+                } catch {
+                    this.protocol.set(null);
+                }
                 try {
                     this.metrics.set(await this.request<RuntimeMetrics>('/api/metrics'));
                     this.metricsError.set('');
@@ -564,6 +577,14 @@ export class LiveConsoleComponent {
     }
     keyScopeLabel(scope: KeyScope): string {
         return scope === 'Tenant' ? 'tenant' : 'partition key';
+    }
+    /** The version whose job runs this processor address through an upcast, if any. */
+    upcastTarget(worker: Worker, processor: Processor): Processor | null {
+        return (
+            worker.descriptions?.find(
+                (d) => d.identity.key === processor.key && d.identity.version === processor.version,
+            )?.upcastTo ?? null
+        );
     }
     processorName(worker: Worker, processor: Processor): string {
         return (

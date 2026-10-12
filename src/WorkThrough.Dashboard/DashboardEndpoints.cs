@@ -233,6 +233,10 @@ public static partial class DashboardEndpoints
         group.MapGet("/api/definitions", async (IWorkflowDefinitions definitions, CancellationToken ct) =>
             Results.Json((await definitions.DefinitionsAsync(cancellationToken: ct)).Select(d => new { d.Definition.Key, d.Definition.Version, d.Status, d.Revision, graph = Graph(d.Definition) }), JsonOptions))
             .WithPermission(options, OperationPermissions.ReadExecutions);
+        group.MapGet("/api/protocol", async (IJobStore store, CancellationToken ct) => store is IEngineProtocol protocol
+                ? Results.Json(await protocol.EngineProtocolAsync(ct), JsonOptions)
+                : Results.NotFound())
+            .WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapGet("/api/workers", async (IJobDiagnostics diagnostics, CancellationToken ct) => Results.Json(await diagnostics.WorkersAsync(ct), JsonOptions))
             .WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapGet("/api/deployment", async (IDeploymentQueries queries, IJobDiagnostics diagnostics, CancellationToken ct) =>

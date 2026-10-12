@@ -89,6 +89,22 @@ public sealed class DashboardTests
     }
 
     [Fact]
+    public async Task The_console_reports_the_engine_protocol_and_what_blocks_the_next_level()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await RollingUpgradeTests.ExecuteAsync(harness, $"UPDATE dj_compatibility SET protocol={EngineProtocol.Baseline}");
+        await harness.Store.HeartbeatAsync(new("older-worker", default, [], ["default"], 1, 0));
+        await using var app = await StartDashboardAsync(harness);
+        var client = app.GetTestClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "viewer");
+
+        using var state = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync("/jobs/api/protocol"));
+        Assert.Equal(EngineProtocol.Baseline, state.RootElement.GetProperty("active").GetInt32());
+        Assert.Equal(EngineProtocol.Supported, state.RootElement.GetProperty("supported").GetInt32());
+        Assert.Equal("older-worker", Assert.Single(state.RootElement.GetProperty("blockers").EnumerateArray()).GetString());
+    }
+
+    [Fact]
     public async Task Correcting_an_input_requires_the_payload_permission_too()
     {
         await using var harness = await StoreHarness.CreateAsync("sqlite");

@@ -553,7 +553,35 @@
                 </table>
             </div>
         </section>
-        } @if (section() === 'workers') { @if (deployment(); as report) {
+        } @if (section() === 'workers') { @if (protocol(); as engine) {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Engine protocol</h2>
+                    <p class="muted">
+                        Shared execution semantics every worker must understand. A higher level
+                        activates once no older worker is live or holds a lease.
+                    </p>
+                </div>
+                <span class="badge" [class.failed]="engine.active > engine.supported"
+                    >Level {{ engine.active }}</span
+                >
+            </div>
+            @if (engine.active > engine.supported) {
+            <p class="live-alert" role="alert">
+                The store requires level {{ engine.active }}; this console understands {{
+                engine.supported }}. Upgrade this host.
+            </p>
+            } @else if (engine.blockers.length) {
+            <p class="muted">
+                Level {{ engine.supported }} waits for these workers to upgrade or stop:
+                <code>{{ engine.blockers.join(', ') }}</code>
+            </p>
+            } @else {
+            <p class="muted">Every live worker runs at the active level.</p>
+            }
+        </section>
+        } @if (deployment(); as report) {
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
@@ -645,6 +673,7 @@
                             <th>Queues</th>
                             <th>Processors</th>
                             <th>Admission</th>
+                            <th>Engine</th>
                             <th>Acquisition health</th>
                         </tr>
                     </thead>
@@ -661,7 +690,10 @@
                                 <small
                                     >{{ processorName(worker, processor) }} · v{{ processor.version
                                     }}</small
-                                ><small class="muted">{{ processor.key }}</small> }
+                                ><small class="muted">{{ processor.key }}</small>
+                                @if (upcastTarget(worker, processor); as target) {
+                                <small class="muted">runs as v{{ target.version }}</small>
+                                } }
                             </td>
                             <td>
                                 <span class="badge"
@@ -675,6 +707,7 @@
                                 </button>
                                 }
                             </td>
+                            <td>Level {{ worker.protocol ?? 1 }}</td>
                             <td>
                                 {{ acquisitionStatus(worker) }} @if
                                 (worker.acquisition?.lastSucceededAt) {
@@ -687,7 +720,7 @@
                         </tr>
                         } @empty {
                         <tr>
-                            <td colspan="7" class="live-empty">No worker heartbeats recorded.</td>
+                            <td colspan="8" class="live-empty">No worker heartbeats recorded.</td>
                         </tr>
                         }
                     </tbody>
