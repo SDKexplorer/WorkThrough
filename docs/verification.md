@@ -320,3 +320,23 @@ Compensation (2026-10-11, ADR-025, engine protocol 5): SQLite + PostgreSQL 357, 
 - Compensating definitions wait for protocol 5.
 - A step queued in the same planning pass as a failure is now skipped instead of left queued. The test fails without that fix.
 
+Release qualification (2026-10-12):
+
+| Check | Result |
+|---|---|
+| SQL Server soak, 30 min (emulated) | 53,253 jobs, each succeeded once; every window within its limits; worker memory flat at 382 MiB |
+| Oracle soak, 30 min | 58,500 jobs, each succeeded once; every window within its limits; worker memory 451–492 MiB |
+| PostgreSQL restore drill | online `pg_dump` mid-run, restored into a new schema: every job and flow step finished with one successful attempt and a gap-free journal |
+| OIDC against Keycloak 26.4 | operator and tenant viewer sign in through the real login form; role permissions and tenant scoping hold |
+| Suites on the final code | SQLite + PostgreSQL 358, SQL Server 364, Oracle 358 passed |
+
+Findings, all fixed before these results:
+
+- **Flow parallelism race:** the first soak exceeded a flow's `MaxParallelSteps` under concurrent claims. A claim's settings snapshot missed a bounded flow that started during the claim. Flow steps are now always checked against their bound under the flow's lock row. A unit race test could not hit the window reliably, so the soak is the regression check: it failed in the first minute before the fix and passes after.
+- **Oracle soak harness:**
+  - Oracle bound the window parameters by position, so they were swapped and the per-minute limit checks saw no attempts. Results from that run were discarded.
+  - The verification SQL was rejected by Oracle.
+- **Masked failures:** exercise cleanup deadlocked with still-closing sessions and hid the real failure. It now retries.
+
+Raw soak reports: [SQL Server](performance-results/2026-10-12-sqlserver-soak.json), [Oracle](performance-results/2026-10-12-oracle-soak.json).
+

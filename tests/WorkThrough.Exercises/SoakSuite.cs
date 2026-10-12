@@ -278,10 +278,12 @@ internal static class SoakSuite
         await using var connection = database.OpenConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
+        // Separate scalar subqueries: Oracle rejects aggregates mixed with a scalar subquery in one select list.
         command.CommandText = """
-            SELECT COUNT(*),COALESCE(SUM(CASE WHEN status<>'Succeeded' THEN 1 ELSE 0 END),0),
+            SELECT (SELECT COUNT(*) FROM dj_jobs),
+              (SELECT COUNT(*) FROM dj_jobs WHERE status<>'Succeeded'),
               (SELECT COUNT(*) FROM (SELECT job_id FROM dj_attempts GROUP BY job_id HAVING COUNT(*)>1) retried)
-            FROM dj_jobs
+            FROM dj_registry WHERE id=1
             """;
         await using var reader = await command.ExecuteReaderAsync();
         await reader.ReadAsync();
@@ -302,6 +304,12 @@ internal static class SoakSuite
 
     private static void Parameter(DbCommand command, string name, object value)
     {
+        // Oracle binds by position unless told otherwise, which would silently swap parameters used out of order.
+        if (command is Oracle.ManagedDataAccess.Client.OracleCommand oracle)
+        {
+            oracle.BindByName = true;
+        }
+
         var parameter = command.CreateParameter();
         parameter.ParameterName = name;
         parameter.Value = value;

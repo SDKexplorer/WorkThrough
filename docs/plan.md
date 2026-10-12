@@ -114,7 +114,7 @@ Gaps found when reviewing WorkThrough as an adopter would. None blocks the curre
 
 Positioning: relocation alone does not win adoption. Hangfire has compatibility hooks, Quartz has rename mappings, and Wolverine separates handlers from message identities. The advantage must be how consistently the whole product handles deployment, diagnosis and recovery.
 
-1. **Release confidence (critical):** sustained soaks on SQL Server and Oracle, a backup/restore drill, and real OIDC against a local identity provider. Package publication and the license come last.
+1. **Release confidence (critical):** 30-minute soaks on SQL Server and Oracle, a PostgreSQL restore drill and OIDC against a local Keycloak passed (2026-10-12). Still open: longer soaks, hosted identity providers, multi-machine runs. Package publication and the license come last.
 2. **Execution controls:** done. Per-key serialization, tenant quotas, rate limits and weighted fair queues are exact across hosts (ADR-018, ADR-022).
 3. **Contract evolution (high):** input upcasts between versions are done (ADR-024); preflight counts them as coverage. A saved flow revision pins its graph and processor versions, not its handler binaries; upcasts let pinned steps run on current code.
 4. **Consumer testing tools (high):** done. `WorkThrough.Testing` runs the real store and worker on a temporary SQLite file, with a movable clock, waits and flow assertions. Dependencies are replaced through DI.
