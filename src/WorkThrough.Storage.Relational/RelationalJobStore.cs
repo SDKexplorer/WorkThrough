@@ -341,7 +341,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 return null;
             }
 
-            var policies = settings.Unrestricted ? null : await ReadLimitPoliciesAsync(connection, transaction, settings, ct);
+            var policies = await ReadLimitPoliciesAsync(connection, transaction, settings, ct);
             if (competing)
             {
                 // Claims for several queues serialize on the queue clock, which keeps their weighted turns exact.
@@ -380,9 +380,9 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                     break;
                 }
 
-                if (policies is not null)
+                if (settings.Protocol >= EngineProtocol.ConcurrentLimits)
                 {
-                    var rows = candidates.SelectMany(candidate => LimitScopes(candidate, settings, policies)).Select(LimitLockRow).ToArray();
+                    var rows = candidates.SelectMany(candidate => LimitScopes(candidate, Admitting(candidate, settings), policies)).Select(LimitLockRow).ToArray();
                     if (!await LockLimitRowsAsync(connection, transaction, rows, wait: !holdsLimitLocks, ct))
                     {
                         break;
@@ -422,6 +422,13 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             return leased;
         }, cancellationToken);
 
+    /// <summary>
+    /// The policies a candidate is admitted under. A flow's step parallelism is set when the flow starts, which a claim's settings
+    /// snapshot can miss, so from protocol 3 every flow step is checked against its flow's bound and takes that flow's lock row.
+    /// </summary>
+    private static ClaimSettings Admitting(JobRecord candidate, ClaimSettings settings) =>
+        candidate.WorkflowRunId is not null && settings.Protocol >= EngineProtocol.ConcurrentLimits ? settings with { HasBoundedFlows = true } : settings;
+
     /// <summary>Ready jobs of one queue in claim order, locked for this transaction and skipping jobs other claims hold.</summary>
     /// <remarks>The admission predicates narrow the page from a snapshot; the exact check runs again under the limit locks.</remarks>
     private async Task<JobRecord[]> ReadCandidatesAsync(DbConnection connection, DbTransaction transaction, IEnumerable<JobContractId> contracts, string queue,
@@ -429,6 +436,14 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     {
         var parameters = new List<(string, object?)> { ("now", settings.Now), ("queue", queue), ("all", AllJobsLimitKey) };
         var predicate = ReadyJobSql(contracts, parameters) + (settings.HasTypeLimits ? $"\n  AND NOT {TypeBlockedSql("j")}" : "") + AdmissionPredicatesSql("j", settings);
+
+        // Below protocol 3 only unrestricted claims get here, and they take no flow locks: steps of a bounded flow that started after
+        // the settings snapshot wait for the serialized path.
+        if (settings.Protocol < EngineProtocol.ConcurrentLimits)
+        {
+            predicate += "\n  AND (j.workflow_run_id IS NULL OR NOT EXISTS (SELECT 1 FROM dj_flows bf WHERE bf.id=j.workflow_run_id AND bf.max_parallel IS NOT NULL))";
+        }
+
         if (rejected.Count > 0)
         {
             var excluded = rejected.Select((id, index) =>
@@ -450,8 +465,9 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     /// after that check, as the serialized path does.
     /// </summary>
     private async Task<JobRecord?> LeaseAdmittedAsync(DbConnection connection, DbTransaction transaction, ClaimRequest request, JobRecord candidate,
-        ClaimSettings settings, CancellationToken ct)
+        ClaimSettings claim, CancellationToken ct)
     {
+        var settings = Admitting(candidate, claim);
         if (settings.Unrestricted)
         {
             return await LeaseAsync(connection, transaction, candidate, request, settings.Now, ct);

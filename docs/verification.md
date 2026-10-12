@@ -107,7 +107,7 @@ Real-provider MCP cases use read-only connections and exercise independent audit
 - This is an alpha correctness baseline, not an availability, performance, security, accessibility, or disaster-recovery certification.
 - The oldest consumer SDK actually executed is 8.0.425. SDK 8.0.100, .NET 9, Native AOT, and full trimming have not been verified.
 - SQL Server, Oracle, MySQL, MongoDB, and further adapters are not implemented or tested.
-- The standalone OIDC sample compiles; login against a real external identity provider still requires verification with deployment-specific credentials.
+- The standalone OIDC sample signs in against a local Keycloak 26.4 (`scripts/check-oidc.py`, added 2026-10-12). Hosted providers remain unverified.
 - Shared limits bound valid leases, not effects from a process resuming after losing its lease.
 - The targeted process-kill, lost-acknowledgment, disconnection, and SQLite restore proofs do not replace multi-machine partitions, PostgreSQL PITR, exhaustive fault campaigns, or production soak/load tests.
 

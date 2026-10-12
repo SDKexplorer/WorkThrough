@@ -9,7 +9,7 @@ if (args.FirstOrDefault() == "worker")
 
 if (args.Length < 2 || args[1] is not ("sqlite" or "postgres" or "sqlserver" or "oracle"))
 {
-    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance|investigation|admission|soak> <sqlite|postgres|sqlserver|oracle> [output.json] [--full]");
+    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance|investigation|admission|soak|throughput|restore> <sqlite|postgres|sqlserver|oracle> [output.json] [--full]");
     Console.Error.WriteLine("Investigation arguments: [output.json] [retainedJobs=100000] [baselineSeconds=60] [investigativeSeconds=120]");
     Environment.ExitCode = 2;
 
@@ -33,6 +33,10 @@ else if (args[0] == "investigation")
 else if (args[0] == "throughput")
 {
     await ThroughputSuite.RunAsync(args[1], int.Parse(args.ElementAtOrDefault(2) ?? "5000"), int.Parse(args.ElementAtOrDefault(3) ?? "0"));
+}
+else if (args[0] == "restore")
+{
+    await RestoreSuite.RunAsync(args[1]);
 }
 else if (args[0] == "soak")
 {

@@ -43,6 +43,9 @@ if (!anonymousDevelopment)
         }).AddOpenIdConnect(options =>
         {
             options.Authority = identity.Authority;
+
+            // A local identity provider over plain HTTP is accepted only in Development, as in tests/Oidc.
+            options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
             options.ClientId = identity.ClientId;
             options.ClientSecret = identity.ClientSecret;
             options.ResponseType = "code";
