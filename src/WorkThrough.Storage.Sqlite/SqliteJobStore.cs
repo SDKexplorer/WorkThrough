@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Microsoft.Data.Sqlite;
+using SQLitePCL;
 
 namespace WorkThrough.Storage;
 
@@ -77,6 +78,15 @@ public sealed class SqliteJobStore : RelationalJobStore
         var connection = await base.OpenAsync(ct);
         try
         {
+            // Under heavy contention a pooled connection has come back still inside a transaction: BEGIN and the synchronous pragma then
+            // failed with "SQL logic error". No caller owns a connection fresh from the pool, so its transaction is rolled back.
+            if (raw.sqlite3_get_autocommit(((SqliteConnection)connection).Handle) == 0)
+            {
+                await using var rollback = connection.CreateCommand();
+                rollback.CommandText = "ROLLBACK";
+                await rollback.ExecuteNonQueryAsync(ct);
+            }
+
             await using var command = connection.CreateCommand();
             // SQLite's own busy handler waits in small steps for the single write lock; without it the driver retries a busy
             // statement after long fixed sleeps, which collapses throughput as soon as processes contend.

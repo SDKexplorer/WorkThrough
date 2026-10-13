@@ -12,7 +12,8 @@ On the documented test host (macOS arm64, local containers), three 16-slot worke
 | SQLite (local file) | about 720–810 jobs/s | — |
 | SQL Server 2022, `READ_COMMITTED_SNAPSHOT` on (emulated x64) | about 430 jobs/s; 200 with it off | — |
 | Oracle Free 23.26 | about 280 jobs/s | — |
-| MySQL 8.4, MariaDB 11.4 | not yet measured | — |
+| MySQL 8.4 | about 460 jobs/s | about 360 jobs/s |
+| MariaDB 11.4 | about 560 jobs/s | about 440 jobs/s |
 
 These are engine measurements on one machine, not a service-level promise. The sections below record how each figure was obtained, in date order.
 

@@ -118,7 +118,7 @@ Writes follow [ADR-020](adr/0020-write-path-throughput.md) and [ADR-022](adr/002
 - **SQLite** has one writer.
 - **Under limits:** from engine protocol 3, claims lock per-limit rows instead of the admission lock, so tenants, keys, types and flows do not wait on each other and limits stay exact. A fleet-wide limit still serializes claims.
 
-With a preloaded backlog, no limits and near-instant handlers, three 16-slot workers drained about 810–830 jobs/s on PostgreSQL, 430 on emulated SQL Server with versioned reads (200 without), 280 on Oracle and 720–810 on local SQLite on the documented test host. With 50 tenant quotas, PostgreSQL drained about 500 jobs/s. MySQL and MariaDB are not yet measured. See [performance](performance.md).
+With a preloaded backlog, no limits and near-instant handlers, three 16-slot workers drained about 810–830 jobs/s on PostgreSQL, 430 on emulated SQL Server with versioned reads (200 without), 280 on Oracle and 720–810 on local SQLite on the documented test host. With 50 tenant quotas, PostgreSQL drained about 500 jobs/s. MySQL 8.4 drained about 460 jobs/s and MariaDB 11.4 about 560 (360 and 440 with 50 tenant quotas). See [performance](performance.md).
 
 ## Read-only hosts
 

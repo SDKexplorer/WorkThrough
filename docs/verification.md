@@ -8,7 +8,7 @@ This is a chronological evidence log. Earlier package counts and pending states 
 |---|---|---|
 | SQLite, PostgreSQL | Full suite on every change; PostgreSQL two-hour soak (233k jobs) and restore drill passed | — |
 | SQL Server, Oracle | Full suite in CI; 30-minute soaks passed (2026-10-12); Oracle two-hour soak passed (2026-10-13) | SQL Server two-hour soak |
-| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers, locally and in CI (2026-10-13) | Soaks and throughput |
+| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers, locally and in CI; drain 463 and 558 jobs/s (2026-10-13) | Soaks |
 | Multi-host | Container network-partition exercise passed (2026-10-13) | Separate physical machines |
 | Identity | OIDC against a local Keycloak 26.4 (2026-10-12) | Hosted providers (Entra ID, Auth0) |
 | Packages | Package-only consumers on SDK 8 and 10; templates build with every provider | Publication, license |
@@ -381,7 +381,7 @@ Payload protection, failure branches and MySQL/MariaDB (2026-10-13):
 
   Found and fixed while qualifying: concurrent claims under a shared limit admitted 2 of 3 jobs, because InnoDB locked more candidate rows than a claim leased. Claims now lock candidates by identity. The trigger-based fault tests needed MySQL trigger syntax, and MySQL reserves `generated`, which a fixture used as an alias.
 - **SQL Server two-hour soak:** stopped at minute 56 with an unhandled deadlock. The victim was the soak's own per-minute measurement query, a large scan that takes shared locks without READ_COMMITTED_SNAPSHOT; the producer and workers were unaffected. The harness now retries a measurement read chosen as a deadlock victim, as the store does for its own reads.
-- **Open:** one SQLite test failed once with "SQL logic error" when beginning a read, during a run with four providers in parallel. It passed in isolation and in three further SQLite runs; the cause is not yet known.
+- **SQLite under contention:** two SQLite tests failed once each with "SQL logic error", one when beginning a read and one at the `synchronous` pragma every open sets, during runs with several providers in parallel. SQLite raises that error for both statements inside an open transaction, so a pooled connection came back still in one. Opening a connection now rolls back such a transaction; what left it open is not yet identified.
 
 Easier adoption (2026-10-13):
 
@@ -391,4 +391,6 @@ Easier adoption (2026-10-13):
 - **CI found:** on MariaDB, a claim under a flow's `MaxParallelSteps` gave up after three blocked steps of that flow and left admissible work for the next poll (6 of 7 jobs admitted in one round). A claim now skips the other steps of a flow it finds at its bound. 10 consecutive local runs of the admission tests then passed on MySQL and MariaDB; an earlier batch of 20 that overlapped heavy builds had 4 failures, so this remains under observation.
 
 Oracle two-hour soak (2026-10-13): 205,494 jobs succeeded exactly once, none retried, and every per-minute window stayed within its partition, tenant, rate and flow-parallelism limits. Worker memory ranged between 455 and 495 MiB through the second hour, with no upward trend. [Raw report](performance-results/2026-10-13-oracle-soak-120.json).
+
+SQL Server, Oracle and MySQL/MariaDB throughput (2026-10-13): the full suite passed on SQL Server (both read modes) and Oracle, 553 tests with SQLite; the one failure was the SQLite case above. With a preloaded backlog of 5,000 jobs, three 16-slot workers and 1 ms handlers on the local arm64 host, MySQL 8.4 drained 463 jobs/s (362 with 50 tenant quotas) and MariaDB 11.4 558 (442).
 
