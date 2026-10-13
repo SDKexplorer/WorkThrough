@@ -91,6 +91,11 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
             SELECT COUNT(*) FROM dj_jobs br WHERE br.workflow_run_id=bf.id AND br.status='Running' AND br.lease_expires_at>@now)))
         """;
 
+    /// <summary>Whether the flow of job <paramref name="jobId"/> holds its maximum number of admitted step leases, read under its flow lock row.</summary>
+    private async Task<bool> FlowAtBoundAsync(DbConnection connection, DbTransaction transaction, Guid jobId, long now, CancellationToken ct) =>
+        Convert.ToInt32(await ScalarAsync(connection, transaction, $"SELECT COUNT(*) FROM dj_jobs j WHERE j.id=@id AND {FlowBoundedSql("j")}", ct,
+            ("id", jobId.ToString()), ("now", now))) > 0;
+
     /// <summary>Claim predicates for the policy kinds that exist; absent kinds add nothing to the query.</summary>
     private static string AdmissionPredicatesSql(string job, ClaimSettings settings)
     {

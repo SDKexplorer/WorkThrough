@@ -354,6 +354,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             var budgets = new LocalBudgets(request.Budgets);
             var leased = new List<JobRecord>();
             var rejected = new HashSet<Guid>();
+            var fullFlows = new HashSet<Guid>();
             var fruitless = 0;
             var holdsLimitLocks = false;
             while (leased.Count < request.MaximumJobs && fruitless < MaximumFruitlessPages)
@@ -371,7 +372,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 foreach (var queue in order.Queues)
                 {
                     candidates = await ReadCandidatesAsync(connection, transaction, contracts, queue, settings, competing ? 1 : request.MaximumJobs - leased.Count,
-                        rejected, ct);
+                        rejected, fullFlows, ct);
                     if (candidates.Length > 0)
                     {
                         break;
@@ -406,6 +407,12 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                     {
                         rejected.Add(candidate.Id);
 
+                        // A full flow would refuse its other steps too; skipping them keeps its backlog from using up this poll's pages.
+                        if (candidate.WorkflowRunId is { } run && await FlowAtBoundAsync(connection, transaction, candidate.Id, settings.Now, ct))
+                        {
+                            fullFlows.Add(run);
+                        }
+
                         continue;
                     }
 
@@ -435,7 +442,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     /// <summary>Ready jobs of one queue in claim order, locked for this transaction and skipping jobs other claims hold.</summary>
     /// <remarks>The admission predicates narrow the page from a snapshot; the exact check runs again under the limit locks.</remarks>
     private async Task<JobRecord[]> ReadCandidatesAsync(DbConnection connection, DbTransaction transaction, IEnumerable<JobContractId> contracts, string queue,
-        ClaimSettings settings, int limit, IReadOnlyCollection<Guid> rejected, CancellationToken ct)
+        ClaimSettings settings, int limit, IReadOnlyCollection<Guid> rejected, IReadOnlyCollection<Guid> fullFlows, CancellationToken ct)
     {
         var parameters = new List<(string, object?)> { ("now", settings.Now), ("queue", queue), ("all", AllJobsLimitKey) };
         var predicate = ReadyJobSql(contracts, parameters) + (settings.HasTypeLimits ? $"\n  AND NOT {TypeBlockedSql("j")}" : "") + AdmissionPredicatesSql("j", settings);
@@ -456,6 +463,17 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                 return $"@rejected{index}";
             });
             predicate += $"\n  AND j.id NOT IN ({string.Join(",", excluded)})";
+        }
+
+        if (fullFlows.Count > 0)
+        {
+            var excluded = fullFlows.Select((id, index) =>
+            {
+                parameters.Add(($"full{index}", id.ToString()));
+
+                return $"@full{index}";
+            });
+            predicate += $"\n  AND (j.workflow_run_id IS NULL OR j.workflow_run_id NOT IN ({string.Join(",", excluded)}))";
         }
 
         var candidates = await LockCandidatesAsync(connection, transaction, predicate, limit, parameters.ToArray(), ct);

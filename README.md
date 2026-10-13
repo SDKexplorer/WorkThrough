@@ -186,6 +186,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 | Topic | Where |
 |---|---|
 | How it compares with Hangfire, Quartz.NET, Wolverine, MassTransit, Temporal | [Comparison](docs/comparison.md) |
+| Moving from Hangfire: concepts and the job importer | [Migrating from Hangfire](docs/migrating-from-hangfire.md) |
 | Design and invariants | [Architecture](docs/architecture.md), [decision records](docs/adr), [requirements](specs/durable-jobs.spec.md) |
 | Storage providers and schema upgrades | [Providers](docs/providers.md) |
 | Scheduling | [Scheduling](docs/scheduling.md) |
