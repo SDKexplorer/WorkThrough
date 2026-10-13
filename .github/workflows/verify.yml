@@ -127,7 +127,7 @@ jobs:
           name: oracle-performance-smoke
           path: artifacts/performance/*.json
   mysql:
-    # MySQL and MariaDB share a runner; together they use less memory than Oracle or SQL Server.
+    # MySQL, MariaDB and the brokers share a runner; together they use less memory than Oracle or SQL Server.
     runs-on: ubuntu-latest
     timeout-minutes: 40
     services:
@@ -152,6 +152,10 @@ jobs:
     env:
       DURABLEJOBS_MYSQL: Server=127.0.0.1;Port=3306;User ID=root;Password=WorkThrough_MySql_2026
       DURABLEJOBS_MARIADB: Server=127.0.0.1;Port=3307;User ID=root;Password=WorkThrough_MariaDb_2026
+      WORKTHROUGH_RABBITMQ: amqp://guest:guest@127.0.0.1:5673/
+      WORKTHROUGH_KAFKA: 127.0.0.1:9092
+      WORKTHROUGH_SERVICEBUS: Endpoint=sb://localhost:5674;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
+      WORKTHROUGH_SERVICEBUS_QUEUE: wt-test-greetings
     steps:
       - uses: actions/checkout@v7
         with:
@@ -166,6 +170,20 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: dashboard-ui/package-lock.json
+      - name: Start disposable brokers
+        run: |
+          docker run -d --name rabbitmq -p 5673:5672 rabbitmq:4.1
+          docker run -d --name kafka -p 9092:9092 \
+            -e KAFKA_NODE_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+            -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://127.0.0.1:9092 -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+            -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+            -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 -e KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0 apache/kafka:3.9.1
+          docker network create servicebus
+          docker run -d --name servicebus-sql --network servicebus -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=WorkThrough_Bus_2026! mcr.microsoft.com/azure-sql-edge:latest
+          sleep 20
+          docker run -d --name servicebus --network servicebus -p 5674:5672 -v "$PWD/tests/ServiceBus/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json" \
+            -e SQL_SERVER=servicebus-sql -e MSSQL_SA_PASSWORD=WorkThrough_Bus_2026! -e ACCEPT_EULA=Y mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+          for i in $(seq 1 60); do docker logs servicebus 2>&1 | grep -q "Successfully Up" && break; sleep 5; done
       - name: Allow the parallel test fixtures' connections
         env:
           MYSQL_CONTAINER: ${{ job.services.mysql.id }}

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Publishes WorkThrough messages to RabbitMQ with publisher confirms, and consumes RabbitMQ queues into jobs.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../WorkThrough.Messaging/WorkThrough.Messaging.csproj" />
+    <PackageReference Include="RabbitMQ.Client" Version="7.2.2" />
+  </ItemGroup>
+</Project>

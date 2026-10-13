@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Publishes WorkThrough messages to Kafka with idempotent, fully acknowledged produces, and consumes Kafka topics into jobs.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../WorkThrough.Messaging/WorkThrough.Messaging.csproj" />
+    <PackageReference Include="Confluent.Kafka" Version="2.15.1" />
+  </ItemGroup>
+</Project>

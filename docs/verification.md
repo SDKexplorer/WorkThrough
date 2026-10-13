@@ -396,3 +396,5 @@ SQL Server, Oracle and MySQL/MariaDB throughput (2026-10-13): the full suite pas
 
 EF Core integration (2026-10-13): `db.Enqueue` with `SaveChangesAsync` committed an entity and its job together, returned the existing job for a repeated idempotency key, and left neither after a failed save (duplicate key) or a rolled-back transaction, with EF Core 8 on SQLite, PostgreSQL, SQL Server, Oracle, MySQL and MariaDB. Found while qualifying: EF Core 8's Npgsql provider cannot load against Npgsql 10, which the PostgreSQL package required; its minimum is now Npgsql 8.0.9, and the full suite passed on it (730 tests on SQLite, PostgreSQL, MySQL and MariaDB).
 
+Message brokers (2026-10-13): against RabbitMQ 4.1, Kafka 3.9.1 (KRaft) and the Azure Service Bus emulator in local containers, a message published through `jobs.Publish` arrived and ran as a job, and a message delivered twice with one message ID became one job. On RabbitMQ an unroutable publish failed its job instead of succeeding. Azure Service Bus itself is not yet verified.
+

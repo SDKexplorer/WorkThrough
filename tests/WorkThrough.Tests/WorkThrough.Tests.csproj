@@ -13,6 +13,9 @@
     <ProjectReference Include="../../src/WorkThrough.Dashboard/WorkThrough.Dashboard.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />
     <ProjectReference Include="../../src/WorkThrough.EntityFrameworkCore/WorkThrough.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Messaging.RabbitMQ/WorkThrough.Messaging.RabbitMQ.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Messaging.Kafka/WorkThrough.Messaging.Kafka.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Messaging.AzureServiceBus/WorkThrough.Messaging.AzureServiceBus.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Migration.Hangfire/WorkThrough.Migration.Hangfire.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Migration.Quartz/WorkThrough.Migration.Quartz.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Testing/WorkThrough.Testing.csproj" />

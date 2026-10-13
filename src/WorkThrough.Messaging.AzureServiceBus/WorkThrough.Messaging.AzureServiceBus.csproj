@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Publishes WorkThrough messages to Azure Service Bus with stable message IDs, and consumes queues and subscriptions into jobs.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../WorkThrough.Messaging/WorkThrough.Messaging.csproj" />
+    <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.21.0" />
+  </ItemGroup>
+</Project>
