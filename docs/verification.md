@@ -340,3 +340,19 @@ Findings, all fixed before these results:
 
 Raw soak reports: [SQL Server](performance-results/2026-10-12-sqlserver-soak.json), [Oracle](performance-results/2026-10-12-oracle-soak.json).
 
+Checkpoint forks, bounded loops and a network partition (2026-10-13):
+
+- **Forks:** a fork keeps earlier outcomes, including outputs that later steps bind, without attempts. It reruns the checkpoint step and its descendants, and leaves the source run unchanged. It is deduplicated by command ID and refused for running flows and unknown steps.
+- **Loops:**
+  - a loop repeats its child with `iteration` and `previous` until the condition holds;
+  - exhausting its iterations fails the step;
+  - loops wait for protocol 6.
+- **Partition:** two workers ran in separate containers on their own Docker network. One was cut off from PostgreSQL holding 4 leases.
+  - The other finished its work.
+  - The late completions were refused.
+  - All 60 jobs succeeded exactly once.
+  - The isolated worker took new work alone after reconnecting.
+
+  Two runs passed.
+- **Suites:** SQLite + PostgreSQL 369 passed, 3 skipped. CI covers SQL Server and Oracle while the two-hour soaks hold those containers.
+

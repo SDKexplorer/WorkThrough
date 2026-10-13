@@ -47,14 +47,14 @@ internal static class RestoreSuite
         var clock = Stopwatch.StartNew();
         var restoredSchema = "wt_restore_" + Guid.NewGuid().ToString("N");
         var target = new Npgsql.NpgsqlConnectionStringBuilder(original.ConnectionString);
-        var dump = await DockerAsync($"exec {Container} pg_dump -U {target.Username} -d {target.Database} -n {original.Schema} --no-owner", null);
+        var dump = await Docker.RunAsync($"exec {Container} pg_dump -U {target.Username} -d {target.Database} -n {original.Schema} --no-owner", null);
         foreach (var worker in workers)
         {
             worker.Dispose();
         }
 
         var completedBefore = await SucceededAsync(original);
-        await DockerAsync($"exec -i {Container} psql -U {target.Username} -d {target.Database} -v ON_ERROR_STOP=1 -q",
+        await Docker.RunAsync($"exec -i {Container} psql -U {target.Username} -d {target.Database} -v ON_ERROR_STOP=1 -q",
             dump.Replace(original.Schema!, restoredSchema, StringComparison.Ordinal));
         var backupSeconds = clock.Elapsed.TotalSeconds;
         var connection = new Npgsql.NpgsqlConnectionStringBuilder(original.ConnectionString) { SearchPath = restoredSchema }.ToString();
@@ -98,30 +98,6 @@ internal static class RestoreSuite
     /// <summary>Succeeded jobs in the store; each drill uses a store of its own.</summary>
     private static async Task<long> SucceededAsync(ExerciseDatabase database) =>
         (await database.Store.StatisticsAsync()).Counts.GetValueOrDefault(JobStatus.Succeeded);
-
-    private static async Task<string> DockerAsync(string arguments, string? input)
-    {
-        var start = new ProcessStartInfo("docker", arguments)
-        {
-            RedirectStandardInput = input is not null,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false
-        };
-        using var process = Process.Start(start)!;
-        var output = process.StandardOutput.ReadToEndAsync();
-        var errors = process.StandardError.ReadToEndAsync();
-        if (input is not null)
-        {
-            await process.StandardInput.WriteAsync(input);
-            process.StandardInput.Close();
-        }
-
-        await process.WaitForExitAsync();
-        Ensure(process.ExitCode == 0, $"docker {arguments.Split(' ')[0]} failed: {await errors}");
-
-        return await output;
-    }
 
     private static void Ensure(bool condition, string message)
     {

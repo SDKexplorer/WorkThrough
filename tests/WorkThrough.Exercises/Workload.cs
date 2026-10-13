@@ -45,7 +45,8 @@ internal static class Workload
             .AddJob<WorkItem, Processor>(Fast).AddJob<WorkItem, LimitedProcessor>(Limited)
             .AddWorker(options =>
             {
-                options.WorkerId = $"exercise-{Environment.ProcessId}";
+                // Containers all run as process 1, so they name themselves.
+                options.WorkerId = Environment.GetEnvironmentVariable("WT_EXERCISE_WORKER_ID") is { Length: > 0 } id ? id : $"exercise-{Environment.ProcessId}";
                 options.Queues = Environment.GetEnvironmentVariable("WT_EXERCISE_QUEUES") is { Length: > 0 } queues ? queues.Split(',') : [Queue];
                 options.MaxConcurrentJobs = int.TryParse(Environment.GetEnvironmentVariable("WT_EXERCISE_SLOTS"), out var slots) ? slots : LocalSlots;
                 options.PerJobLimits[Limited.Identity.Key] = 2;
