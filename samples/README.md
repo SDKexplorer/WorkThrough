@@ -22,8 +22,8 @@ One small shop, deployed the way a real system would be: shared definitions, job
 
 | Project | Role |
 |---|---|
-| `Shop.Shared` | Typed job addresses (`ShopJobs`), the checkout flow, settings, storage choice, seeded policies and schedule, and the tenant-claim resolver. Producers need only this project. |
-| `Shop.Jobs` | The `IJob<T>` implementations and the one place that maps addresses to classes (`AddShopJobs`). |
+| `Shop.Shared` | Typed job addresses (`ShopJobs`) with their queues, the checkout flow, settings, storage choice, fleet-wide policies and the tenant-claim resolver. Producers need only this project. |
+| `Shop.Jobs` | The `IJob<T>` implementations and `AddShopJobs`, which sets up each job in one `Job(...)` block: its class, limits and schedule. |
 | `Shop.Api` | Order intake and review approval, a worker and scheduler, and the embedded dashboard. `--smoke` runs an end-to-end check. |
 | `Shop.Worker` | Headless worker for scaling out. `--describe-worker` prints its capabilities; `--preflight` checks that it covers the stored work. |
 | `Shop.Dashboard` | Standalone console with OIDC sign-in, role-based permissions and tenant-scoped users. References no job code. |
@@ -61,7 +61,7 @@ Shop__PostgreSql="Host=...;Database=shop" dotnet run --project samples/Shop.Work
 
 - **Stable addresses** (`ShopJobs`, `AddShopJobs`): stored work names `shop.payment.charge` v1, never a CLR type. Move or rename a job class and existing work still runs.
 - **Flow** (`CheckoutFlow`): steps pass outputs to inputs by property name. The review step runs only when the payment output says so, and shipping waits for it only then.
-- **Policies** (`ShopSetup.SeedShopPolicies`), created once and afterwards owned by operators in the console:
+- **Policies**, created once and afterwards owned by operators in the console. Fleet-wide ones are in `ShopSetup.SeedShopPolicies`; each job's own sit with it in `AddShopJobs`:
   - at most 12 running attempts fleet-wide and 2 shipments at a time;
   - 4 slots per tenant, so one busy tenant cannot starve the others;
   - one payment at a time per customer;

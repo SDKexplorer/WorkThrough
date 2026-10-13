@@ -16,9 +16,8 @@ app.MapGet("/", () => Results.Redirect("/jobs"));
 app.MapPost("/signups", async (Signup signup, JobClient jobs, CancellationToken ct) =>
 {
     // The idempotency key makes a repeated request return the jobs it already stored instead of sending twice.
-    var welcome = await jobs.EnqueueAsync(new WelcomeEmail(signup.Email), new(IdempotencyKey: $"welcome:{signup.Email}"), ct);
-    var tips = await jobs.EnqueueAsync(new TipsEmail(signup.Email),
-        new(IdempotencyKey: $"tips:{signup.Email}", NotBefore: DateTimeOffset.UtcNow.AddMinutes(1)), ct);
+    var welcome = await jobs.Enqueue(new WelcomeEmail(signup.Email)).Idempotent($"welcome:{signup.Email}").SendAsync(ct);
+    var tips = await jobs.Enqueue(new TipsEmail(signup.Email)).Idempotent($"tips:{signup.Email}").After(TimeSpan.FromMinutes(1)).SendAsync(ct);
 
     return Results.Accepted(value: new { welcome, tips });
 });

@@ -29,9 +29,13 @@ public sealed class FlowBuilder
     public FlowBuilder Step<TJob>(string id, object? input = null, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
         => Step(id, JobContractId.For<TJob>(), input, queue, maxAttempts);
 
-    /// <summary>Adds an invocation using a shared typed definition.</summary>
-    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition, TInput input, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
-        => Step(id, definition.Identity, input, queue, maxAttempts);
+    /// <summary>Adds an invocation using a shared typed definition, in its queue and attempt budget unless given others.</summary>
+    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition, TInput input, string? queue = null, int? maxAttempts = null)
+        => Step(id, definition.Identity, input, queue ?? definition.Queue, maxAttempts ?? definition.MaxAttempts);
+
+    /// <summary>Adds an invocation whose input comes entirely from bindings, in the definition's queue and attempt budget.</summary>
+    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition)
+        => Step(id, definition.Identity, null, definition.Queue, definition.MaxAttempts);
 
     /// <summary>Adds a processor invocation without a dependency on its implementation assembly.</summary>
     public FlowBuilder Step(string id, JobContractId processor, object? input = null, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)

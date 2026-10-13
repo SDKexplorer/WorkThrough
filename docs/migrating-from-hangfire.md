@@ -6,15 +6,15 @@ Move gradually: new work goes to WorkThrough while Hangfire drains, and an impor
 
 | Hangfire | WorkThrough |
 |---|---|
-| `BackgroundJob.Enqueue<IMailer>(m => m.Send(id))` | `jobs.EnqueueAsync(Emails.Send, new SendEmail(id))` |
-| `BackgroundJob.Schedule(..., TimeSpan.FromHours(1))` | `EnqueueAsync(..., new(NotBefore: now.AddHours(1)))` |
-| `RecurringJob.AddOrUpdate("daily", ..., Cron.Daily())` | `.SeedSchedules(ScheduleDefinition.Create("reports.daily", "0 0 * * *", Reports.Daily, input))` |
+| `BackgroundJob.Enqueue<IMailer>(m => m.Send(id))` | `await jobs.Enqueue(Emails.Send, new SendEmail(id))` |
+| `BackgroundJob.Schedule(..., TimeSpan.FromHours(1))` | `await jobs.Enqueue(...).After(TimeSpan.FromHours(1))` |
+| `RecurringJob.AddOrUpdate("daily", ..., Cron.Daily())` | `.Job(Reports.Daily, job => job.RunWith<DailyReportJob>().Every("0 0 * * *", input))` |
 | `ContinueJobWith` | A flow step `.After("previous")` |
 | Batches (Pro) | A flow with parallel steps or `ForEach` |
-| `[AutomaticRetry(Attempts = 5)]` | `MaxAttempts: 5`, or `UseRetryPolicy<T>()` |
-| `[Queue("critical")]` | `Queue: "critical"`, with queue weights |
-| `[DisableConcurrentExecution]` | A partition key with a partition limit of 1 |
-| Throttling (Pro) | Type, key, tenant and rate limits |
+| `[AutomaticRetry(Attempts = 5)]` | `definition.WithMaxAttempts(5)`, or `UseRetryPolicy<T>()` |
+| `[Queue("critical")]` | `definition.InQueue("critical")`, with queue weights |
+| `[DisableConcurrentExecution]` | `job.AtMostRunning(1)`, or `.AtMostPerPartition(1)` with a partition key |
+| Throttling (Pro) | `AtMostRunning`, `AtMostPerTenant` and `RateLimit` on the job |
 | `IBackgroundJobClient` in a transaction | `InTransactionAsync`, or the outbox |
 | Dashboard | The WorkThrough console, with audited actions and permissions |
 
@@ -34,12 +34,12 @@ public static class Emails
 
 builder.Services.AddWorkThrough()
     .UseSqlServer(connectionString)
-    .AddJob(Emails.Send, job =>
+    .Job(Emails.Send, job => job.Run(call =>
     {
-        job.Service<IMailer>().Send(job.Input.UserId);
+        call.Service<IMailer>().Send(call.Input.UserId);
 
         return Task.CompletedTask;
-    })
+    }))
     .AddWorker();
 ```
 

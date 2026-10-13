@@ -22,16 +22,16 @@ public static class CheckoutFlow
 
     // Bindings and conditions resolve to JSON property names now; no expression or code is persisted.
     public static FlowDefinition Definition { get; } = new FlowBuilder(Key, Version)
-        .Step(Reserve, ShopJobs.ReserveStock.Identity).Named("Reserve stock")
+        .Step(Reserve, ShopJobs.ReserveStock).Named("Reserve stock")
             .BindInput((ReserveStock step) => step.OrderId, (OrderPlaced order) => order.OrderId)
-        .Step(Charge, ShopJobs.ChargePayment.Identity).Named("Charge payment").After(Reserve)
+        .Step(Charge, ShopJobs.ChargePayment).Named("Charge payment").After(Reserve)
             .BindInput((ChargePayment step) => step.OrderId, (OrderPlaced order) => order.OrderId)
             .BindInput((ChargePayment step) => step.Amount, (OrderPlaced order) => order.Amount)
         .WaitForSignal(Review, ReviewApproved, ReviewTimeout).Named("Manual review").After(Charge)
             .WhenOutput(Charge, (Payment payment) => payment.NeedsReview, true)
-        .Step(Ship, ShopJobs.ShipOrder.Identity, queue: ShopJobs.ShippingQueue).Named("Ship order").After(Charge, Review)
+        .Step(Ship, ShopJobs.ShipOrder).Named("Ship order").After(Charge, Review)
             .BindInput((ShipOrder step) => step.OrderId, (OrderPlaced order) => order.OrderId)
-        .Step(Notify, ShopJobs.NotifyCustomer.Identity).Named("Notify customer").After(Ship)
+        .Step(Notify, ShopJobs.NotifyCustomer).Named("Notify customer").After(Ship)
             .BindInput((NotifyCustomer step) => step.OrderId, (OrderPlaced order) => order.OrderId)
         .Build();
 

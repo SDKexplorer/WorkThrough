@@ -18,8 +18,10 @@ builder.Services.AddWorkThrough()
 #else
     .UseOracle(connectionString)
 #endif
-    .AddJobs(typeof(Program).Assembly)
-    .SeedSchedules(ScheduleDefinition.Create("reports.daily", "0 6 * * *", new DailyReport(Days: 1)))
+    .Job(Reports.Daily, job => job
+        .RunWith<DailyReportJob>()
+        .Every("0 6 * * *", new DailyReport(Days: 1))
+        .AtMostRunning(1))
     .AddScheduler()
     .AddWorker(options => options.MaxConcurrentJobs = 8);
 

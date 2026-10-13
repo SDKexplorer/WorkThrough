@@ -30,7 +30,7 @@ app.MapHealthChecks("/health");
 app.MapPost("/signups", async (Signup signup, JobClient jobs, CancellationToken ct) =>
 {
     // The idempotency key turns a repeated request into the job it already stored.
-    var jobId = await jobs.EnqueueAsync(new WelcomeEmail(signup.Email), new(IdempotencyKey: $"welcome:{signup.Email}"), ct);
+    var jobId = await jobs.Enqueue(new WelcomeEmail(signup.Email)).Idempotent($"welcome:{signup.Email}").SendAsync(ct);
 
     return Results.Accepted($"/jobs", new { jobId });
 });

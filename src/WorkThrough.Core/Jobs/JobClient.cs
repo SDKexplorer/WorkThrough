@@ -15,8 +15,22 @@ public sealed class JobClient(IJobStore store)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
-        return EnqueueAsync(definition.Identity, input, options, cancellationToken);
+        return EnqueueAsync(definition.Identity, input, options ?? definition.DefaultOptions, cancellationToken);
     }
+
+    /// <summary>
+    /// Starts an enqueue that takes the definition's defaults; refine it fluently and await it.
+    /// </summary>
+    /// <example><c>await jobs.Enqueue(Emails.Welcome, new WelcomeEmail("ada@example.com")).After(TimeSpan.FromMinutes(5)).Idempotent("welcome:ada");</c></example>
+    public EnqueueRequest<TInput> Enqueue<TInput>(JobDefinition<TInput> definition, TInput input)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        return new(this, definition.Identity, input, definition.DefaultOptions);
+    }
+
+    /// <summary>Starts an enqueue at the address of <typeparamref name="TInput"/>'s [JobContract].</summary>
+    public EnqueueRequest<TInput> Enqueue<TInput>(TInput input) => new(this, JobContractId.For<TInput>(), input, new());
 
     public Task<Guid> EnqueueAsync<TJob>(TJob job, EnqueueOptions? options = null, CancellationToken cancellationToken = default)
         => EnqueueAsync(JobContractId.For<TJob>(), job, options, cancellationToken);

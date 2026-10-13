@@ -21,13 +21,14 @@ public sealed record ScheduleDefinition(string Key, int Version, string Cron, st
 {
     public const string DefaultTimeZone = "UTC";
 
-    /// <summary>A schedule that invokes a typed processor definition with fixed input.</summary>
+    /// <summary>A schedule that invokes a typed processor definition with fixed input, in the definition's queue and attempt budget.</summary>
     public static ScheduleDefinition Create<TInput>(string key, string cron, JobDefinition<TInput> processor, TInput input,
         string timeZone = DefaultTimeZone, int version = 1)
     {
         ArgumentNullException.ThrowIfNull(processor);
 
-        return new(key, version, cron, timeZone, processor.Identity, JsonSerializer.SerializeToElement(input, JobJson.Options));
+        return new(key, version, cron, timeZone, processor.Identity, JsonSerializer.SerializeToElement(input, JobJson.Options), processor.Queue,
+            processor.MaxAttempts);
     }
 
     /// <summary>A schedule that enqueues fixed input at the address its type's [JobContract] declares.</summary>

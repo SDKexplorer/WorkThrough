@@ -110,7 +110,7 @@ Gaps found when reviewing WorkThrough as an adopter would. None blocks the curre
 - [x] An easier first job: `AddJobs(assembly)` registers attributed jobs without the generator, storage registration needs no extra `using`, and `QuickStart` and `QuickStart.Web` samples sit beside Shop.
 - [x] `dotnet new workthrough-worker` and `workthrough-web` templates for every storage provider, checked in `verify.sh`.
 - [x] Rolling upgrades from schema 6: schema reader ranges and engine protocol levels (ADR-021).
-- [x] Jobs as delegates at an explicit address (`AddJob(definition, job => ...)`), job stubs and `RunFlowAsync` for flow tests, and a `dotnet new workthrough-tests` template.
+- [x] One place per job (`Job(definition, job => job.RunWith<T>().Every(...).AtMostRunning(n))`), delegate jobs, definition defaults for queue and attempts, a fluent awaitable enqueue (`await jobs.Enqueue(definition, input).After(...).Idempotent(...)`), job stubs and `RunFlowAsync` for flow tests, and a `dotnet new workthrough-tests` template.
 
 ## Adoption priorities — 2026-10-11
 

@@ -80,6 +80,26 @@ public sealed class WorkThroughBuilder
     public WorkThroughBuilder AddJob<TInput, TJob>(JobContractId identity, params JobContractId[] aliases)
         where TJob : class, IJob<TInput> => AddJob<TInput, TJob>(new JobDefinition<TInput>(identity), aliases);
 
+    /// <summary>
+    /// Sets up one job: what runs it, its schedules and its limits. Seeded schedules and limits are created once; operators own them afterwards.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// .Job(Reports.Daily, job =&gt; job
+    ///     .RunWith&lt;DailyReportJob&gt;()
+    ///     .Every("0 6 * * *", new DailyReport(Days: 1), "Europe/Bucharest")
+    ///     .AtMostRunning(1))
+    /// </code>
+    /// </example>
+    public WorkThroughBuilder Job<TInput>(JobDefinition<TInput> definition, Action<JobSetup<TInput>> setup)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(setup);
+        setup(new(this, definition));
+
+        return this;
+    }
+
     /// <summary>Runs <paramref name="execute"/> for work at the definition's address; the job succeeds when it completes.</summary>
     /// <example><c>.AddJob(Emails.Welcome, job =&gt; job.Service&lt;IMailer&gt;().SendAsync(job.Input.Address, job.CancellationToken))</c></example>
     public WorkThroughBuilder AddJob<TInput>(JobDefinition<TInput> definition, Func<JobCall<TInput>, Task> execute)

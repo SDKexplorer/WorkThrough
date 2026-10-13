@@ -46,22 +46,49 @@ builder.Services.AddWorkThrough()
     .AddWorker(options => options.MaxConcurrentJobs = 8);
 ```
 
-A small job can be a delegate instead of a class. Its address is still explicit:
+Enqueue from anywhere that can reach the store, refining the request fluently:
 
 ```csharp
+await jobs.Enqueue(new GenerateInvoice("INV-42"))
+    .After(TimeSpan.FromMinutes(5))
+    .Idempotent("invoice:INV-42");
+```
+
+### One place per job
+
+`Job(...)` declares everything about a job together: what runs it, when it recurs and how much of it may run. A small job can be a delegate instead of a class; its address stays explicit:
+
+```csharp
+public static class Emails
+{
+    public static JobDefinition<WelcomeEmail> Welcome { get; } = new JobDefinition<WelcomeEmail>("emails.welcome").InQueue("emails");
+}
+
 builder.Services.AddWorkThrough()
     .UseSqlite("Data Source=jobs.db")
-    .AddJob(new JobDefinition<WelcomeEmail>("emails.welcome"),
-        job => job.Service<IMailer>().SendAsync(job.Input.Address, job.CancellationToken))
-    .AddWorker();
+    .Job(Emails.Welcome, job => job
+        .Run(call => call.Service<IMailer>().SendAsync(call.Input.Address, call.CancellationToken))
+        .AtMostRunning(10))
+    .Job(Reports.Daily, job => job
+        .RunWith<DailyReportJob>()
+        .Every("0 6 * * *", new DailyReport(Days: 1), "Europe/Bucharest"))
+    .AddScheduler()
+    .AddWorker(options => options.Queues = ["default", "emails"]);
+
+await jobs.Enqueue(Emails.Welcome, new WelcomeEmail("ada@example.com")).ForTenant("acme");
 ```
 
-Enqueue from anywhere that can reach the store:
+A definition's queue and attempt budget apply wherever it is used: enqueues, schedules and flow steps. Seeded schedules and limits are created once; operators own them afterwards.
 
-```csharp
-await jobs.EnqueueAsync(new GenerateInvoice("INV-42"),
-    new(IdempotencyKey: "invoice:INV-42", NotBefore: DateTimeOffset.UtcNow.AddMinutes(5)), ct);
-```
+Compared with Hangfire:
+
+| | Hangfire | WorkThrough |
+|---|---|---|
+| Enqueue | `BackgroundJob.Enqueue<IMailer>(m => m.Send("ada"))` | `await jobs.Enqueue(Emails.Welcome, new WelcomeEmail("ada"))` |
+| Delay | `BackgroundJob.Schedule<IMailer>(m => m.Send("ada"), TimeSpan.FromMinutes(5))` | `.After(TimeSpan.FromMinutes(5))` |
+| Recurring | `RecurringJob.AddOrUpdate<Reports>("daily", r => r.Run(1), Cron.Daily)` | `.Job(Reports.Daily, job => job.RunWith<DailyReportJob>().Every("0 0 * * *", new DailyReport(1)))` |
+| What is stored | The method and its arguments | An address and an input record |
+| After a rename | Queued jobs fail | Queued jobs run on the moved class |
 
 Run several processes, or several machines on a server database, against the same store. Workers claim work under leases; a crashed worker's attempt is recovered when its lease expires.
 
@@ -141,9 +168,9 @@ Execution is at least once. Handlers receive `context.IdempotencyKey`, which sta
 
 ```csharp
 var fulfil = new FlowBuilder("orders.fulfil", 1)
-    .Step("reserve", Stock.Reserve.Identity)
+    .Step("reserve", Stock.Reserve)
         .BindInput((ReserveStock step) => step.OrderId, (Order order) => order.Id)
-    .Step("ship", Shipping.Ship.Identity).After("reserve")
+    .Step("ship", Shipping.Ship).After("reserve")
         .BindInput((ShipOrder step) => step.OrderId, (Order order) => order.Id)
         .WhenOutput("reserve", (Reservation reservation) => reservation.Reserved, true)
     .Build();
@@ -156,13 +183,13 @@ var run = await flows.StartAsync(fulfil, new Order("42"), new FlowStart(Idempote
 
   ```csharp
   .ForEach("ship", Shipping.Ship.Identity, "pick", (PickList list) => list.Parcels, (ShipParcel ship) => ship.Parcel)
-  .Step("notify", Notify.Identity).After("ship")
+  .Step("notify", Customers.Notify).After("ship")
   ```
 - **Child flows:** `Child("ship", ShippingFlow.Definition, input)` runs another published flow as one step and waits for it without holding a worker. The step's output holds the child's final outputs; a failed child fails the step. `ForEach` with a child definition runs one child flow per item. Starting the parent publishes child definitions it carries ([ADR-023](docs/adr/0023-child-flows.md)).
 - **Loops:** `Repeat("track", PollCarrier.Definition, "check", "status", "delivered", maximumIterations: 20)` runs a child flow again, passing `iteration` and the `previous` output, until a final step's output property matches ([ADR-026](docs/adr/0026-bounded-loops.md)).
 - **Versioning:** every run pins an immutable definition version. Definitions move Draft → Published → Retired.
 - **Compensation:** with `OnFailure(FlowFailurePolicy.Compensate)`, steps declared with `CompensateWith(...)` are undone in reverse dependency order when the flow fails, then the flow fails ([ADR-025](docs/adr/0025-compensation.md)).
-- **Failure branches:** `.Step("apologise", Notify.Identity).OnFailureOf("charge")` runs only when `charge` fails, is rejected or times out, and handles that failure: the run continues and can rejoin later steps ([ADR-028](docs/adr/0028-failure-branches.md)).
+- **Failure branches:** `.Step("apologise", Customers.Apologise).OnFailureOf("charge")` runs only when `charge` fails, is rejected or times out, and handles that failure: the run continues and can rejoin later steps ([ADR-028](docs/adr/0028-failure-branches.md)).
 - **Failure:** a step that fails by default suspends the run as an **incident**; operators recover the step with its history and idempotency key intact. See [flow starts](docs/adr/0009-idempotent-flow-starts.md) and [architecture](docs/architecture.md).
 
 ### Admission control
