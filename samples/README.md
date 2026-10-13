@@ -4,10 +4,12 @@
 |---|---|
 | [QuickStart](QuickStart/Program.cs) | The smallest program: one job, SQLite, an in-process worker. It runs the job and exits. |
 | [QuickStart.Web](QuickStart.Web/Program.cs) | An API that enqueues jobs, with idempotent requests, a delayed job, the worker and the console in one process. |
+| [HangfireMigration](HangfireMigration/Program.cs) | Moves a Hangfire application's queued, delayed and recurring jobs into WorkThrough with the importer, then retires them in Hangfire. |
 | [Shop](#shop-sample) | A system split into deployable hosts, with a flow, tenants, limits, schedules, an OIDC console and MCP. |
 
 ```bash
 dotnet run --project samples/QuickStart
+dotnet run --project samples/HangfireMigration
 ASPNETCORE_ENVIRONMENT=Development dotnet run --project samples/QuickStart.Web --urls http://127.0.0.1:5296
 curl -X POST http://127.0.0.1:5296/signups -H 'Content-Type: application/json' -d '{"email":"ada@example.com"}'
 ```

@@ -31,6 +31,9 @@ Shop__Sqlite="Data Source=$sample_dir/shop.db" "$runtime8" samples/Shop.Worker/b
 echo 'PASS: deployment preflight confirmed the shop worker covers stored work and its seeded schedule.'
 (cd "$sample_dir" && "$runtime8" "$repo_dir/samples/QuickStart/bin/Release/net8.0/QuickStart.dll" > quickstart.log)
 echo 'PASS: the one-file quick start registered its job by reflection and ran it.'
+(cd "$sample_dir" && "$runtime8" "$repo_dir/samples/HangfireMigration/bin/Release/net8.0/HangfireMigration.dll" > hangfire-migration.log)
+grep -q "Imported 3, skipped 0" "$sample_dir/hangfire-migration.log"
+echo 'PASS: the Hangfire migration sample imported, retired and ran its jobs.'
 
 # Independent process termination and a bounded performance/correctness smoke campaign.
 WORKTHROUGH_DOTNET8="$runtime8" ./scripts/performance.sh --smoke

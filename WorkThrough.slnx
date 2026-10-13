@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/samples/">
+    <Project Path="samples/HangfireMigration/HangfireMigration.csproj" />
     <Project Path="samples/QuickStart/QuickStart.csproj" />
     <Project Path="samples/QuickStart.Web/QuickStart.Web.csproj" />
     <Project Path="samples/Shop.Shared/Shop.Shared.csproj" />
