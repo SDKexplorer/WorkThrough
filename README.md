@@ -108,6 +108,7 @@ Execution is at least once. Handlers receive `context.IdempotencyKey`, which sta
 - **Transactions:** `InTransactionAsync` commits jobs with business rows in the same database. `SendAsync` plus an outbox dispatcher delivers to a separate job store.
 - **Failures:** exception details are kept behind a separate permission. Redact them before storage with `DescribeFailure`.
 - **Input correction:** operators can fix the input of failed or rejected work and run it again, audited, with the original input kept.
+- **Checkpoint forks:** operators can start a new run from any step of a finished or failed flow, keeping earlier outcomes and leaving the original run untouched.
 
 ### Flows
 

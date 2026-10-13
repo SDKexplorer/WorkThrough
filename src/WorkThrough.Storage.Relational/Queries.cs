@@ -16,7 +16,7 @@ public abstract partial class RelationalJobStore
         ReadAsync<IReadOnlyList<WorkflowRun>>(async (connection, transaction, ct) =>
         {
             await using var command = Command(connection, transaction, $"""
-                SELECT f.id,f.flow_key,f.version,f.correlation_id,f.status,f.error,f.parent_run_id,f.parent_job_id FROM dj_flows f
+                SELECT f.id,f.flow_key,f.version,f.correlation_id,f.status,f.error,f.parent_run_id,f.parent_job_id,f.forked_from_run_id FROM dj_flows f
                 JOIN dj_jobs j ON j.id=f.parent_job_id WHERE f.parent_run_id=@run ORDER BY j.step_id,f.id {PageSql(IJobQueries.MaximumChildRuns)}
                 """, ("run", runId.ToString()));
             await using var reader = await command.ExecuteReaderAsync(ct);
@@ -136,7 +136,7 @@ public abstract partial class RelationalJobStore
 
     public Task<WorkflowRun?> GetWorkflowAsync(Guid runId, CancellationToken cancellationToken = default) => ReadAsync(async (connection, transaction, ct) =>
     {
-        await using var command = Command(connection, transaction, "SELECT flow_key,version,correlation_id,status,error,parent_run_id,parent_job_id FROM dj_flows WHERE id=@id", ("id", runId.ToString()));
+        await using var command = Command(connection, transaction, "SELECT flow_key,version,correlation_id,status,error,parent_run_id,parent_job_id,forked_from_run_id FROM dj_flows WHERE id=@id", ("id", runId.ToString()));
         await using var reader = await command.ExecuteReaderAsync(ct);
 
         return await reader.ReadAsync(ct) ? ReadWorkflowRun(reader, runId) : null;
@@ -147,7 +147,8 @@ public abstract partial class RelationalJobStore
         Text(reader, "error"))
     {
         ParentRunId = ParseGuid(Text(reader, "parent_run_id")),
-        ParentJobId = ParseGuid(Text(reader, "parent_job_id"))
+        ParentJobId = ParseGuid(Text(reader, "parent_job_id")),
+        ForkedFromRunId = ParseGuid(Text(reader, "forked_from_run_id"))
     };
 
     private async Task<JobRecord?> ReadJobAsync(DbConnection connection, DbTransaction? transaction, Guid id, CancellationToken ct) =>
@@ -202,15 +203,18 @@ public abstract partial class RelationalJobStore
     private Task<int> InsertJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) =>
         ExecuteAsync(connection, transaction, """
             INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,correlation_id,status,attempt,max_attempts,
-              created_at,available_at,idempotency_key,workflow_run_id,step_id,expires_at,causation_job_id,partition_key,tenant_id,trace_parent)
-            VALUES (@id,@key,@version,@payload,@queue,@correlation,@status,@attempt,@maximum,@created,@available,@dedup,@flow,@step,@expiry,@cause,@partition,@tenant,@trace)
+              created_at,available_at,idempotency_key,workflow_run_id,step_id,expires_at,causation_job_id,partition_key,tenant_id,trace_parent,output,terminal_at)
+            VALUES (@id,@key,@version,@payload,@queue,@correlation,@status,@attempt,@maximum,@created,@available,@dedup,@flow,@step,@expiry,@cause,@partition,@tenant,@trace,
+              @output,@terminal)
             """, ct, ("id", job.Id.ToString()), ("key", job.Contract.Key), ("version", job.Contract.Version),
             ("payload", job.Payload.GetRawText()), ("queue", job.Queue), ("correlation", job.CorrelationId),
             ("status", job.Status.ToString()), ("attempt", job.Attempt), ("maximum", job.MaxAttempts),
             ("created", job.CreatedAt.ToUnixTimeMilliseconds()), ("available", EligibilityMilliseconds(job.AvailableAt)),
             ("dedup", job.IdempotencyKey), ("flow", job.WorkflowRunId?.ToString()), ("step", job.StepId), ("expiry", job.ExpiresAt?.ToUnixTimeMilliseconds()), ("cause", job.CausationJobId?.ToString()),
             ("partition", job.PartitionKey), ("tenant", job.TenantId),
-            ("trace", job.TraceParent is { Length: <= TraceContext.MaximumLength } trace ? trace : null));
+            ("trace", job.TraceParent is { Length: <= TraceContext.MaximumLength } trace ? trace : null),
+            // Work can be inserted already finished, as a fork keeps earlier outcomes; retention reads its terminal time.
+            ("output", job.Output?.GetRawText()), ("terminal", job.Status.IsTerminal() ? job.CreatedAt.ToUnixTimeMilliseconds() : null));
 
     private static long EligibilityMilliseconds(DateTimeOffset instant)
     {

@@ -255,9 +255,13 @@
                 [selected]="detail.job.stepId"
                 (choose)="inspectStep($event)"
             />
-            @if (flow.flow.parentJobId || flow.children.length) {
+            @if (flow.flow.parentJobId || flow.flow.forkedFromRunId || flow.children.length) {
             <div class="live-graph-header">
-                @if (flow.flow.parentJobId) {
+                @if (flow.flow.forkedFromRunId) {
+                <button class="outline" (click)="inspectFirstJob(flow.flow.forkedFromRunId)">
+                    Forked from
+                </button>
+                } @if (flow.flow.parentJobId) {
                 <button
                     class="outline"
                     (click)="inspectRun(flow.flow.parentJobId, flow.flow.parentRunId)"
@@ -331,6 +335,12 @@
                 ['Failed','Cancelled','Rejected','Expired'].includes(detail.job.status)) {
                 <button class="primary" (click)="openAction('recover', detail.job)">
                     Recover failed step
+                </button>
+                } @if (can(permission.RecoverFlows) && detail.job.stepId && flow() &&
+                ['Succeeded','Failed','Incident'].includes(flow()!.flow.status) &&
+                !detail.job.stepId.includes('[') && !detail.job.stepId.includes(':')) {
+                <button class="outline" (click)="openFork(flow()!, detail.job.stepId)">
+                    Fork from this step
                 </button>
                 } @if (can(permission.CorrectInputs) && detail.sensitive && ![signalProcessorKey,
                 childFlowProcessorKey].includes(detail.job.contract.key) &&

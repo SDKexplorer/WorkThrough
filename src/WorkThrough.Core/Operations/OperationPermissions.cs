@@ -45,6 +45,7 @@ public static class AuditActions
     public const string ReplayJob = "jobs.replay";
     public const string RecoverStep = "flows.recover";
     public const string CorrectInput = "jobs.correct-input";
+    public const string ForkRun = "flows.fork";
     public const string PauseFlow = "flows.pause";
     public const string ResumeFlow = "flows.resume";
     public const string ChangeLimit = "limits.manage";

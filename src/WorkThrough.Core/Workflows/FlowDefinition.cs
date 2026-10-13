@@ -111,6 +111,25 @@ public enum FlowStatus
 
 public sealed record FlowDefinition(string Key, int Version, FlowStep[] Steps, FlowFailurePolicy FailurePolicy = FlowFailurePolicy.Stop)
 {
+    /// <summary>Every step that depends on <paramref name="stepId"/>, directly or through other steps.</summary>
+    public IReadOnlySet<string> Descendants(string stepId)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>([stepId]);
+        while (pending.TryPop(out var id))
+        {
+            foreach (var next in Steps.Where(step => step.After.Contains(id)).Select(step => step.Id))
+            {
+                if (found.Add(next))
+                {
+                    pending.Push(next);
+                }
+            }
+        }
+
+        return found;
+    }
+
     /// <summary>The engine protocol every host must understand before a run of this definition may start.</summary>
     [JsonIgnore]
     public int RequiredProtocol => FailurePolicy == FlowFailurePolicy.Compensate || Steps.Any(step => step.Compensation is not null)
@@ -127,4 +146,7 @@ public sealed record WorkflowRun(Guid Id, string FlowKey, int Version, string? C
 
     /// <summary>The parent's step job that waits for this run, if any.</summary>
     public Guid? ParentJobId { get; init; }
+
+    /// <summary>The run this one was forked from at a checkpoint, if any.</summary>
+    public Guid? ForkedFromRunId { get; init; }
 }

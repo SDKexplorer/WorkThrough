@@ -73,6 +73,7 @@ interface FlowRun {
     status: string;
     parentRunId?: string | null;
     parentJobId?: string | null;
+    forkedFromRunId?: string | null;
 }
 interface Flow {
     jobs: Job[];
@@ -509,6 +510,21 @@ export class LiveConsoleComponent {
     page(direction: number) {
         this.offset = Math.max(0, this.offset + direction * 100);
         void this.refresh();
+    }
+    /** Starts a new run of this flow from the step, keeping the outcomes of earlier work. */
+    openFork(flow: Flow, stepId: string) {
+        this.ask({
+            title: `Fork a new run from step ${stepId}`,
+            path: `/api/flows/${flow.flow.id}/fork`,
+            wrapper: 'command',
+            value: { fromStep: stepId },
+        });
+    }
+    /** Opens the first job of another run, such as a fork's source. */
+    async inspectFirstJob(runId: string | null | undefined) {
+        if (!runId) return;
+        const source = await this.request<Flow>('/api/flows/' + runId);
+        await this.inspectRun(source.jobs[0]?.id, runId);
     }
     /** Edits a failed job's input, then retries it, or recovers it when it is a step of a flow in an incident. */
     openCorrection(job: Job, payload: unknown) {

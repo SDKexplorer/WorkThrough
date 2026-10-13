@@ -153,7 +153,7 @@ public static class FlowPlanner
                 }
 
                 // Later work is undone first: every descendant must have finished, and its own compensation too.
-                var settled = Descendants(definition, step.Id).All(id => current[id].Status.IsTerminal()
+                var settled = definition.Descendants(step.Id).All(id => current[id].Status.IsTerminal()
                     && (!current.TryGetValue(FlowCompensation.UndoStepId(id), out var later) || later.Status.IsTerminal()));
                 if (!settled)
                 {
@@ -182,25 +182,6 @@ public static class FlowPlanner
         }
 
         return Plan(changes, current.Values.All(job => job.Status.IsTerminal()) ? FlowStatus.Failed : FlowStatus.Running, error, added);
-    }
-
-    /// <summary>Every step that depends on <paramref name="stepId"/>, directly or through other steps.</summary>
-    private static HashSet<string> Descendants(FlowDefinition definition, string stepId)
-    {
-        var found = new HashSet<string>(StringComparer.Ordinal);
-        var pending = new Stack<string>([stepId]);
-        while (pending.TryPop(out var id))
-        {
-            foreach (var next in definition.Steps.Where(step => step.After.Contains(id)).Select(step => step.Id))
-            {
-                if (found.Add(next))
-                {
-                    pending.Push(next);
-                }
-            }
-        }
-
-        return found;
     }
 
     /// <summary>A plan whose changes keep only the last change to each job, since providers apply each against the status first read.</summary>

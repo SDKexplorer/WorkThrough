@@ -40,6 +40,13 @@ public interface IJobAdministration
     /// in an incident is recovered. The first input is kept as <see cref="JobRecord.OriginalPayload"/>; the audit records digests only.
     /// </summary>
     Task<Result> CorrectInputAsync(Guid id, int expectedAttempt, JsonElement input, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Starts a new run of a finished, failed or suspended run's pinned definition, with the same input and keys, from step
+    /// <paramref name="fromStep"/>: steps outside it and its descendants keep their succeeded or skipped outcomes without running
+    /// again; the rest run anew. The source run is unchanged. Returns the new run.
+    /// </summary>
+    Task<Result<Guid>> ForkRunAsync(Guid runId, string fromStep, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> SetFlowPausedAsync(Guid id, bool paused, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> ChangeLimitAsync(ConcurrencyLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
 

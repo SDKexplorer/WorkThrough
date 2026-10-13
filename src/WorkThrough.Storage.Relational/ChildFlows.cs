@@ -11,7 +11,7 @@ public abstract partial class RelationalJobStore
 
     /// <summary>Where a run comes from: its admission keys and, for a child run, the parent step that waits for it.</summary>
     private sealed record RunOrigin(string? CorrelationId, string? PartitionKey, string? TenantId, int? MaxParallelSteps, string? TraceParent,
-        Guid? ParentRunId = null, Guid? ParentJobId = null, int Depth = 0);
+        Guid? ParentRunId = null, Guid? ParentJobId = null, int Depth = 0, Guid? ForkedFromRunId = null);
 
     /// <summary>The outcome a child run reports to its parent step.</summary>
     private sealed record ChildOutcome(string Status, JsonElement? Output, string? Error);
@@ -57,27 +57,37 @@ public abstract partial class RelationalJobStore
         }
     }
 
-    /// <summary>Inserts a running flow with one waiting job per step, then advances it.</summary>
+    /// <summary>
+    /// Inserts a running flow with one waiting job per step, then advances it. Steps in <paramref name="kept"/> start with that job's
+    /// outcome instead, as a fork keeps the work before its checkpoint.
+    /// </summary>
     private async Task<Guid> InsertRunAsync(DbConnection connection, DbTransaction transaction, FlowDefinition definition, JsonElement input, RunOrigin origin,
-        CancellationToken ct)
+        CancellationToken ct, IReadOnlyDictionary<string, JobRecord>? kept = null)
     {
         var runId = Guid.NewGuid();
         await ExecuteAsync(connection, transaction, """
-            INSERT INTO dj_flows(id,flow_key,version,input,correlation_id,status,max_parallel,parent_run_id,parent_job_id,depth)
-            VALUES (@id,@key,@version,@input,@correlation,@status,@parallel,@parentRun,@parentJob,@depth)
+            INSERT INTO dj_flows(id,flow_key,version,input,correlation_id,status,max_parallel,parent_run_id,parent_job_id,depth,forked_from_run_id)
+            VALUES (@id,@key,@version,@input,@correlation,@status,@parallel,@parentRun,@parentJob,@depth,@forkedFrom)
             """, ct, ("id", runId.ToString()), ("key", definition.Key), ("version", definition.Version), ("input", input.GetRawText()),
             ("correlation", origin.CorrelationId), ("status", nameof(FlowStatus.Running)), ("parallel", origin.MaxParallelSteps),
-            ("parentRun", origin.ParentRunId?.ToString()), ("parentJob", origin.ParentJobId?.ToString()), ("depth", origin.Depth));
+            ("parentRun", origin.ParentRunId?.ToString()), ("parentJob", origin.ParentJobId?.ToString()), ("depth", origin.Depth),
+            ("forkedFrom", origin.ForkedFromRunId?.ToString()));
         var now = DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct));
         foreach (var step in definition.Steps)
         {
-            await InsertJobAsync(connection, transaction, new(Guid.NewGuid(), step.Contract, step.Input, step.Queue,
+            var job = new JobRecord(Guid.NewGuid(), step.Contract, step.Input, step.Queue,
                 origin.CorrelationId, JobStatus.Waiting, 0, step.MaxAttempts, now, now, WorkflowRunId: runId, StepId: step.Id)
             {
                 PartitionKey = origin.PartitionKey,
                 TenantId = origin.TenantId,
                 TraceParent = origin.TraceParent
-            }, ct);
+            };
+            if (kept?.GetValueOrDefault(step.Id) is { } source)
+            {
+                job = job with { Status = source.Status, Payload = source.Payload, Output = source.Output };
+            }
+
+            await InsertJobAsync(connection, transaction, job, ct);
         }
 
         await AdvanceWorkflowAsync(connection, transaction, runId, ct);

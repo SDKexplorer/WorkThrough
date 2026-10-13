@@ -406,6 +406,8 @@ public sealed partial class SqlServerJobStore
             ALTER TABLE dj_jobs ADD trace_parent nvarchar(64) NULL;
         IF COL_LENGTH(N'dj_flows',N'max_parallel') IS NULL
             ALTER TABLE dj_flows ADD max_parallel int NULL CONSTRAINT ck_dj_flows_max_parallel CHECK(max_parallel>0);
+        IF COL_LENGTH(N'dj_flows',N'forked_from_run_id') IS NULL
+            ALTER TABLE dj_flows ADD forked_from_run_id nvarchar(36) COLLATE Latin1_General_100_BIN2 NULL;
         IF COL_LENGTH(N'dj_jobs',N'original_payload') IS NULL
             ALTER TABLE dj_jobs ADD original_payload nvarchar(max) COLLATE Latin1_General_100_BIN2 NULL;
         IF COL_LENGTH(N'dj_flows',N'parent_run_id') IS NULL

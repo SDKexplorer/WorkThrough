@@ -6,6 +6,8 @@ public sealed record DraftCommand(FlowDefinition Definition, DashboardCommand Co
 
 public sealed record InputCorrectionCommand(System.Text.Json.JsonElement Input, DashboardCommand Command);
 
+public sealed record ForkCommand(string FromStep, DashboardCommand Command);
+
 public sealed record LimitCommand(ConcurrencyLimit Limit, DashboardCommand Command);
 
 public sealed record ScheduleDraftCommand(ScheduleDefinition Definition, DashboardCommand Command);

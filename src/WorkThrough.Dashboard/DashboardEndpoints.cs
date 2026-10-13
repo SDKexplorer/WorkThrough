@@ -304,6 +304,9 @@ public static partial class DashboardEndpoints
             ForVisibleJobAsync(context, id, async () => ToHttp(await administration.CorrectInputAsync(id, request.Command.ExpectedAttempt, request.Input,
                 Command(context, options, request.Command), ct))))
             .ForTenants().Mutation(options, OperationPermissions.CorrectInputs).WithPermission(options, OperationPermissions.ReadPayloads);
+        group.MapPost("/api/flows/{id:guid}/fork", (Guid id, ForkCommand request, HttpContext context, IJobAdministration administration, CancellationToken ct) =>
+            ForVisibleFlowAsync(context, id, async () => ToHttp(await administration.ForkRunAsync(id, request.FromStep, Command(context, options, request.Command), ct))))
+            .ForTenants().Mutation(options, OperationPermissions.RecoverFlows);
         foreach (var pause in new[] { true, false })
         {
             group.MapPost(pause ? "/api/flows/{id:guid}/pause" : "/api/flows/{id:guid}/resume", (Guid id, DashboardCommand command, HttpContext context, IJobAdministration administration, CancellationToken ct) =>

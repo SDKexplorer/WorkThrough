@@ -10,7 +10,7 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobAdministration, IWorkflowDefinitions, IJobDiagnostics, IJobSchedules, IDeploymentQueries, IProcessorRegistry
 {
     /// <summary>The schema version this package writes. Providers refuse other versions.</summary>
-    protected const int SchemaVersion = 9;
+    protected const int SchemaVersion = 10;
 
     // Version 3 added expiry, causation and terminal timestamps to existing job tables.
     private const int TerminalTimestampsVersion = 3;
@@ -81,6 +81,9 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
             // Schema 9 keeps the first input of a corrected job.
             await AddColumnIfMissingAsync(connection, transaction, "dj_jobs", "original_payload", "TEXT", ct);
+
+            // Schema 10 links a forked run to its source.
+            await AddColumnIfMissingAsync(connection, transaction, "dj_flows", "forked_from_run_id", "TEXT", ct);
             await AddColumnIfMissingAsync(connection, transaction, "dj_queue_controls", "weight", "INTEGER NOT NULL DEFAULT 1", ct);
 
             // Indexes on upgraded columns are created after the columns exist.
