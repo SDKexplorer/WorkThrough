@@ -37,7 +37,7 @@
             @if (tenants(); as visible) {
             <small class="muted">Tenants: {{ visible.join(', ') || 'none' }}</small>
             }
-            <button class="outline" type="button" (click)="light.set(!light())">
+            <button class="outline" type="button" (click)="toggleAppearance()">
                 {{ light() ? 'Dark appearance' : 'Light appearance' }}
             </button>
             <small class="muted">WorkThrough · alpha</small>

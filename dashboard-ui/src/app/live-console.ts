@@ -264,6 +264,17 @@ const EmptyFlowDraft = JSON.stringify(
     2,
 );
 
+const AppearanceKey = 'workthrough.appearance';
+
+/** The viewer's saved appearance, else their system preference. Storage can be unavailable, as in private windows. */
+function initialAppearance(): 'light' | 'dark' {
+    try {
+        const saved = localStorage.getItem(AppearanceKey);
+        if (saved === 'light' || saved === 'dark') return saved;
+    } catch {}
+    return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
 @Component({
     selector: 'app-console',
     imports: [DatePipe, DecimalPipe, JsonPipe, SavedFlowGraph],
@@ -274,7 +285,7 @@ export class LiveConsoleComponent {
     readonly signalProcessorKey = SignalProcessorKey;
     readonly childFlowProcessorKey = ChildFlowProcessorKey;
     readonly base = document.body.dataset['base'] ?? '';
-    readonly light = signal(false);
+    readonly light = signal(initialAppearance() === 'light');
     readonly section = signal('executions');
     readonly busy = signal(false);
     readonly error = signal('');
@@ -807,6 +818,12 @@ export class LiveConsoleComponent {
                 } as Record<string, string>
             )[reason] ?? reason
         );
+    }
+    toggleAppearance(): void {
+        this.light.set(!this.light());
+        try {
+            localStorage.setItem(AppearanceKey, this.light() ? 'light' : 'dark');
+        } catch {}
     }
     private message(e: unknown) {
         return e instanceof Error ? e.message : 'The request failed.';
