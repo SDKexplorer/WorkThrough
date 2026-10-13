@@ -33,8 +33,11 @@ public static class EngineProtocol
     /// </summary>
     public const int PayloadProtection = 7;
 
+    /// <summary>Steps that run when a predecessor fails, which handles that failure (<see cref="FlowStep.OnFailureOf"/>).</summary>
+    public const int FailureBranches = 8;
+
     /// <summary>The highest level this build understands.</summary>
-    public const int Supported = PayloadProtection;
+    public const int Supported = FailureBranches;
 }
 
 /// <summary>A store's active protocol and, while a higher level waits, the workers that block it.</summary>

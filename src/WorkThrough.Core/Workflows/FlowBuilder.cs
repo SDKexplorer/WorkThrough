@@ -129,6 +129,12 @@ public sealed class FlowBuilder
         return Change(step => step with { Signal = new(signal.Name, timeout) });
     }
 
+    /// <summary>
+    /// Runs the last step only when <paramref name="stepId"/> fails, is rejected, expires or is cancelled, and handles that failure: the
+    /// flow continues instead of applying its failure policy. Steps after the failed one are skipped; steps after this one may join them.
+    /// </summary>
+    public FlowBuilder OnFailureOf(string stepId) => Change(step => step with { After = [stepId], OnFailureOf = stepId });
+
     public FlowBuilder After(params string[] predecessors) => Change(step => step with { After = predecessors.Distinct().ToArray() });
 
     /// <summary>Labels the last step for operators without changing its permanent step ID.</summary>

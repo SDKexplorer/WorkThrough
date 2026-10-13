@@ -23,7 +23,7 @@ public static class FlowPlanner
             progressed = false;
             foreach (var step in definition.Steps)
             {
-                if (definition.FailurePolicy == FlowFailurePolicy.Suspend && FirstUnsuccessful(current) is { } incident)
+                if (definition.FailurePolicy == FlowFailurePolicy.Suspend && FirstUnsuccessful(definition, current) is { } incident)
                 {
                     return Plan(changes, FlowStatus.Incident, RecoveryMessage(incident), added);
                 }
@@ -74,7 +74,7 @@ public static class FlowPlanner
             }
         }
 
-        if (FirstUnsuccessful(current) is not { } failure)
+        if (FirstUnsuccessful(definition, current) is not { } failure)
         {
             return Plan(changes, current.Values.All(x => x.Status.IsTerminal()) ? FlowStatus.Succeeded : FlowStatus.Running, null, added);
         }
@@ -258,10 +258,12 @@ public static class FlowPlanner
                 return job with { Status = JobStatus.Skipped };
             }
 
+            var payload = BindPayload(step, input, current);
+
             return job with
             {
                 Status = step.Signal is null && step.Child is null ? JobStatus.Queued : JobStatus.AwaitingSignal,
-                Payload = BindPayload(step, input, current)
+                Payload = step.OnFailureOf is { } failed ? WithFailure(payload, current[failed]) : payload
             };
         }
         catch (InvalidOperationException exception)
@@ -272,6 +274,11 @@ public static class FlowPlanner
 
     private static bool IsEnabled(FlowStep step, JobRecord[] predecessors, Dictionary<string, JobRecord> current)
     {
+        if (step.OnFailureOf is { } failed)
+        {
+            return current[failed].Status.IsUnsuccessful();
+        }
+
         var enabled = predecessors.All(x => x.Status is JobStatus.Succeeded or JobStatus.Skipped)
             && (predecessors.Length == 0 || predecessors.Any(x => x.Status == JobStatus.Succeeded));
         if (!enabled || step.Condition is not { } condition)
@@ -301,9 +308,21 @@ public static class FlowPlanner
         return JsonSerializer.SerializeToElement(payload, JobJson.Options);
     }
 
-    /// <summary>The first failed step of the flow's own work; compensations are judged separately.</summary>
-    private static JobRecord? FirstUnsuccessful(Dictionary<string, JobRecord> jobs) =>
-        jobs.Values.FirstOrDefault(x => x.Status.IsUnsuccessful() && !FlowCompensation.IsUndoStep(x.StepId));
+    /// <summary>A failure branch's input: its bound input plus the step that failed and its error.</summary>
+    private static JsonElement WithFailure(JsonElement payload, JobRecord failed)
+    {
+        var input = JsonNode.Parse(payload.GetRawText())!;
+        input[FlowFailure.Property] = JsonSerializer.SerializeToNode(new FlowFailure(failed.StepId!, failed.Error), JobJson.Options);
+
+        return JsonSerializer.SerializeToElement(input, JobJson.Options);
+    }
+
+    /// <summary>
+    /// The first failed step of the flow's own work that no failure branch handles; compensations are judged separately.
+    /// </summary>
+    private static JobRecord? FirstUnsuccessful(FlowDefinition definition, Dictionary<string, JobRecord> jobs) =>
+        jobs.Values.FirstOrDefault(x => x.Status.IsUnsuccessful() && !FlowCompensation.IsUndoStep(x.StepId)
+            && !definition.IsHandled(FlowFanOut.BaseStepId(x.StepId!)));
 
     private static string RecoveryMessage(JobRecord step) => step.Error ?? $"Step {step.StepId} requires recovery.";
 

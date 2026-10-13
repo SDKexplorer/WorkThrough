@@ -85,7 +85,7 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [x] Fork an execution from a checkpoint step into a new linked run; the source run and its audit trail are unchanged.
 - [x] Add explicit compensation handlers for reversible external effects (ADR-025). State rewind is never labeled as undoing arbitrary side effects.
 - [x] Add child flows (ADR-023), bounded loops (ADR-026) and durable timers/signals.
-- [ ] Add failure branches: steps that run when a predecessor fails. Keep conditions to documented equality checks; a general expression language stays out of scope.
+- [x] Add failure branches: steps that run when a predecessor fails, handling that failure, under engine protocol 8 (ADR-028). Conditions stay equality checks; a general expression language stays out of scope.
 - [x] Benchmark idle polling, admission contention, and completion throughput before replacing conservative locking. Independent worker processes, three repeated workloads, raw latency/resource reports, and correctness assertions are in `performance.md`; conservative transaction serialization remains in place.
 - [ ] Define supported platforms/TFMs, compatibility policy, license, final package name, and public release process.
 - [x] Apply the accepted WorkThrough working brand consistently to source/API/package/sample/UI names, with build and package-consumer verification. Package/domain clearance and publication remain separate; persisted processor keys must not change during the rename.

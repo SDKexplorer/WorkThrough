@@ -63,6 +63,13 @@ public sealed record FlowCompensation(JobContractId Contract, string Queue, int 
     public static bool IsUndoStep(string? stepId) => stepId?.EndsWith(":undo", StringComparison.Ordinal) == true;
 }
 
+/// <summary>What a failure branch adds to its input: the step that failed and why.</summary>
+public sealed record FlowFailure(string Step, string? Error)
+{
+    /// <summary>The input property that carries the failure.</summary>
+    public const string Property = "failure";
+}
+
 /// <summary>What a compensating job receives: the completed step's input and output.</summary>
 public sealed record CompensationInput<TInput, TOutput>(TInput Input, TOutput? Output);
 
@@ -109,6 +116,13 @@ public sealed record FlowStep(
     /// <summary>Undoes this step if the flow fails under <see cref="FlowFailurePolicy.Compensate"/>; see <see cref="FlowCompensation"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public FlowCompensation? Compensation { get; init; }
+
+    /// <summary>
+    /// Makes this step a failure branch: it runs only when this predecessor ends unsuccessfully, and skips otherwise. The failure is then
+    /// handled, so the flow's failure policy does not apply to it; the step receives <see cref="FlowFailure"/> in its input.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OnFailureOf { get; init; }
 }
 
 public enum FlowFailurePolicy
@@ -151,9 +165,13 @@ public sealed record FlowDefinition(string Key, int Version, FlowStep[] Steps, F
         return found;
     }
 
+    /// <summary>True when a failure branch handles the failure of <paramref name="stepId"/>.</summary>
+    public bool IsHandled(string stepId) => Steps.Any(step => step.OnFailureOf == stepId);
+
     /// <summary>The engine protocol every host must understand before a run of this definition may start.</summary>
     [JsonIgnore]
-    public int RequiredProtocol => Steps.Any(step => step.Loop is not null) ? EngineProtocol.Loops
+    public int RequiredProtocol => Steps.Any(step => step.OnFailureOf is not null) ? EngineProtocol.FailureBranches
+        : Steps.Any(step => step.Loop is not null) ? EngineProtocol.Loops
         : FailurePolicy == FlowFailurePolicy.Compensate || Steps.Any(step => step.Compensation is not null) ? EngineProtocol.Compensation
         : Steps.Any(step => step.Child is not null) ? EngineProtocol.ChildFlows
         : Steps.Any(step => step.ForEach is not null) ? EngineProtocol.FanOut

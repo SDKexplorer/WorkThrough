@@ -382,6 +382,6 @@ public static partial class DashboardEndpoints
         definition.Key,
         definition.Version,
         definition.FailurePolicy,
-        steps = definition.Steps.Select(s => new { s.Id, s.DisplayName, s.Contract, s.After, s.Queue, signal = s.Signal, conditional = s.Condition is not null })
+        steps = definition.Steps.Select(s => new { s.Id, s.DisplayName, s.Contract, s.After, s.Queue, signal = s.Signal, conditional = s.Condition is not null, s.OnFailureOf })
     };
 }

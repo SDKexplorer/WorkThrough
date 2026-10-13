@@ -57,6 +57,7 @@ interface Graph {
         after: string[];
         queue: string;
         conditional: boolean;
+        onFailureOf?: string | null;
     }[];
 }
 interface Definition {

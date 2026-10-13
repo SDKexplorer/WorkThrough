@@ -135,6 +135,7 @@ var run = await flows.StartAsync(fulfil, new Order("42"), new FlowStart(Idempote
 - **Loops:** `Repeat("track", PollCarrier.Definition, "check", "status", "delivered", maximumIterations: 20)` runs a child flow again, passing `iteration` and the `previous` output, until a final step's output property matches ([ADR-026](docs/adr/0026-bounded-loops.md)).
 - **Versioning:** every run pins an immutable definition version. Definitions move Draft → Published → Retired.
 - **Compensation:** with `OnFailure(FlowFailurePolicy.Compensate)`, steps declared with `CompensateWith(...)` are undone in reverse dependency order when the flow fails, then the flow fails ([ADR-025](docs/adr/0025-compensation.md)).
+- **Failure branches:** `.Step("apologise", Notify.Identity).OnFailureOf("charge")` runs only when `charge` fails, is rejected or times out, and handles that failure: the run continues and can rejoin later steps ([ADR-028](docs/adr/0028-failure-branches.md)).
 - **Failure:** a step that fails by default suspends the run as an **incident**; operators recover the step with its history and idempotency key intact. See [flow starts](docs/adr/0009-idempotent-flow-starts.md) and [architecture](docs/architecture.md).
 
 ### Admission control

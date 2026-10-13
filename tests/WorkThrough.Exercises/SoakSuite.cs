@@ -2,6 +2,7 @@ using System.Data.Common;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Data.SqlClient;
 using WorkThrough.Storage;
 
 namespace WorkThrough.Exercises;
@@ -26,6 +27,8 @@ internal static class SoakSuite
     private const int FlowPercent = 10;
     private const int LimitedPercent = 10;
     private const string Correlation = "soak";
+    private const int DeadlockVictim = 1205;
+    private const int MeasurementAttempts = 5;
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan DrainTimeout = TimeSpan.FromMinutes(15);
@@ -184,26 +187,7 @@ internal static class SoakSuite
     private static async Task<object> MeasureWindowAsync(ExerciseDatabase database, WorkerProcess[] workers, int minute,
         long from, long until, long offered)
     {
-        var intervals = new List<Interval>();
-        await using (var connection = database.OpenConnection())
-        {
-            await connection.OpenAsync();
-            await using var command = connection.CreateCommand();
-            var prefix = database.Provider == "oracle" ? ":" : "@";
-            command.CommandText = $"""
-                SELECT a.started_at,a.finished_at,j.partition_key,j.tenant_id,j.workflow_run_id,j.job_key,j.created_at
-                FROM dj_attempts a JOIN dj_jobs j ON j.id=a.job_id
-                WHERE a.started_at<{prefix}window_end AND (a.finished_at IS NULL OR a.finished_at>={prefix}window_start)
-                """;
-            Parameter(command, "window_start", from);
-            Parameter(command, "window_end", until);
-            await using var reader = await command.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                intervals.Add(new(Time(reader.GetValue(0))!.Value, Time(reader.GetValue(1)), Text(reader, 2), Text(reader, 3), Text(reader, 4),
-                    reader.GetString(5), Convert.ToInt64(reader.GetValue(6))));
-            }
-        }
+        var intervals = await RetriedAsync(() => ReadIntervalsAsync(database, from, until));
 
         // Open attempts are still admitted, so they count as running until the end of the window.
         var attempts = intervals.Select(item => (Item: item, Attempt: new JobAttempt(Guid.Empty, 1, "soak", item.Started,
@@ -244,7 +228,31 @@ internal static class SoakSuite
         return sample;
     }
 
-    private static async Task<(long Backlog, long Rows)> BacklogAsync(ExerciseDatabase database)
+    private static async Task<List<Interval>> ReadIntervalsAsync(ExerciseDatabase database, long from, long until)
+    {
+        var intervals = new List<Interval>();
+        await using var connection = database.OpenConnection();
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        var prefix = database.Provider == "oracle" ? ":" : "@";
+        command.CommandText = $"""
+            SELECT a.started_at,a.finished_at,j.partition_key,j.tenant_id,j.workflow_run_id,j.job_key,j.created_at
+            FROM dj_attempts a JOIN dj_jobs j ON j.id=a.job_id
+            WHERE a.started_at<{prefix}window_end AND (a.finished_at IS NULL OR a.finished_at>={prefix}window_start)
+            """;
+        Parameter(command, "window_start", from);
+        Parameter(command, "window_end", until);
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            intervals.Add(new(Time(reader.GetValue(0))!.Value, Time(reader.GetValue(1)), Text(reader, 2), Text(reader, 3), Text(reader, 4),
+                reader.GetString(5), Convert.ToInt64(reader.GetValue(6))));
+        }
+
+        return intervals;
+    }
+
+    private static Task<(long Backlog, long Rows)> BacklogAsync(ExerciseDatabase database) => RetriedAsync(async () =>
     {
         await using var connection = database.OpenConnection();
         await connection.OpenAsync();
@@ -254,6 +262,25 @@ internal static class SoakSuite
         await reader.ReadAsync();
 
         return (Convert.ToInt64(reader.GetValue(0)), Convert.ToInt64(reader.GetValue(1)));
+    });
+
+    /// <summary>
+    /// Repeats a measurement read chosen as a deadlock victim. Without READ_COMMITTED_SNAPSHOT, SQL Server reads take shared locks, so a
+    /// large scan can deadlock with settlements; the store retries its own reads the same way.
+    /// </summary>
+    private static async Task<T> RetriedAsync<T>(Func<Task<T>> read)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await read();
+            }
+            catch (SqlException error) when (error.Number == DeadlockVictim && attempt < MeasurementAttempts)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt));
+            }
+        }
     }
 
     private static async Task DrainAsync(ExerciseDatabase database, WorkerProcess[] workers)

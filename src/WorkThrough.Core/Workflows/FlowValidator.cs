@@ -81,6 +81,12 @@ public static class FlowValidator
                 throw new ArgumentException($"Step {step.Id} can be compensated only when it runs a job, by a job with a queue and positive retry count.");
             }
 
+            if (step.OnFailureOf is { } failed && (step.After is not [var only] || only != failed || step.Condition is not null
+                || step.Input.ValueKind != JsonValueKind.Object || steps.GetValueOrDefault(failed)?.ForEach is not null))
+            {
+                throw new ArgumentException($"Failure branch {step.Id} must follow only {failed}, which must not be a fan-out, take an object input, and have no condition.");
+            }
+
             if (step.Input.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
             {
                 throw new ArgumentException($"Input for {step.Id} must not be null.");
