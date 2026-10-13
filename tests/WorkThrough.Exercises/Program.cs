@@ -7,9 +7,9 @@ if (args.FirstOrDefault() == "worker")
     return;
 }
 
-if (args.Length < 2 || args[1] is not ("sqlite" or "postgres" or "sqlserver" or "oracle"))
+if (args.Length < 2 || args[1] is not ("sqlite" or "postgres" or "sqlserver" or "oracle" or "mysql" or "mariadb"))
 {
-    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance|investigation|admission|soak|throughput|restore|partition> <sqlite|postgres|sqlserver|oracle> [output.json] [--full]");
+    Console.Error.WriteLine("Usage: WorkThrough.Exercises <reliability|performance|investigation|admission|soak|throughput|restore|partition> <sqlite|postgres|sqlserver|oracle|mysql|mariadb> [output.json] [--full]");
     Console.Error.WriteLine("Investigation arguments: [output.json] [retainedJobs=100000] [baselineSeconds=60] [investigativeSeconds=120]");
     Environment.ExitCode = 2;
 

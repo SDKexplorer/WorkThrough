@@ -3,6 +3,7 @@
   <ItemGroup>
     <Compile Include="../Refactor.Shared/RefactorStorage.cs" Link="RefactorStorage.cs" />
     <ProjectReference Include="../../../src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
+    <ProjectReference Include="../../../src/WorkThrough.Storage.MySql/WorkThrough.Storage.MySql.csproj" />
     <ProjectReference Include="../../../src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
     <ProjectReference Include="../../../src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
     <ProjectReference Include="../../../src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />

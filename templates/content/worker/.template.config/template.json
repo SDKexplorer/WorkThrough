@@ -19,7 +19,8 @@
         { "choice": "sqlite", "description": "A local SQLite file; one machine." },
         { "choice": "postgresql", "description": "PostgreSQL; several machines." },
         { "choice": "sqlserver", "description": "SQL Server; several machines." },
-        { "choice": "oracle", "description": "Oracle; several machines." }
+        { "choice": "oracle", "description": "Oracle; several machines." },
+        { "choice": "mysql", "description": "MySQL or MariaDB; several machines." }
       ]
     },
     "WorkThroughVersion": {
@@ -32,7 +33,8 @@
     "UseSqlite": { "type": "computed", "value": "(storage == \"sqlite\")" },
     "UsePostgreSql": { "type": "computed", "value": "(storage == \"postgresql\")" },
     "UseSqlServer": { "type": "computed", "value": "(storage == \"sqlserver\")" },
-    "UseOracle": { "type": "computed", "value": "(storage == \"oracle\")" }
+    "UseOracle": { "type": "computed", "value": "(storage == \"oracle\")" },
+    "UseMySql": { "type": "computed", "value": "(storage == \"mysql\")" }
   },
   "primaryOutputs": [{ "path": "WorkThroughWorker.csproj" }]
 }

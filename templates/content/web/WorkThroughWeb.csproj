@@ -13,6 +13,8 @@
     <PackageReference Include="WorkThrough.Storage.PostgreSql" Version="WORKTHROUGH_VERSION" />
 <!--#elif (UseSqlServer) -->
     <PackageReference Include="WorkThrough.Storage.SqlServer" Version="WORKTHROUGH_VERSION" />
+<!--#elif (UseMySql) -->
+    <PackageReference Include="WorkThrough.Storage.MySql" Version="WORKTHROUGH_VERSION" />
 <!--#else -->
     <PackageReference Include="WorkThrough.Storage.Oracle" Version="WORKTHROUGH_VERSION" />
 <!--#endif -->

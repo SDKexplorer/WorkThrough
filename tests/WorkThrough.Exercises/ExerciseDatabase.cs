@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
+using MySqlConnector;
 using Npgsql;
 using Oracle.ManagedDataAccess.Client;
 using WorkThrough.Storage;
@@ -24,6 +25,7 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             "sqlserver" => new SqlServerJobStore(connection),
             "postgres" => new PostgresJobStore(connection),
             "sqlite" => new SqliteJobStore(connection),
+            "mysql" or "mariadb" => new MySqlJobStore(connection),
             _ => throw new ArgumentException("Unknown provider.", nameof(provider))
         };
 
@@ -63,6 +65,15 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             await command.ExecuteNonQueryAsync();
             connection = new NpgsqlConnectionStringBuilder(admin) { SearchPath = schema }.ToString();
         }
+        else if (provider is "mysql" or "mariadb")
+        {
+            schema = "wt_exercise_" + Guid.NewGuid().ToString("N");
+            await using var database = new MySqlConnection(MySqlAdministrator(provider));
+            await database.OpenAsync();
+            await using var command = new MySqlCommand($"CREATE DATABASE {schema}", database);
+            await command.ExecuteNonQueryAsync();
+            connection = new MySqlConnectionStringBuilder(MySqlAdministrator(provider)) { Database = schema }.ConnectionString;
+        }
         else
         {
             connection = new SqliteConnectionStringBuilder { DataSource = Path.Combine(directory, "jobs.db"), DefaultTimeout = 30 }.ToString();
@@ -74,14 +85,35 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
         return result;
     }
 
-    public DbConnection OpenConnection() => Provider == "oracle" ? new OracleConnection(ConnectionString) : Provider == "sqlserver" ? new SqlConnection(ConnectionString) : Provider == "postgres" ? new NpgsqlConnection(ConnectionString) : new SqliteConnection(ConnectionString);
+    private static string MySqlAdministrator(string provider)
+    {
+        var variable = provider == "mysql" ? "DURABLEJOBS_MYSQL" : "DURABLEJOBS_MARIADB";
+
+        return Environment.GetEnvironmentVariable(variable) ?? throw new InvalidOperationException($"A disposable {provider} server connection is required in {variable}.");
+    }
+
+    public DbConnection OpenConnection() => Provider switch
+    {
+        "oracle" => new OracleConnection(ConnectionString),
+        "sqlserver" => new SqlConnection(ConnectionString),
+        "postgres" => new NpgsqlConnection(ConnectionString),
+        "mysql" or "mariadb" => new MySqlConnection(ConnectionString),
+        _ => new SqliteConnection(ConnectionString)
+    };
 
     public async Task<string> VersionAsync()
     {
         await using var connection = OpenConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = Provider == "oracle" ? "SELECT banner_full FROM v$version WHERE banner_full LIKE 'Oracle%'" : Provider == "sqlserver" ? "SELECT @@VERSION" : Provider == "postgres" ? "SELECT version()" : "SELECT sqlite_version()";
+        command.CommandText = Provider switch
+        {
+            "oracle" => "SELECT banner_full FROM v$version WHERE banner_full LIKE 'Oracle%'",
+            "sqlserver" => "SELECT @@VERSION",
+            "postgres" => "SELECT version()",
+            "mysql" or "mariadb" => "SELECT CONCAT(VERSION(),' ',@@version_comment)",
+            _ => "SELECT sqlite_version()"
+        };
 
         var version = (string)(await command.ExecuteScalarAsync())!;
         if (Provider == "sqlite")
@@ -108,6 +140,14 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = $"ALTER DATABASE [{schema}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{schema}];";
+            await command.ExecuteNonQueryAsync();
+        }
+        else if (Provider is "mysql" or "mariadb")
+        {
+            await MySqlConnection.ClearAllPoolsAsync();
+            await using var connection = new MySqlConnection(MySqlAdministrator(Provider));
+            await connection.OpenAsync();
+            await using var command = new MySqlCommand($"DROP DATABASE {schema}", connection);
             await command.ExecuteNonQueryAsync();
         }
         else if (schema is not null)

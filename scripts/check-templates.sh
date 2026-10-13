@@ -11,7 +11,7 @@ sed -i.bak "s|../../artifacts/packages|$repo_dir/artifacts/packages|" "$work_dir
 dotnet new install "$repo_dir"/artifacts/packages/WorkThrough.Templates.*.nupkg --debug:custom-hive "$hive" > /dev/null
 
 for template in worker web; do
-  for storage in sqlite postgresql sqlserver oracle; do
+  for storage in sqlite postgresql sqlserver oracle mysql; do
     project="$work_dir/$template-$storage"
     dotnet new "workthrough-$template" -n Demo -o "$project" --storage "$storage" --debug:custom-hive "$hive" > /dev/null
     dotnet build "$project" -c Release --configfile "$work_dir/NuGet.Config" -p:RestorePackagesPath="$work_dir/packages" -p:UseSharedCompilation=false -nr:false --nologo -v:q > "$project/build.log" \

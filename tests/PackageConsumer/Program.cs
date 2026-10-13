@@ -97,6 +97,7 @@ finally
 await TestingPackageSmoke.RunAsync();
 await SqlServerPackageSmoke.RunAsync();
 await OraclePackageSmoke.RunAsync();
+await MySqlPackageSmoke.RunAsync();
 
 [JobContract("smoke.package")]
 public sealed record PackageJob(string Value);

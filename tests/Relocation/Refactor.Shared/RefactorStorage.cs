@@ -11,6 +11,7 @@ internal static class RefactorStorage
         "postgres" => builder.UsePostgreSql(connection),
         "oracle" => builder.UseOracle(connection),
         "sqlserver" => builder.UseSqlServer(connection),
+        "mysql" or "mariadb" => builder.UseMySql(connection),
         _ => throw new InvalidOperationException("Unknown refactor-proof provider.")
     };
 
@@ -20,6 +21,7 @@ internal static class RefactorStorage
         "postgres" => new PostgresJobStore(connection),
         "oracle" => new OracleJobStore(connection),
         "sqlserver" => new SqlServerJobStore(connection),
+        "mysql" or "mariadb" => new MySqlJobStore(connection),
         _ => throw new InvalidOperationException("Unknown refactor-proof provider.")
     };
 }

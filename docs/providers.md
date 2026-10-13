@@ -36,7 +36,7 @@ dotnet test tests/WorkThrough.Tests --configuration Release
 docker stop durablejobs-postgres-test
 ```
 
-When server environment variables are absent, the shared suite enumerates SQLite cases only. CI supplies PostgreSQL and SQL Server explicitly and runs Oracle on a separate runner. SQL Server and Oracle passed native Linux x64 qualification on the [documented matrix](verification.md). See the [portability, migration and verification plan](../specs/storage-evolution.spec.md). MySQL and MongoDB remain unprioritized possibilities.
+When server environment variables are absent, the shared suite enumerates SQLite cases only. CI supplies PostgreSQL and SQL Server explicitly, and runs Oracle and MySQL/MariaDB on separate runners. SQL Server and Oracle passed native Linux x64 qualification on the [documented matrix](verification.md). See the [portability, migration and verification plan](../specs/storage-evolution.spec.md). MongoDB remains an unprioritized possibility.
 
 The MCP verification gate also exercises metadata/context queries through SQLite `Mode=ReadOnly` and PostgreSQL connections with `default_transaction_read_only=on`, without storage initialization. Both passed on .NET 8 and 10. Production read-only roles still need deployment-specific grants; this is query compatibility evidence, not a role provisioning test. See [MCP hosting](mcp.md) and [verification](verification.md).
 
@@ -88,3 +88,11 @@ Oracle explicitly rejects empty identity/filter values, including empty correlat
 For tests, `DURABLEJOBS_ORACLE` must name a **disposable PDB administrator** that can create/drop test users, grant privileges and disconnect its own fixture users. The official lite container lacks the USERS tablespace; the CI workflow creates a test tablespace and grants SYSTEM EXECUTE on SYS.DBMS_LOCK with grant option. Tests create only unique `WT_TEST_*` / `WT_PROOF_*` schemas and remove those exact users. Fixtures run sequentially because concurrent disposable-schema DDL can conflict with Oracle system-dictionary reads inside Serializable transactions; competing connections/processes inside admission tests still run concurrently. Store reads retry a transient ORA-08177 with a fresh snapshot, up to three attempts; writes are never retried (ADR-015 amendment). Never point these gates at production.
 
 Hosts select Oracle with `UseOracle`. `scripts/verify.sh` includes Oracle conformance, both runtime/package consumers, published relocation and independent-process checks when its test connection is supplied. CI pins the official image by digest and runs Oracle separately from SQL Server.
+
+## MySQL and MariaDB setup
+
+`WorkThrough.Storage.MySql` supplies `.UseMySql(connectionString)` for MySQL 8.4 and MariaDB 11.4, the tested releases ([ADR-029](adr/0029-mysql-storage.md)). Name a dedicated database in the connection string; system databases are refused. Initialization creates InnoDB tables with an exact binary collation that does not pad (`utf8mb4_0900_bin` on MySQL, `utf8mb4_nopad_bin` on MariaDB), so case, accents and trailing spaces in identities stay distinct. It refuses MySQL before 8.0.21 and MariaDB before 10.6.
+
+Initialize once with a credential that can create tables. Initialization holds a named lock and resumes from its last checkpoint if interrupted, because MySQL commits DDL on its own; runtime hosts refuse an incomplete schema. Runtime hosts need SELECT, INSERT, UPDATE and DELETE on the database and can disable initialization with `.InitializeStorageOnStart(false)`; dashboard and MCP hosts can use SELECT only. Business callbacks in `InTransactionAsync` must not run DDL. Budget connection pools of all replicas against the server's `max_connections`.
+
+For tests, `DURABLEJOBS_MYSQL` and `DURABLEJOBS_MARIADB` must name a disposable server login that can create and drop databases and users. Each fixture creates its own `dj_test_*` database and bounds its pool to 16 connections; raise `max_connections` (2,000 in CI) because fixtures run in parallel. Never point these gates at production.

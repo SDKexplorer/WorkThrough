@@ -126,3 +126,56 @@ jobs:
         with:
           name: oracle-performance-smoke
           path: artifacts/performance/*.json
+  mysql:
+    # MySQL and MariaDB share a runner; together they use less memory than Oracle or SQL Server.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      mysql:
+        image: public.ecr.aws/docker/library/mysql:8.4@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
+        env:
+          MYSQL_ROOT_PASSWORD: WorkThrough_MySql_2026
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pWorkThrough_MySql_2026"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      mariadb:
+        image: public.ecr.aws/docker/library/mariadb:11.4@sha256:1292844148b311e4ed4300022a996d39083f415a963e970cf47cad1b3b18e3a6
+        env:
+          MARIADB_ROOT_PASSWORD: WorkThrough_MariaDb_2026
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      DURABLEJOBS_MYSQL: Server=127.0.0.1;Port=3306;User ID=root;Password=WorkThrough_MySql_2026
+      DURABLEJOBS_MARIADB: Server=127.0.0.1;Port=3307;User ID=root;Password=WorkThrough_MariaDb_2026
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dashboard-ui/package-lock.json
+      - name: Allow the parallel test fixtures' connections
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+          MARIADB_CONTAINER: ${{ job.services.mariadb.id }}
+        run: |
+          docker exec "$MYSQL_CONTAINER" mysql -uroot -pWorkThrough_MySql_2026 -e "SET GLOBAL max_connections=2000"
+          docker exec "$MARIADB_CONTAINER" mariadb -uroot -pWorkThrough_MariaDb_2026 -e "SET GLOBAL max_connections=2000"
+      - run: ./scripts/verify.sh
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: mysql-performance-smoke
+          path: artifacts/performance/*.json

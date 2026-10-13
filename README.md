@@ -4,7 +4,7 @@
 
 **Move your code. Keep your work.**
 
-Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite, PostgreSQL, SQL Server or Oracle. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so job classes can move between classes, namespaces, projects and assemblies while jobs are queued.
+Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite, PostgreSQL, SQL Server, Oracle, MySQL or MariaDB. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so job classes can move between classes, namespaces, projects and assemblies while jobs are queued.
 
 > **Status: alpha.** All four providers pass their [verification](docs/verification.md), packages are built locally and not yet published, and there is no production certification. See [release boundaries](#release-boundaries).
 
@@ -40,7 +40,7 @@ Register storage, the assembly's jobs and a worker:
 
 ```csharp
 builder.Services.AddWorkThrough()
-    .UsePostgreSql(connectionString) // or UseSqlite / UseSqlServer / UseOracle
+    .UsePostgreSql(connectionString) // or UseSqlite / UseSqlServer / UseOracle / UseMySql
     .AddJobs(typeof(GenerateInvoiceJob).Assembly)
     .AddWorker(options => options.MaxConcurrentJobs = 8);
 ```
@@ -61,7 +61,7 @@ dotnet new install artifacts/packages/WorkThrough.Templates.0.1.0-alpha.1.nupkg
 dotnet new workthrough-web -n MyApp --storage postgresql    # API + worker + console; or workthrough-worker
 ```
 
-`--storage` takes `sqlite` (default), `postgresql`, `sqlserver` or `oracle`.
+`--storage` takes `sqlite` (default), `postgresql`, `sqlserver`, `oracle` or `mysql` (MySQL and MariaDB).
 
 Three samples build on each other ([samples](samples/README.md)):
 
@@ -205,7 +205,7 @@ The script:
 - runs the Shop sample's smoke test and preflight;
 - runs process-kill and load smoke exercises.
 
-Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVER` or `DURABLEJOBS_ORACLE` point at disposable databases ([providers](docs/providers.md)). Set `WORKTHROUGH_DOTNET8` when .NET 8 lives elsewhere. `scripts/format.sh` applies the code style that CI enforces.
+Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVER`, `DURABLEJOBS_ORACLE`, `DURABLEJOBS_MYSQL` or `DURABLEJOBS_MARIADB` point at disposable databases ([providers](docs/providers.md)). Set `WORKTHROUGH_DOTNET8` when .NET 8 lives elsewhere. `scripts/format.sh` applies the code style that CI enforces.
 
 ## Release boundaries
 

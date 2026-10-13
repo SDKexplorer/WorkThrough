@@ -36,6 +36,10 @@ internal static class Workload
         {
             jobs.UsePostgreSql(connection);
         }
+        else if (provider is "mysql" or "mariadb")
+        {
+            jobs.UseMySql(connection);
+        }
         else
         {
             jobs.UseSqlite(connection);

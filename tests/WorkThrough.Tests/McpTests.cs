@@ -291,6 +291,7 @@ public sealed partial class McpTests
             builder.WebHost.UseTestServer();
             await harness.ProvisionReadOnlySqlServerAsync();
             await harness.ProvisionReadOnlyOracleAsync();
+            await harness.ProvisionReadOnlyMySqlAsync();
             builder.Services.AddSingleton<IExecutionQueries>(queries ?? ReadOnlyQueries(harness));
             if (includeInspection)
             {
@@ -363,6 +364,11 @@ public sealed partial class McpTests
             if (harness.Store is SqlServerJobStore)
             {
                 return new SqlServerJobStore(harness.ReadOnlyConnectionString!);
+            }
+
+            if (harness.Store is MySqlJobStore)
+            {
+                return new MySqlJobStore(harness.ReadOnlyConnectionString!);
             }
 
             if (harness.Store is SqliteJobStore)

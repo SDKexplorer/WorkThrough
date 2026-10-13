@@ -17,7 +17,7 @@ public sealed class RollingUpgradeTests
     public async Task A_newer_schema_that_still_accepts_this_build_is_used_without_migrating(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await ExecuteAsync(harness, provider == "oracle" ? $"UPDATE dj_schema SET version={FutureSchema}" : $"INSERT INTO dj_schema(version) VALUES ({FutureSchema})");
+        await ExecuteAsync(harness, provider is "oracle" or "mysql" or "mariadb" ? $"UPDATE dj_schema SET version={FutureSchema}" : $"INSERT INTO dj_schema(version) VALUES ({FutureSchema})");
 
         await harness.NewStore().InitializeAsync();
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("from an older host"));

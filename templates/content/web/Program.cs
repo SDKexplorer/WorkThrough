@@ -13,6 +13,8 @@ builder.Services.AddWorkThrough()
     .UsePostgreSql(connectionString)
 #elif (UseSqlServer)
     .UseSqlServer(connectionString)
+#elif (UseMySql)
+    .UseMySql(connectionString)
 #else
     .UseOracle(connectionString)
 #endif

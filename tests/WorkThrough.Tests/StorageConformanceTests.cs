@@ -27,6 +27,16 @@ public sealed class StorageConformanceTests
         {
             yield return ["postgres"];
         }
+
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_MYSQL")))
+        {
+            yield return ["mysql"];
+        }
+
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_MARIADB")))
+        {
+            yield return ["mariadb"];
+        }
     }
 
     /// <summary>
