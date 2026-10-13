@@ -38,6 +38,20 @@ public sealed record FlowChild(string FlowKey, int FlowVersion, TimeSpan Timeout
 }
 
 /// <summary>
+/// Repeats a child step's flow until <paramref name="UntilProperty"/> of final step <paramref name="UntilStep"/>'s output equals
+/// <paramref name="Expected"/>, at most <paramref name="MaximumIterations"/> times. Each run receives the step's input plus
+/// <c>iteration</c> (1, 2, …) and <c>previous</c>, the last iteration's output. The step's output is the final iteration's.
+/// </summary>
+public sealed record FlowLoop(string UntilStep, string UntilProperty, JsonElement Expected, int MaximumIterations)
+{
+    /// <summary>The most iterations a loop may declare.</summary>
+    public const int Limit = 1000;
+
+    public const string IterationProperty = "iteration";
+    public const string PreviousProperty = "previous";
+}
+
+/// <summary>
 /// Undoes a completed step when its flow fails under <see cref="FlowFailurePolicy.Compensate"/>. The compensating job receives
 /// <see cref="CompensationInput{TInput, TOutput}"/>: the step's input and output. Steps are undone in reverse dependency order.
 /// </summary>
@@ -66,6 +80,9 @@ public sealed record FlowFanOut(string SourceStep, string SourceProperty, string
 
     /// <summary>The step ID of item <paramref name="index"/> of fan-out step <paramref name="stepId"/>.</summary>
     public static string ItemStepId(string stepId, int index) => $"{stepId}[{index}]";
+
+    /// <summary>The definition step of a job: the step itself, or the fan-out step an item belongs to.</summary>
+    public static string BaseStepId(string stepId) => stepId.IndexOf('[', StringComparison.Ordinal) is var bracket and >= 0 ? stepId[..bracket] : stepId;
 }
 
 public sealed record FlowStep(
@@ -84,6 +101,10 @@ public sealed record FlowStep(
     /// <summary>Runs another flow instead of a job; see <see cref="FlowChild"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public FlowChild? Child { get; init; }
+
+    /// <summary>Repeats this child step until its output meets a condition; see <see cref="FlowLoop"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FlowLoop? Loop { get; init; }
 
     /// <summary>Undoes this step if the flow fails under <see cref="FlowFailurePolicy.Compensate"/>; see <see cref="FlowCompensation"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -132,8 +153,8 @@ public sealed record FlowDefinition(string Key, int Version, FlowStep[] Steps, F
 
     /// <summary>The engine protocol every host must understand before a run of this definition may start.</summary>
     [JsonIgnore]
-    public int RequiredProtocol => FailurePolicy == FlowFailurePolicy.Compensate || Steps.Any(step => step.Compensation is not null)
-        ? EngineProtocol.Compensation
+    public int RequiredProtocol => Steps.Any(step => step.Loop is not null) ? EngineProtocol.Loops
+        : FailurePolicy == FlowFailurePolicy.Compensate || Steps.Any(step => step.Compensation is not null) ? EngineProtocol.Compensation
         : Steps.Any(step => step.Child is not null) ? EngineProtocol.ChildFlows
         : Steps.Any(step => step.ForEach is not null) ? EngineProtocol.FanOut
         : EngineProtocol.Baseline;

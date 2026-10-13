@@ -24,8 +24,11 @@ public static class EngineProtocol
     /// <summary>Compensating steps that undo completed work when a flow fails (<see cref="FlowCompensation"/>).</summary>
     public const int Compensation = 5;
 
+    /// <summary>Child steps that repeat until their output meets a condition (<see cref="FlowLoop"/>).</summary>
+    public const int Loops = 6;
+
     /// <summary>The highest level this build understands.</summary>
-    public const int Supported = Compensation;
+    public const int Supported = Loops;
 }
 
 /// <summary>A store's active protocol and, while a higher level waits, the workers that block it.</summary>

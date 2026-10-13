@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace WorkThrough.Storage;
 
@@ -97,7 +98,8 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
         return advanced;
     }
 
-    private async Task<bool> ResolveRunSignalsAsync(DbConnection connection, DbTransaction transaction, Guid run, long now, CancellationToken ct)
+    private async Task<bool> ResolveRunSignalsAsync(DbConnection connection, DbTransaction transaction, Guid run, FlowDefinition definition, int depth, long now,
+        CancellationToken ct)
     {
         var changes = new List<(Guid Job, string Name, string? Input)>();
         await using (var command = Command(connection, transaction, """
@@ -133,6 +135,20 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             else
             {
                 var outcome = ReadChildOutcome(signalInput);
+                var step = definition.Steps.Single(s => s.Id == FlowFanOut.BaseStepId(job.StepId!));
+                if (outcome.Succeeded && step.Loop is not null
+                    && await ContinueLoopAsync(connection, transaction, run, depth, job, step, outcome.Output, now, ct))
+                {
+                    continue;
+                }
+
+                if (outcome.Succeeded && step.Loop is { } loop
+                    && !JsonNode.DeepEquals(outcome.Output is null ? null : JsonNode.Parse(outcome.Output)?[loop.UntilStep]?[loop.UntilProperty],
+                        JsonNode.Parse(loop.Expected.GetRawText())))
+                {
+                    outcome = (false, null, $"The loop did not reach its condition in {loop.MaximumIterations} iterations.");
+                }
+
                 (output, error) = (outcome.Output, outcome.Error);
                 (status, kind) = outcome.Succeeded
                     ? (JobStatus.Succeeded, ExecutionEventKinds.ChildFlowSucceeded)

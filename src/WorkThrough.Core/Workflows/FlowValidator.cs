@@ -67,6 +67,13 @@ public static class FlowValidator
                 throw new ArgumentException($"Step ID {step.Id} must not contain brackets or colons.");
             }
 
+            if (step.Loop is { } loop && (step.Child is null || step.ForEach is not null || step.Input.ValueKind != JsonValueKind.Object
+                || loop.MaximumIterations is < 1 or > FlowLoop.Limit || string.IsNullOrWhiteSpace(loop.UntilStep)
+                || string.IsNullOrWhiteSpace(loop.UntilProperty) || loop.Expected.ValueKind == JsonValueKind.Undefined))
+            {
+                throw new ArgumentException($"Loop step {step.Id} must run a child flow with an object input, a condition, and 1–{FlowLoop.Limit} iterations.");
+            }
+
             if (step.Compensation is { } compensation && (step.Signal is not null || step.Child is not null || step.ForEach is not null
                 || string.IsNullOrWhiteSpace(compensation.Queue) || compensation.MaxAttempts < 1
                 || compensation.Contract.Key is var key && (key == SignalWait.Processor.Key || key == FlowChild.Processor.Key)))

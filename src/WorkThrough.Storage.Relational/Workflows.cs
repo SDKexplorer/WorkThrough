@@ -126,8 +126,8 @@ public abstract partial class RelationalJobStore
                 await JournalAsync(connection, transaction, item, now, item.Status.ToString(), ct);
                 if (item.Status == JobStatus.AwaitingSignal)
                 {
-                    var stepId = item.StepId![..item.StepId!.IndexOf('[', StringComparison.Ordinal)];
-                    replan |= !await ArmWaitAsync(connection, transaction, runId, depth, item, definition.Steps.Single(s => s.Id == stepId), now, ct);
+                    var step = definition.Steps.Single(s => s.Id == FlowFanOut.BaseStepId(item.StepId!));
+                    replan |= !await ArmWaitAsync(connection, transaction, runId, depth, item, step, now, ct);
                 }
             }
 
@@ -137,7 +137,7 @@ public abstract partial class RelationalJobStore
                 await NotifyParentAsync(connection, transaction, runId, parent, definition, jobs, plan, now, ct);
             }
 
-            if (plan.Status != FlowStatus.Running || !(replan | await ResolveRunSignalsAsync(connection, transaction, runId, now, ct)))
+            if (plan.Status != FlowStatus.Running || !(replan | await ResolveRunSignalsAsync(connection, transaction, runId, definition, depth, now, ct)))
             {
                 return;
             }

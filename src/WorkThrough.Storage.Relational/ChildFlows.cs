@@ -106,7 +106,7 @@ public abstract partial class RelationalJobStore
         TimeSpan timeout;
         if (step.Child is { } child)
         {
-            var started = await StartChildAsync(connection, transaction, runId, depth, job, child, ct);
+            var started = await StartChildAsync(connection, transaction, runId, depth, step.Loop is null ? job : Iteration(job, 1, null), child, ct);
             if (started is not { } childRun)
             {
                 return false;
@@ -184,6 +184,48 @@ public abstract partial class RelationalJobStore
             INSERT INTO dj_signals(run_id,name,payload,received_at) SELECT @run,@name,@payload,@now FROM dj_registry
             WHERE id=1 AND NOT EXISTS (SELECT 1 FROM dj_signals WHERE run_id=@run AND name=@name)
             """, ct, ("run", parentRunId.ToString()), ("name", name), ("payload", JsonSerializer.Serialize(outcome, JobJson.Options)), ("now", now));
+    }
+
+    /// <summary>A loop step's job with its iteration number and the previous iteration's output added to its input.</summary>
+    private static JobRecord Iteration(JobRecord job, int iteration, string? previous)
+    {
+        var input = JsonNode.Parse(job.Payload.GetRawText())!;
+        input[FlowLoop.IterationProperty] = iteration;
+        input[FlowLoop.PreviousProperty] = previous is null ? null : JsonNode.Parse(previous);
+
+        return job with { Payload = JsonSerializer.SerializeToElement(input, JobJson.Options) };
+    }
+
+    /// <summary>
+    /// Starts the next iteration of a loop step whose child succeeded without meeting the condition, and returns true; returns false
+    /// when the condition holds or no iteration is left, so the caller settles the step.
+    /// </summary>
+    private async Task<bool> ContinueLoopAsync(DbConnection connection, DbTransaction transaction, Guid runId, int depth, JobRecord job, FlowStep step,
+        string? output, long now, CancellationToken ct)
+    {
+        var loop = step.Loop!;
+        var value = output is null ? null : JsonNode.Parse(output)?[loop.UntilStep]?[loop.UntilProperty];
+        if (JsonNode.DeepEquals(value, JsonNode.Parse(loop.Expected.GetRawText())))
+        {
+            return false;
+        }
+
+        var iterations = Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_flows WHERE parent_job_id=@job", ct,
+            ("job", job.Id.ToString())));
+        if (iterations >= loop.MaximumIterations)
+        {
+            return false;
+        }
+
+        var next = await StartChildAsync(connection, transaction, runId, depth, Iteration(job, iterations + 1, output), step.Child!, ct);
+        if (next is { } childRun)
+        {
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_signal_waits", "job_id,run_id,name,deadline", "@job,@run,@name,@deadline", "job_id", "name,deadline"), ct,
+                ("job", job.Id.ToString()), ("run", runId.ToString()), ("name", FlowChild.SignalName(childRun)),
+                ("deadline", checked(now + (long)Math.Ceiling(step.Child!.Timeout.TotalMilliseconds))));
+        }
+
+        return true;
     }
 
     /// <summary>Reads a child outcome: the step's output when the child succeeded, otherwise the failure to record.</summary>

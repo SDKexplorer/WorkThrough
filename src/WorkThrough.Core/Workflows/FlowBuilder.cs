@@ -95,6 +95,22 @@ public sealed class FlowBuilder
     }
 
     /// <summary>
+    /// Adds a step that runs the published flow <paramref name="child"/> repeatedly until property <paramref name="untilProperty"/> of
+    /// its final step <paramref name="untilStep"/>'s output equals <paramref name="equals"/>, at most <paramref name="maximumIterations"/>
+    /// times. Each run receives <paramref name="input"/> plus <c>iteration</c> and <c>previous</c>; see <see cref="FlowLoop"/>.
+    /// </summary>
+    public FlowBuilder Repeat<T>(string id, FlowDefinition child, string untilStep, string untilProperty, T equals, int maximumIterations,
+        object? input = null, TimeSpan? timeout = null)
+    {
+        Child(id, child, input, timeout);
+
+        return Change(step => step with
+        {
+            Loop = new(untilStep, untilProperty, JsonSerializer.SerializeToElement(equals, JobJson.Options), maximumIterations)
+        });
+    }
+
+    /// <summary>
     /// Undoes the last step with <paramref name="processor"/> if the flow fails under <see cref="FlowFailurePolicy.Compensate"/>.
     /// The job receives the step's input and output as <see cref="CompensationInput{TInput, TOutput}"/>.
     /// </summary>

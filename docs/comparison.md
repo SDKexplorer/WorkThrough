@@ -46,6 +46,6 @@ This compares design choices, not marketing claims. It reflects public documenta
 ## Trade-offs to weigh
 
 - **Throughput:** completions and claims use row locks, but every event still takes one counter row so the journal stays gap-free. On the documented test host that gives about 800 jobs/s per PostgreSQL store, and about 500 with 50 tenant quotas ([ADR-020](adr/0020-write-path-throughput.md), [ADR-022](adr/0022-limit-locks.md)). A fleet-wide limit serializes claims. That is ample for business workflows; use a broker for event streams.
-- **Flow model:** flows are graphs, not code. Data-driven fan-out and child flows are built in. General loops are not; Temporal and Durable Functions express them naturally.
+- **Flow model:** flows are graphs, not code. Data-driven fan-out, child flows and bounded loops of child flows are built in. Arbitrary code-level control flow is not; Temporal and Durable Functions express it naturally.
 - **Upgrades:** from schema 6, additive schema changes and new engine protocol levels roll out while workers run ([ADR-021](adr/0021-rolling-upgrades.md)). Upgrading a store from schema 5 or earlier still requires stopping its workers once.
 - **Availability:** packages are not published and the license is undecided. Neither is true of the alternatives.

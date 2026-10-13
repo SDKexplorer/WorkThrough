@@ -132,6 +132,7 @@ var run = await flows.StartAsync(fulfil, new Order("42"), new FlowStart(Idempote
   .Step("notify", Notify.Identity).After("ship")
   ```
 - **Child flows:** `Child("ship", ShippingFlow.Definition, input)` runs another published flow as one step and waits for it without holding a worker. The step's output holds the child's final outputs; a failed child fails the step. `ForEach` with a child definition runs one child flow per item. Starting the parent publishes child definitions it carries ([ADR-023](docs/adr/0023-child-flows.md)).
+- **Loops:** `Repeat("track", PollCarrier.Definition, "check", "status", "delivered", maximumIterations: 20)` runs a child flow again, passing `iteration` and the `previous` output, until a final step's output property matches ([ADR-026](docs/adr/0026-bounded-loops.md)).
 - **Versioning:** every run pins an immutable definition version. Definitions move Draft → Published → Retired.
 - **Compensation:** with `OnFailure(FlowFailurePolicy.Compensate)`, steps declared with `CompensateWith(...)` are undone in reverse dependency order when the flow fails, then the flow fails ([ADR-025](docs/adr/0025-compensation.md)).
 - **Failure:** a step that fails by default suspends the run as an **incident**; operators recover the step with its history and idempotency key intact. See [flow starts](docs/adr/0009-idempotent-flow-starts.md) and [architecture](docs/architecture.md).
