@@ -48,7 +48,7 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
 
             var now = await NowAsync(connection, transaction, ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_signals(run_id,name,payload,received_at) VALUES (@run,@name,@input,@now)", ct,
-                ("run", runId.ToString()), ("name", name), ("input", input.GetRawText()), ("now", now));
+                ("run", runId.ToString()), ("name", name), ("input", await StoredAsync(connection, transaction, input, ct)), ("now", now));
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_signal_receipts(run_id,idempotency_key,fingerprint) VALUES (@run,@key,@hash)", ct,
                 ("run", runId.ToString()), ("key", idempotencyKey), ("hash", hash));
             await AdvanceWorkflowAsync(connection, transaction, runId, ct);
@@ -134,7 +134,7 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             }
             else
             {
-                var outcome = ReadChildOutcome(signalInput);
+                var outcome = ReadChildOutcome(Required(Json(signalInput)));
                 var step = definition.Steps.Single(s => s.Id == FlowFanOut.BaseStepId(job.StepId!));
                 if (outcome.Succeeded && step.Loop is not null
                     && await ContinueLoopAsync(connection, transaction, run, depth, job, step, outcome.Output, now, ct))
@@ -149,7 +149,7 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
                     outcome = (false, null, $"The loop did not reach its condition in {loop.MaximumIterations} iterations.");
                 }
 
-                (output, error) = (outcome.Output, outcome.Error);
+                (output, error) = (outcome.Output is { } value ? await StoredAsync(connection, transaction, Json(value), ct) : null, outcome.Error);
                 (status, kind) = outcome.Succeeded
                     ? (JobStatus.Succeeded, ExecutionEventKinds.ChildFlowSucceeded)
                     : (JobStatus.Failed, ExecutionEventKinds.ChildFlowFailed);

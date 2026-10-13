@@ -68,7 +68,7 @@ public abstract partial class RelationalJobStore
         await ExecuteAsync(connection, transaction, """
             INSERT INTO dj_flows(id,flow_key,version,input,correlation_id,status,max_parallel,parent_run_id,parent_job_id,depth,forked_from_run_id)
             VALUES (@id,@key,@version,@input,@correlation,@status,@parallel,@parentRun,@parentJob,@depth,@forkedFrom)
-            """, ct, ("id", runId.ToString()), ("key", definition.Key), ("version", definition.Version), ("input", input.GetRawText()),
+            """, ct, ("id", runId.ToString()), ("key", definition.Key), ("version", definition.Version), ("input", await StoredAsync(connection, transaction, input, ct)),
             ("correlation", origin.CorrelationId), ("status", nameof(FlowStatus.Running)), ("parallel", origin.MaxParallelSteps),
             ("parentRun", origin.ParentRunId?.ToString()), ("parentJob", origin.ParentJobId?.ToString()), ("depth", origin.Depth),
             ("forkedFrom", origin.ForkedFromRunId?.ToString()));
@@ -157,7 +157,7 @@ public abstract partial class RelationalJobStore
     /// Records a finished child run's outcome as a signal on its parent. The parent advances under its own flow lock when signals are
     /// dispatched, so no transaction locks a child flow and then its parent.
     /// </summary>
-    private Task NotifyParentAsync(DbConnection connection, DbTransaction transaction, Guid runId, Guid parentRunId, FlowDefinition definition,
+    private async Task NotifyParentAsync(DbConnection connection, DbTransaction transaction, Guid runId, Guid parentRunId, FlowDefinition definition,
         IEnumerable<JobRecord> jobs, FlowPlan plan, long now, CancellationToken ct)
     {
         ChildOutcome outcome;
@@ -180,10 +180,11 @@ public abstract partial class RelationalJobStore
 
         var name = FlowChild.SignalName(runId);
 
-        return ExecuteAsync(connection, transaction, """
+        var payload = await StoredAsync(connection, transaction, JsonSerializer.SerializeToElement(outcome, JobJson.Options), ct);
+        await ExecuteAsync(connection, transaction, """
             INSERT INTO dj_signals(run_id,name,payload,received_at) SELECT @run,@name,@payload,@now FROM dj_registry
             WHERE id=1 AND NOT EXISTS (SELECT 1 FROM dj_signals WHERE run_id=@run AND name=@name)
-            """, ct, ("run", parentRunId.ToString()), ("name", name), ("payload", JsonSerializer.Serialize(outcome, JobJson.Options)), ("now", now));
+            """, ct, ("run", parentRunId.ToString()), ("name", name), ("payload", payload), ("now", now));
     }
 
     /// <summary>A loop step's job with its iteration number and the previous iteration's output added to its input.</summary>
@@ -229,9 +230,9 @@ public abstract partial class RelationalJobStore
     }
 
     /// <summary>Reads a child outcome: the step's output when the child succeeded, otherwise the failure to record.</summary>
-    private static (bool Succeeded, string? Output, string? Error) ReadChildOutcome(string payload)
+    private static (bool Succeeded, string? Output, string? Error) ReadChildOutcome(JsonElement payload)
     {
-        var outcome = JsonSerializer.Deserialize<ChildOutcome>(payload, JobJson.Options)!;
+        var outcome = payload.Deserialize<ChildOutcome>(JobJson.Options)!;
 
         return outcome.Status == ChildSucceeded
             ? (true, outcome.Output?.GetRawText(), null)

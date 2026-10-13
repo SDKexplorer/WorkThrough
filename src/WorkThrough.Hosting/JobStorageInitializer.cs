@@ -12,6 +12,7 @@ internal sealed class StorageInitialization
     public List<KeyedLimit> KeyedLimits { get; } = [];
     public List<RateLimit> RateLimits { get; } = [];
     public List<ScheduleDefinition> Schedules { get; } = [];
+    public IPayloadProtector? PayloadProtector { get; set; }
 }
 
 internal sealed class JobStorageInitializer(IJobStore store, StorageInitialization initialization, ILogger<JobStorageInitializer> logger) : IHostedService

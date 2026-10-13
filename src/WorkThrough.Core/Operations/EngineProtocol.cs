@@ -27,8 +27,14 @@ public static class EngineProtocol
     /// <summary>Child steps that repeat until their output meets a condition (<see cref="FlowLoop"/>).</summary>
     public const int Loops = 6;
 
+    /// <summary>
+    /// Stores may write job inputs, outputs, flow inputs and signals as encrypted envelopes (<see cref="IPayloadProtector"/>). Older
+    /// builds would hand an envelope to a job as its input, so no store encrypts before this level is active.
+    /// </summary>
+    public const int PayloadProtection = 7;
+
     /// <summary>The highest level this build understands.</summary>
-    public const int Supported = Loops;
+    public const int Supported = PayloadProtection;
 }
 
 /// <summary>A store's active protocol and, while a higher level waits, the workers that block it.</summary>

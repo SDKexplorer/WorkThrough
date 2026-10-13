@@ -33,7 +33,7 @@ public abstract partial class RelationalJobStore
                     throw new StateConflictException("Fork a flow that has finished, failed or stopped in an incident; a running flow is still changing.");
                 }
 
-                input = Json(reader.GetString(0));
+                input = Revealed(reader.GetString(0));
                 definition = JsonSerializer.Deserialize<FlowDefinition>(reader.GetString(1), JobJson.Options)!;
                 correlation = reader.IsDBNull(2) ? null : reader.GetString(2);
                 maxParallel = reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3));

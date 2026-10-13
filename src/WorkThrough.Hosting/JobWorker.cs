@@ -18,6 +18,7 @@ internal sealed class JobWorker(
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan SettlementTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MissingKeyRetryDelay = TimeSpan.FromSeconds(30);
     private const int LeaseRenewalsPerDuration = 3;
     private const string ShutdownReason = "Host shutdown interrupted execution";
     private const string DeadlineMessage = "The configured execution deadline elapsed.";
@@ -298,6 +299,13 @@ internal sealed class JobWorker(
         try
         {
             invocation.Token.ThrowIfCancellationRequested();
+
+            // An envelope would bind to an input of defaults, so the handler never sees it.
+            if (PayloadEnvelope.IsProtected(job.Payload))
+            {
+                throw new PayloadKeyMissingException(PayloadEnvelope.KeyOf(job.Payload));
+            }
+
             result = await JobPipeline.InvokeAsync(scope.ServiceProvider, new(job, registration, context), handler, invocation.Token);
             result.Validate();
             invocation.Token.ThrowIfCancellationRequested();
@@ -348,6 +356,13 @@ internal sealed class JobWorker(
     private async Task<AttemptOutcome> SettleFailureAsync(IServiceProvider services, JobRecord job, JobWorkerOptions settings, Exception exception)
     {
         var decision = services.GetRequiredService<IJobRetryPolicy>().Decide(job, exception);
+
+        // A missing key is this host's configuration, not the job's fault, so the work is never rejected for it.
+        if (exception is PayloadKeyMissingException && !decision.Retry)
+        {
+            decision = RetryDecision.After(MissingKeyRetryDelay);
+        }
+
         if (decision.Delay < TimeSpan.Zero || decision.Delay > JobLimits.MaximumDelay)
         {
             throw new InvalidOperationException("Retry delay is outside the supported range.");

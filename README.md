@@ -161,6 +161,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 - **Console:** the [dashboard](docs/dashboard-security.md) reuses the host's ASP.NET Core authentication.
   - Permissions are separate for metadata, payloads, recovery, publication, schedules, limits and audit.
   - Every command is CSRF-protected, attributed to a trusted actor, deduplicated, and committed together with its audit record.
+- **Payload protection:** `ProtectPayloads("2026-10", keys)` encrypts job inputs and outputs, flow inputs and signals at rest with AES-256-GCM and a rotating key ring. Handlers and the console see plain JSON; database readers, backups and archives see ciphertext. Schedule inputs, failure text and fingerprints are not encrypted ([ADR-027](docs/adr/0027-payload-protection.md)).
 - **Tenant scoping:** register an `ITenantAccessResolver` to scope users to their tenants ([ADR-019](docs/adr/0019-tenant-access-isolation.md)).
 - **Data operations:** [operations and retention](docs/operations-and-retention.md) covers queue pause, worker drain, replay, archives, retention with holds and verified exports, and event subscriptions.
 - **MCP:** the [MCP endpoint](docs/mcp.md) gives AI assistants bounded, read-only, audited investigation tools behind bearer authentication.

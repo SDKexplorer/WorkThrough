@@ -84,7 +84,7 @@ public abstract partial class RelationalJobStore
                     return;
                 }
 
-                input = Json(reader.GetString(0));
+                input = Required(Json(reader.GetString(0)));
                 definition = JsonSerializer.Deserialize<FlowDefinition>(reader.GetString(1), JobJson.Options)!;
                 parentRun = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2));
                 depth = reader.IsDBNull(3) ? 0 : Convert.ToInt32(reader.GetValue(3));
@@ -95,6 +95,11 @@ public abstract partial class RelationalJobStore
         {
             var jobs = await ReadJobsAsync(connection, transaction, "SELECT * FROM dj_jobs WHERE workflow_run_id=@id", ct, ("id", runId.ToString()));
             var read = jobs.ToDictionary(job => job.Id, job => job.Status);
+            foreach (var output in jobs.Select(job => job.Output).OfType<JsonElement>())
+            {
+                Required(output);
+            }
+
             var plan = FlowPlanner.Advance(definition, input, jobs);
             var now = await NowAsync(connection, transaction, ct);
             var replan = false;
@@ -105,8 +110,8 @@ public abstract partial class RelationalJobStore
                     UPDATE dj_jobs SET status=@status,payload=@payload,error=@error,output=@output,
                     available_at=CASE WHEN @status='Queued' THEN @now ELSE available_at END
                     WHERE id=@id AND status=@read
-                    """, ct, ("status", change.Status.ToString()), ("payload", change.Payload.GetRawText()), ("error", change.Error), ("id", change.Id.ToString()),
-                    ("now", now), ("read", read[change.Id].ToString()), ("output", change.Output?.GetRawText())) == 0)
+                    """, ct, ("status", change.Status.ToString()), ("payload", await StoredAsync(connection, transaction, change.Payload, ct)), ("error", change.Error), ("id", change.Id.ToString()),
+                    ("now", now), ("read", read[change.Id].ToString()), ("output", await StoredAsync(connection, transaction, change.Output, ct))) == 0)
                 {
                     continue;
                 }

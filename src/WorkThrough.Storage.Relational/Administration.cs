@@ -167,7 +167,7 @@ public abstract partial class RelationalJobStore
             }
 
             await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET original_payload=COALESCE(original_payload,payload),payload=@input WHERE id=@id", ct,
-                ("input", input.GetRawText()), ("id", id.ToString()));
+                ("input", await StoredAsync(connection, transaction, input, ct)), ("id", id.ToString()));
             if (job.WorkflowRunId is not null)
             {
                 await ResumeStepAsync(connection, transaction, job, ExecutionEventKinds.InputCorrected, ct);

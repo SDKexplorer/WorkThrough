@@ -750,12 +750,13 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
         // Interruption and deferral are not failures, so they grant back the attempt they consumed.
         var grantedAttempts = attempt is AttemptStatus.Interrupted or AttemptStatus.Deferred ? 1 : 0;
+        var output = status == JobStatus.Succeeded && settlement.Result is { } result ? await StoredAsync(connection, transaction, result.Output, ct) : null;
         await ExecuteBatchAsync(connection, transaction, ct,
         [
             new("""
                 UPDATE dj_jobs SET status=@status,output=@output,error=@error,available_at=@available,max_attempts=max_attempts+@granted,
                 lease_token=NULL,lease_expires_at=NULL,worker_id=NULL WHERE id=@id
-                """, ("status", status.ToString()), ("output", status == JobStatus.Succeeded ? settlement.Result?.Output.GetRawText() : null),
+                """, ("status", status.ToString()), ("output", output),
                 ("error", Clip(error, JobLimits.MaximumMessageLength)), ("available", checked(now + Math.Max(0, (long)delay.TotalMilliseconds))),
                 ("granted", grantedAttempts), ("id", jobId.ToString())),
             .. FinishAttemptStatements(transaction, job, now, attempt, error)

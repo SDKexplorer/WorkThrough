@@ -35,6 +35,11 @@ public sealed class WorkThroughBuilder
         IWorkflowSignals, IJobOutbox, IExecutionEvents, IAdmissionPolicies
     {
         ArgumentNullException.ThrowIfNull(store);
+        if (Initialization.PayloadProtector is { } protector)
+        {
+            Protect(store, protector);
+        }
+
         Services.AddSingleton(store);
         Type[] ports =
         [
@@ -249,6 +254,37 @@ public sealed class WorkThroughBuilder
         Initialization.Schedules.AddRange(schedules);
 
         return this;
+    }
+
+    /// <summary>
+    /// Encrypts job inputs and outputs, flow inputs and signal payloads at rest with AES-256-GCM (ADR-027). New values use
+    /// <paramref name="currentKey"/>; keep retired keys in <paramref name="keys"/> while stored work still uses them. Every host that runs
+    /// or advances work needs the same key ring. Encryption starts once engine protocol 7 is active.
+    /// </summary>
+    public WorkThroughBuilder ProtectPayloads(string currentKey, IReadOnlyDictionary<string, byte[]> keys) =>
+        ProtectPayloads(new AesGcmPayloadProtector(keys, currentKey));
+
+    /// <summary>Encrypts business data at rest with a custom protector, for example one backed by a key management service.</summary>
+    public WorkThroughBuilder ProtectPayloads(IPayloadProtector protector)
+    {
+        ArgumentNullException.ThrowIfNull(protector);
+        Initialization.PayloadProtector = protector;
+        foreach (var store in Services.Where(service => !service.IsKeyedService).Select(service => service.ImplementationInstance).OfType<IJobStore>())
+        {
+            Protect(store, protector);
+        }
+
+        return this;
+    }
+
+    private static void Protect(object store, IPayloadProtector protector)
+    {
+        if (store is not IPayloadProtection protection)
+        {
+            throw new NotSupportedException($"{store.GetType().Name} cannot protect payloads.");
+        }
+
+        protection.PayloadProtector = protector;
     }
 
     public WorkThroughBuilder InitializeStorageOnStart(bool enabled)
