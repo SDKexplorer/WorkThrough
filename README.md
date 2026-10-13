@@ -207,7 +207,7 @@ Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVE
 
 ## Release boundaries
 
-- Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation, checkpoint forks and child flows are planned.
+- Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation runs only the undo jobs an application declares.
 - Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
 - OIDC sign-in, role permissions and tenant scoping are verified against a local Keycloak 26.4 (`scripts/check-oidc.py`), not yet against a hosted provider such as Entra ID or Auth0.
 - Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL and SQLite without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.

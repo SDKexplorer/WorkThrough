@@ -54,7 +54,7 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [x] Implement opt-in automatic retention with policies/holds, fenced bounded batches, status, verified file exports, explicit body purge and subscriber-safe bounded journal trimming. Preserve receipts and active flow dependencies. See [ADR-013](adr/0013-fenced-retention-maintenance.md). Large maintenance-versus-worker contention and restore qualification remain release gates.
 - [x] Introduce recoverable flow incidents: exhausted technical retries block dependent work without confusing it with a deliberately skipped branch. Preserve explicit terminal-failure policy. ADR-008 and saved-schema tests preserve Stop semantics for old graphs; new builders default to Suspend.
 - [x] Render the saved definition revision with execution states and node details; append an execution journal transactionally with state changes for a separate event timeline. Keep the dashboard independent of application DLLs.
-- [ ] Complete recovery beyond the implemented audited retry and pause/resume commands: retry the failed step, validated input correction, and pause/resume admission. Show why a flow is waiting or blocked before offering an action.
+- [x] Complete recovery beyond retry and pause/resume: step recovery, audited input correction (validated by worker-side `IJobValidator`), and checkpoint forks. The console shows execution readiness reasons beside its actions.
 - [x] Define execution deadlines and progress reporting separately from worker lease renewal; a live worker is not evidence that its handler is progressing.
 - [x] Add business-write/outbox integration before claiming atomic business operation plus enqueue. Specify supported local transaction boundaries and do not imply cross-database atomicity.
 - [x] Define tenant/environment isolation, viewer/operator permissions and payload redaction for shared hosting: tenant-scoped dashboard/MCP access (ADR-019), separate payload permission (ADR-007) and diagnostic redaction. CorrelationId is never an authorization boundary.
@@ -69,7 +69,7 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 - [x] Deliver the executable sample in `samples/README.md`: one Shop system (shared definitions, processors, intake API, headless worker, OIDC console, MCP) smoke-tested by `verify.sh`. Relocation fixtures live in `tests/Relocation`.
 - [x] Seed recurring schedules from code (`SeedSchedules`), through the audited lifecycle and without overriding operators.
 - [ ] Optional: add import/export adapters for other engines, such as Hangfire or Wolverine, with explicit identity/payload mappings, supported version shapes and semantic-loss reports. Nice to have; not a release prerequisite.
-- [ ] Add contract upcasters and rolling-deployment capability checks. Preserve pending old versions until compatible consumers exist.
+- [x] Add contract upcasters (ADR-024) and rolling-deployment capability checks (ADR-021, preflight). Pending old versions stay runnable through upcasts.
 - [ ] Evaluate automatic canonical flow revisions with optional human labels; pin executions to the chosen revision and make activation/migration explicit. Mandatory integer versions remain the current API.
 - [x] Add partition-key concurrency and rate limits. Correlation must remain independent from lock identity (ADR-018, schema 5).
 - [x] Add SQL Server, then Oracle, following the portability refactor and real-provider gates in [storage evolution](../specs/storage-evolution.spec.md) and [ADR-012](adr/0012-retention-and-provider-expansion.md). Both pass native Linux x64 qualification on their documented initial server matrix. SQLite/PostgreSQL retain their existing verification. Sustained contention and provider restore campaigns remain release-readiness work.
@@ -82,9 +82,10 @@ Native recovery enhancements (validated input correction, checkpoint forks, comp
 
 - [ ] Add explicitly enabled MCP recovery/control actions only after trusted approval integration, state preconditions and command/audit reconciliation are verified. Keep bulk replay, payload changes and deletion separately scoped.
 - [ ] Apply and verify GitHub branch protections using [branching and release guidance](branching-and-release.md). `develop` exists; enforcement is blocked by the current private-repository account plan. Public visibility requires a separate maintainer decision and readiness review.
-- [ ] Fork an execution from a persisted checkpoint, with a new run ID and causation link; preserve the original audit trail.
-- [ ] Add explicit compensation handlers for reversible external effects. Never label state rewind as undoing arbitrary side effects.
-- [ ] Add child flows, durable timers/signals, failure branches, and a documented expression/versioning model.
+- [x] Fork an execution from a checkpoint step into a new linked run; the source run and its audit trail are unchanged.
+- [x] Add explicit compensation handlers for reversible external effects (ADR-025). State rewind is never labeled as undoing arbitrary side effects.
+- [x] Add child flows (ADR-023), bounded loops (ADR-026) and durable timers/signals.
+- [ ] Add failure branches: steps that run when a predecessor fails. Keep conditions to documented equality checks; a general expression language stays out of scope.
 - [x] Benchmark idle polling, admission contention, and completion throughput before replacing conservative locking. Independent worker processes, three repeated workloads, raw latency/resource reports, and correctness assertions are in `performance.md`; conservative transaction serialization remains in place.
 - [ ] Define supported platforms/TFMs, compatibility policy, license, final package name, and public release process.
 - [x] Apply the accepted WorkThrough working brand consistently to source/API/package/sample/UI names, with build and package-consumer verification. Package/domain clearance and publication remain separate; persisted processor keys must not change during the rename.
