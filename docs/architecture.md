@@ -9,8 +9,11 @@ flowchart TD
     Sample[Application composition root] --> Hosting
     Sample --> Dashboard
     Sample --> Mcp[Optional MCP adapter]
-    Sample --> Provider[SQLite, PostgreSQL, SQL Server or Oracle provider]
+    Sample --> Provider[SQLite, PostgreSQL, SQL Server, Oracle or MySQL/MariaDB provider]
     Provider --> Relational[Relational persistence mechanics]
+    Tests[Application tests] --> Testing[WorkThrough.Testing]
+    Testing --> Hosting
+    Migration[Optional Hangfire importer] --> Core
     Hosting --> Core
     Dashboard --> Core
     Mcp --> Core
@@ -26,13 +29,13 @@ The relational adapter shares data mapping and transactional operations. Each da
 
 A job contains a stable key, contract version, JSON input, and operational metadata. It never uses a persisted CLR type, assembly name, or method to dispatch work. `[Job("documents.generate", Version = 1)]` identifies processor behavior independently of its input type. `[JobContract]` remains a typed-message convenience through the same catalog.
 
-Jobs implement `IJob<TInput>`. A job's address comes from a `JobDefinition` passed to `AddJob`, from `[Job("key")]` on its class, or from `[JobContract]` on its input type. Engine storage and the alias registry call the code behind an address a *processor*; it is the same thing. The optional generator exports a module manifest from each job assembly and composes referenced manifests into the application manifest. `AddGeneratedJobs(typeof(Program).Assembly)` registers those modules through the same `JobCatalog` API used by explicit `AddJob<TInput,TJob>()`. Rebuilding updates the manifest. `AddJobs(assembly)` applies the generator's rules by reflection at startup, also through `AddJob<TInput,TJob>()`, for applications that do not reference the generator; it covers only the given assembly and reports a missing address when the host starts rather than at compile time. The application still needs a project/package reference to the new job assembly, and the new artifact must be deployed.
+Jobs implement `IJob<TInput>`. A job's address comes from a `JobDefinition` passed to `AddJob`, from `[Job("key")]` on its class, or from `[JobContract]` on its input type. Engine storage and the alias registry call the code behind an address a *processor*; it is the same thing. The optional generator exports a module manifest from each job assembly and composes referenced manifests into the application manifest. `AddGeneratedJobs(typeof(Program).Assembly)` registers those modules through the same `JobCatalog` API used by explicit `AddJob<TInput,TJob>()`. Rebuilding updates the manifest. `AddJobs(assembly)` applies the generator's rules by reflection at startup, also through `AddJob<TInput,TJob>()`, for applications that do not reference the generator; it covers only the given assembly and reports a missing address when the host starts rather than at compile time. `AddJob(definition, job => ...)` binds an explicit address to a delegate; the delegate is never stored, only the address. The application still needs a project/package reference to the new job assembly, and the new artifact must be deployed.
 
 The generator requires public, concrete, non-generic, top-level processor/handler classes or record classes. It diagnoses missing processor/contract attributes and inaccessible implementations. Duplicate contract implementations are rejected when the catalog is composed. Worker startup resolves each handler in a DI scope before claiming work, detecting missing dependencies in the actual deployment.
 
 Handler names and assembly versions appear only in attempt diagnostics. They are not consulted by scheduling, queries, dashboards, or recovery. Old attempt diagnostics remain historical. Producer and dashboard hosts do not need handler assemblies.
 
-Changing JSON structure or business meaning incompatibly still requires a new contract version or an explicit adapter. Legacy Hangfire invocation import and contract upcasters are planned; stable identity alone does not infer arbitrary old-to-new payload conversions.
+Changing JSON structure or business meaning incompatibly requires a new contract version. An upcast converts stored inputs of the old version for the new job ([ADR-024](adr/0024-input-upcasts.md)); stable identity alone never infers a conversion. Hangfire jobs, which store CLR method calls, move through an explicit importer that maps each method to an address ([migrating from Hangfire](migrating-from-hangfire.md)).
 
 ## Hosting roles
 
@@ -89,7 +92,7 @@ Recurring schedule lifecycle is independent of enable/pause admission. Cronos ca
 
 ## Schema-3 operations
 
-Typed definitions/manual registration, coordinated aliases with shared admission, middleware/validation/retry policies, durable subscriptions, business transaction/outbox acceptance, signals, queue controls, replay, and bounded archival are implemented. See ADR-010, `identity-evolution.md`, `processor-lifecycle-and-extensibility.md`, and `operations-and-retention.md` for current contracts. The original design notes above remain useful context; these guides supersede earlier statements that those features were only planned.
+Typed definitions/manual registration, coordinated aliases with shared admission, middleware/validation/retry policies, durable subscriptions, business transaction/outbox acceptance, signals, queue controls, replay, and bounded archival are implemented. See ADR-010, `identity-evolution.md`, `processor-lifecycle-and-extensibility.md`, and `operations-and-retention.md` for current contracts.
 
 
 Schema 4 adds opt-in fenced retention maintenance, whole-unit holds, persisted policies, verified directory exports and bounded journal cleanup. See [ADR-013](adr/0013-fenced-retention-maintenance.md) and the operations guide. Older writers must stop before upgrade; active flows remain in one store. Schema 5 adds the admission controls of ADR-018 additively. Schema 6 records compatibility for rolling upgrades (ADR-021); it is the last upgrade that requires stopping older writers. SQL Server and Oracle implement the same engine operations through the provider boundaries below.
@@ -97,5 +100,26 @@ Schema 4 adds opt-in fenced retention maintenance, whole-unit holds, persisted p
 SQL Server uses the shared state transitions with provider-owned schema/JSON projections, small SQL-fragment seams, transaction-owned application locking and snapshot inspection. Its explicit key bounds and trailing-space restriction are recorded in [ADR-014](adr/0014-sql-server-storage.md). Business transaction callbacks retain the original ADO.NET connection and SQL dialect.
 
 Oracle uses a schema-local admission row lock, Serializable inspection and checkpointed initialization under a DDL-surviving session lock. Its explicit text/credential/DML-only restrictions are recorded in [ADR-015](adr/0015-oracle-storage.md).
+
+MySQL and MariaDB use the same pattern as Oracle: an admission row lock, checkpointed initialization under a named lock, and claims that lock candidates by identity. Tables use an exact binary collation that does not pad ([ADR-029](adr/0029-mysql-storage.md)).
+
+## Engine protocol and payload protection
+
+Hosts of different releases share a store while the schema's reader range admits them. New shared semantics wait for an engine protocol level that every live worker supports ([ADR-021](adr/0021-rolling-upgrades.md)):
+
+| Level | Semantics |
+|---|---|
+| 1 | Baseline |
+| 2 | Fan-out (`ForEach`) |
+| 3 | Per-limit lock rows for claims under limits (ADR-022) |
+| 4 | Child flows (ADR-023) |
+| 5 | Compensation (ADR-025) |
+| 6 | Bounded loops (ADR-026) |
+| 7 | Encrypted payloads may be written (ADR-027) |
+| 8 | Failure branches (ADR-028) |
+
+A definition that needs a higher level than the store's active one is refused at start; a host below the active level refuses to claim.
+
+With `ProtectPayloads`, stores encrypt job inputs and outputs, flow inputs, signal payloads, child outcomes and outbox requests with AES-256-GCM before writing them, and decrypt them after reading. The engine and handlers see plain JSON; archives keep the encrypted form ([ADR-027](adr/0027-payload-protection.md)).
 
 Immediate client envelopes use the destination database clock on acceptance, including outbox delivery; explicit not-before instants retain their precision. See [ADR-016](adr/0016-immediate-acceptance-clock.md).

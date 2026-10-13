@@ -1,6 +1,8 @@
 # Completion work
 
-Requested on 2026-10-08. This tracks implementation of the concrete gaps discussed with the maintainer, rather than treating every possible future provider or workflow language feature as a release requirement.
+A historical record, complete since 2026-10-09. Current status is in [the plan](plan.md) and current evidence in [verification](verification.md).
+
+Requested on 2026-10-08. This tracked implementation of the concrete gaps discussed with the maintainer, rather than treating every possible future provider or workflow language feature as a release requirement.
 
 - [x] Typed definitions, explicit processor registration, display names, compatibility fixtures.
 - [x] Coordinated identity aliases with shared admission and stale-deployment fencing.
@@ -14,7 +16,7 @@ Requested on 2026-10-08. This tracks implementation of the concrete gaps discuss
 - [x] Repository-wide readability enforcement and typed samples with named configuration.
 - [x] Repeatable performance scenarios with correctness checks, latency distributions, throughput, resource measurements, and recorded environment.
 
-Local evidence is recorded in [verification.md](verification.md): 121 tests on each of .NET 8 and .NET 10, package-only consumers, published relocation/alias proofs, runnable samples, dashboard checks, and the independent-process smoke campaign. The [full performance campaign](performance.md) verified 12,000 measured jobs on real SQLite/PostgreSQL stores. The broader [roadmap](plan.md) deliberately retains future features and production-readiness work.
+At completion, local evidence recorded in [verification.md](verification.md) covered 121 tests on each of .NET 8 and .NET 10, package-only consumers, published relocation/alias proofs, runnable samples, dashboard checks, and the independent-process smoke campaign. The [full performance campaign](performance.md) verified 12,000 measured jobs on real SQLite/PostgreSQL stores. The broader [roadmap](plan.md) deliberately retains future features and production-readiness work.
 
 After pushing, the [Verify workflow](https://github.com/SDKexplorer/WorkThrough/actions/workflows/verify.yml) is the source of hosted evidence for that exact commit; local results do not substitute for its status.
 

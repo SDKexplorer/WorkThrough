@@ -1,6 +1,13 @@
 # Testing your jobs
 
-WorkThrough has no in-memory store: a test that claims, retries or settles should exercise the same SQL as production. Two levels cover most needs.
+WorkThrough has no in-memory store: a test that claims, retries or settles should exercise the same SQL as production. Four kinds of test cover most needs:
+
+- **Unit tests** call a job directly.
+- **Flow logic tests** run a flow on the real engine with stubbed jobs.
+- **Integration tests** run real jobs with test doubles for their dependencies.
+- **Contract tests** check that stored inputs still read.
+
+`dotnet new workthrough-tests` creates a project with flow logic tests to start from.
 
 ## Unit tests: call the job
 
@@ -21,6 +28,8 @@ public async Task Rejects_non_positive_amounts()
 ```
 
 `context.IdempotencyKey` derives from `JobId`, so a test can check that an external call receives the same key on every attempt. Progress reports go nowhere unless you set `Progress` on the context.
+
+A job registered as a delegate is tested through the host below, or by keeping its body in a method that takes the input and its services.
 
 ## Integration tests: `WorkThrough.Testing`
 
@@ -84,7 +93,7 @@ public async Task A_declined_charge_apologises_instead_of_shipping()
   Each fails after 30 seconds with the current state, for example every step's status and error.
 - **Assertions:** `AssertSucceeded()` and `AssertStatus(...)` describe every step when they fail. `Step("id").Output<T>()` and `Input<T>()` read DTOs. Fan-out items are `step[0]`, `step[1]`, and so on.
 - **Direct access:** `host.Jobs`, `host.Flows`, `host.Queries` and `host.Store` are the production clients. For example, `host.Store.RecoverStepAsync(...)` drives an incident's recovery.
-- **Other databases:** for PostgreSQL, SQL Server or Oracle, point the same tests at a disposable database or schema created per test run. `tests/WorkThrough.Tests/StoreHarness.cs` in this repository does that for all four providers.
+- **Other databases:** for PostgreSQL, SQL Server, Oracle, MySQL or MariaDB, point the same tests at a disposable database or schema created per test run. `tests/WorkThrough.Tests/StoreHarness.cs` in this repository does that for every provider.
 
 ## Contract tests: stored work still reads
 

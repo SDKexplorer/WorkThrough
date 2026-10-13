@@ -6,15 +6,16 @@
 
 Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite, PostgreSQL, SQL Server, Oracle, MySQL or MariaDB. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so job classes can move between classes, namespaces, projects and assemblies while jobs are queued.
 
-> **Status: alpha.** All four providers pass their [verification](docs/verification.md), packages are built locally and not yet published, and there is no production certification. See [release boundaries](#release-boundaries).
+> **Status: alpha.** All six databases pass their [verification](docs/verification.md), packages are built locally and not yet published, and there is no production certification. See [release boundaries](#release-boundaries).
 
 ## Why WorkThrough
 
 - **Refactor-safe:** dispatch by explicit, versioned addresses. A [published relocation proof](scripts/check-refactor.sh) runs queued work after its job classes moved to a renamed assembly on another runtime.
 - **Honest delivery:** at least once, with fenced leases, so a stale worker can never settle an attempt. Crashes neither lose work nor manufacture success. Transactional enqueue and an outbox commit work together with business data.
-- **Flows:** persisted graphs with bindings, conditions, joins, durable signals, idempotent starts, incident recovery and immutable, versioned definitions.
+- **Flows:** persisted graphs with bindings, conditions, joins, fan-out, child flows, loops, failure branches, compensation, durable signals, idempotent starts, incident recovery and immutable, versioned definitions.
 - **Admission control:** fleet and per-type limits, per-key concurrency (serialize a customer), tenant quotas, sliding-window rate limits, bounded flow fan-out and weighted fair queues. All are exact across hosts.
-- **Operations:** an embedded Angular console with audited commands, tenant-scoped access, retention with holds, deployment preflight, a read-only MCP endpoint for AI assistants, and OpenTelemetry traces and metrics.
+- **Operations:** an embedded Angular console with audited commands, tenant-scoped access, retention with holds, deployment preflight, payload encryption at rest, a read-only MCP endpoint for AI assistants, and OpenTelemetry traces and metrics.
+- **Testable and easy to adopt:** a test host runs flows on the real engine with stubbed jobs, `dotnet new` templates start a worker, a web app or a test project, and an importer moves existing Hangfire jobs ([migrating from Hangfire](docs/migrating-from-hangfire.md)).
 
 ## Quick start
 
@@ -74,11 +75,26 @@ dotnet new workthrough-tests -n MyApp.Tests                  # xUnit tests of a 
 
 `--storage` takes `sqlite` (default), `postgresql`, `sqlserver`, `oracle` or `mysql` (MySQL and MariaDB).
 
-Three samples build on each other ([samples](samples/README.md)):
+Samples ([samples](samples/README.md)):
 
 - [`QuickStart`](samples/QuickStart/Program.cs): one file, SQLite, one job.
 - [`QuickStart.Web`](samples/QuickStart.Web/Program.cs): an API that enqueues jobs, with the worker and console in the same process.
-- [Shop](samples/README.md#shop-sample): a complete system with an intake API, workers, an approval flow, tenants, limits, a standalone OIDC console and MCP.
+- [Shop](samples/README.md#shop-sample): a complete system with an intake API, workers, an approval flow, tenants, limits, a standalone OIDC console, MCP, and tests of its checkout flow with stubbed jobs.
+- [`HangfireMigration`](samples/HangfireMigration/Program.cs): moves a Hangfire application's queued, delayed and recurring jobs into WorkThrough.
+
+### Testing a flow
+
+`WorkThrough.Testing` runs the real engine on a throwaway SQLite file. Stub the jobs to test a flow's logic alone ([testing](docs/testing.md)):
+
+```csharp
+await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough
+    .Stub(Payments.Charge, (ChargePayment charge) => new Payment(charge.OrderId))
+    .Reject(Shipping.Ship, "address unknown"));
+
+var flow = await host.RunFlowAsync(Checkout.Definition, order);
+flow.AssertStatus(FlowStatus.Incident);
+Assert.Equal(order.Id, flow.Step("charge").Input<ChargePayment>().OrderId);
+```
 
 ### Addresses shared with producers
 
@@ -187,8 +203,9 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 |---|---|
 | How it compares with Hangfire, Quartz.NET, Wolverine, MassTransit, Temporal | [Comparison](docs/comparison.md) |
 | Moving from Hangfire: concepts and the job importer | [Migrating from Hangfire](docs/migrating-from-hangfire.md) |
-| Design and invariants | [Architecture](docs/architecture.md), [decision records](docs/adr), [requirements](specs/durable-jobs.spec.md) |
+| Design and invariants | [Architecture](docs/architecture.md), [decision records](docs/adr/README.md), [requirements](specs/durable-jobs.spec.md) |
 | Storage providers and schema upgrades | [Providers](docs/providers.md) |
+| Rolling upgrades, payload encryption | [ADR-021](docs/adr/0021-rolling-upgrades.md), [ADR-027](docs/adr/0027-payload-protection.md) |
 | Scheduling | [Scheduling](docs/scheduling.md) |
 | Address changes and aliases | [Identity evolution](docs/identity-evolution.md), [deployment preflight](docs/deployment-preflight.md) |
 | Console, permissions, tenants | [Dashboard security](docs/dashboard-security.md) |
@@ -211,10 +228,10 @@ The script:
 - builds the console and libraries;
 - runs the test suite on .NET 10 and .NET 8;
 - runs the relocation proof;
-- packs the eleven packages and the `WorkThrough.Templates` package into `artifacts/packages`;
-- creates and builds every template with every storage provider, and runs the SQLite projects;
+- packs every library package and the `WorkThrough.Templates` package into `artifacts/packages`;
+- creates and builds every template with every storage provider, runs the SQLite projects and the tests template;
 - runs NuGet-only consumers on SDK 8 and 10;
-- runs the Shop sample's smoke test and preflight;
+- runs the Shop sample's smoke test and preflight, and the quick-start and Hangfire migration samples;
 - runs process-kill and load smoke exercises.
 
 Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVER`, `DURABLEJOBS_ORACLE`, `DURABLEJOBS_MYSQL` or `DURABLEJOBS_MARIADB` point at disposable databases ([providers](docs/providers.md)). Set `WORKTHROUGH_DOTNET8` when .NET 8 lives elsewhere. `scripts/format.sh` applies the code style that CI enforces.
@@ -224,7 +241,7 @@ Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVE
 - Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation runs only the undo jobs an application declares.
 - Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
 - OIDC sign-in, role permissions and tenant scoping are verified against a local Keycloak 26.4 (`scripts/check-oidc.py`), not yet against a hosted provider such as Entra ID or Auth0.
-- Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL and SQLite without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.
+- Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL and SQLite without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits; MySQL and MariaDB throughput is not yet measured. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.
 - There is no production certification and no Native AOT support. Performance figures describe the documented test host.
 - Package publication and the project license are pending maintainer decisions.
 

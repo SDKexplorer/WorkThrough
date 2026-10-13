@@ -2,6 +2,20 @@
 
 Run `scripts/performance.sh --smoke` for the CI profile or `scripts/performance.sh --full` for repeated measurements. Set `DURABLEJOBS_POSTGRES` to a disposable database to exercise PostgreSQL. `WORKTHROUGH_DOTNET8` selects the actual runtime executable. Never point the harness at production; it creates isolated schemas/files and deletes its own test data afterward.
 
+## Current figures
+
+On the documented test host (macOS arm64, local containers), three 16-slot workers draining a preloaded backlog with near-instant handlers:
+
+| Store | No limits | 50 tenant quotas |
+|---|---|---|
+| PostgreSQL 17 | about 810–830 jobs/s | about 500 jobs/s |
+| SQLite (local file) | about 720–810 jobs/s | — |
+| SQL Server 2022, `READ_COMMITTED_SNAPSHOT` on (emulated x64) | about 430 jobs/s; 200 with it off | — |
+| Oracle Free 23.26 | about 280 jobs/s | — |
+| MySQL 8.4, MariaDB 11.4 | not yet measured | — |
+
+These are engine measurements on one machine, not a service-level promise. The sections below record how each figure was obtained, in date order.
+
 ## What is measured
 
 The harness starts two separate OS processes running actual `BackgroundService` workers. Four concurrent producers submit a finite burst after warmup. Each worker has four local slots, the fleet has six admitted leases, and the limited processor type has a shared limit of two. Load workers use 30-second leases; the crash proof uses two seconds for bounded recovery. Processors perform a cancellable 10 ms delay and return a value checked against their accepted input.
@@ -22,7 +36,7 @@ Each run must settle exactly the expected jobs with matching outputs and one suc
 
 Before load measurement for each provider, kill a worker after an independently committed business effect and before job settlement. A replacement worker must recover the lease, preserve an Abandoned attempt followed by Succeeded, and leave exactly one idempotent effect. SQLite also restores a consistent backup of that crashed store into another file before resumption.
 
-Integration tests additionally lose the destination response after a real outbox commit, terminate an owned PostgreSQL backend/close a SQLite transaction connection, verify rollback and subsequent recovery, retain whole-flow/signal archive evidence and deduplication, and exercise subscription cursor/trim races. CI runs both providers and publishes its performance smoke JSON as an artifact.
+Integration tests additionally lose the destination response after a real outbox commit, terminate an owned PostgreSQL backend/close a SQLite transaction connection, verify rollback and subsequent recovery, retain whole-flow/signal archive evidence and deduplication, and exercise subscription cursor/trim races. CI runs every provider and publishes each runner's performance smoke JSON as an artifact.
 
 ## Interpretation and limits
 

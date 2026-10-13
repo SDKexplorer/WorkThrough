@@ -1,6 +1,6 @@
 # Dashboard and product direction
 
-Status: evolving product direction, updated 10 October 2026. The live Angular console is embedded in the Dashboard NuGet and reads real engine APIs. Saved diagrams, incidents, audited recovery, drafts, schedules, workers, permission-aware inspection, windowed attempt metrics and deployment coverage are implemented. The separate deployment-preflight API/CLI is implemented; richer graph authoring remains planned. The old fictional concept files are unreachable from the live entry point.
+Status: evolving product direction, updated 13 October 2026. The live Angular console is embedded in the Dashboard NuGet and reads real engine APIs. Saved diagrams, incidents, audited recovery, drafts, schedules, workers, permission-aware inspection, windowed attempt metrics and deployment coverage are implemented. The separate deployment-preflight API/CLI, dark and light themes that follow the system preference, engine-protocol rollout, parent/child runs, forks, input correction and failure-branch edges are implemented; richer graph authoring remains planned. The old fictional concept files are unreachable from the live entry point.
 
 ## Brand
 
@@ -61,7 +61,7 @@ Worker-emitted store gauges must not multiply the same fleet count when aggregat
 
 ## Frontend and hosting
 
-Authentication, operation permissions, protected diagnostics, and administrative audit implement [ADR-007](adr/0007-dashboard-access-and-audit.md). User management belongs to the host identity provider. External OIDC login still needs deployment-specific verification.
+Authentication, operation permissions, protected diagnostics, and administrative audit implement [ADR-007](adr/0007-dashboard-access-and-audit.md). User management belongs to the host identity provider. OIDC login is verified against a local Keycloak; hosted providers still need deployment-specific verification.
 
 Accepted full-console stack: **Angular + TypeScript**, matching the user's team. Use standalone components, signals for local view state, strict template checking, and focused query/command adapters. A general Angular graph renderer still needs evaluation for accessibility, license, layout, performance, and maintenance. Neither the frontend framework nor the graph renderer produces backend telemetry.
 

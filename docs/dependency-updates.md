@@ -20,6 +20,10 @@ Nine initial Dependabot PRs were opened against an older baseline. The maintenan
 
 The old setup-node and SQLite failures were in the non-cooperative execution-deadline regression, rather than dependency restore or native loading. Current main includes the monotonic deadline fix. Refreshing onto that baseline and running the complete gate is required; historical green checks are insufficient for the current implementation.
 
+## Pinned transitive dependencies
+
+`WorkThrough.Migration.Hangfire` references Newtonsoft.Json 13.0.3 directly, because Hangfire.Core accepts 11.0.1, which has a known high-severity vulnerability. Keep the direct reference at a patched version until Hangfire.Core requires one itself.
+
 ## Automation boundaries
 
 Dependabot groups routine minor/patch updates by ecosystem, keeps Angular packages together, and limits each ecosystem to three open version-update PRs. Major upgrades remain separate review decisions. TypeScript versions outside the current Angular range and Roslyn minor/major upgrades are excluded explicitly. Revisit those constraints when intentionally changing Angular or the minimum supported compiler, including any security-driven upgrade; these are compatibility boundaries, not permanent exemptions from maintenance.

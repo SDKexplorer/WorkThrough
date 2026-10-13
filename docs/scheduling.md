@@ -24,4 +24,21 @@ builder.Services.AddWorkThrough()
     .AddScheduler();
 ```
 
-A seeded schedule that does not exist yet is drafted, published and enabled through the same audited commands, with command IDs derived from its key and version, so hosts starting together create it once. Existing versions, including ones operators paused or edited, are never changed. To replace a seeded schedule, seed a new version: it is published but stays paused while the old version is enabled, and an operator switches them in the console. The [Shop sample](../samples/README.md) seeds a daily report this way. Retrying a job does not create another occurrence. Schedule mutation does not undo prior effects. This version schedules individual processor invocations; atomic recurring flow starts and trigger calendars beyond cron remain future extensions.
+A seeded schedule that does not exist yet is drafted, published and enabled through the same audited commands, with command IDs derived from its key and version, so hosts starting together create it once. Existing versions, including ones operators paused or edited, are never changed. To replace a seeded schedule, seed a new version: it is published but stays paused while the old version is enabled, and an operator switches them in the console. The [Shop sample](../samples/README.md) seeds a daily report this way. Retrying a job does not create another occurrence. Schedule mutation does not undo prior effects. 
+
+## Schedule options
+
+`ScheduleDefinition` carries the processor address and fixed input, plus `Queue`, `MaxAttempts`, `Overlap`, `Misfire`, `CorrelationId`, `PartitionKey` and `TenantId` for the jobs it creates. Admission limits apply to those jobs like any other.
+
+## Not supported
+
+- **Seconds:** cron has five fields, so the finest schedule is once a minute. For more frequent work, have a job defer itself with `JobResult.Defer`.
+- **Calendars and intervals:** there are no holiday calendars or interval triggers; skip dates inside the job. Quartz.NET is the better fit when these matter ([comparison](comparison.md#compared-with-quartznet-in-detail)).
+- **Recurring flow starts:** a schedule creates a job. To start a flow on a schedule, schedule a job that starts it with a flow idempotency key derived from its occurrence.
+- **Encryption:** schedule inputs are stored as plain JSON even with payload protection ([ADR-027](adr/0027-payload-protection.md)).
+
+Hangfire recurring jobs import as schedules, including their time zone; a six-field cron that fires on second 0 drops the seconds field ([migrating from Hangfire](migrating-from-hangfire.md)).
+
+## Testing schedules
+
+In `WorkThroughTestHost`, `AdvanceAsync` moves the store clock, so a test can seed a schedule, advance past its due time and wait for the job ([testing](testing.md)).

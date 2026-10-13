@@ -1,6 +1,6 @@
 # Transactions, operations, and retention
 
-This document describes implemented operations on SQLite/PostgreSQL. Automatic retention is opt-in and uses schema 4; see [ADR-013](adr/0013-fenced-retention-maintenance.md) for migration and failure boundaries. The broader [storage plan](../specs/storage-evolution.spec.md) still includes provider and load qualification work.
+This document describes operations implemented on every provider. Automatic retention is opt-in and uses schema 4; see [ADR-013](adr/0013-fenced-retention-maintenance.md) for migration and failure boundaries. The broader [storage plan](../specs/storage-evolution.spec.md) still includes provider and load qualification work.
 
 ## Business writes and separate job databases
 
@@ -33,13 +33,13 @@ Retry/recover retains a job's logical identity and effect key. **Checkpoint fork
 
 Start with one configured store per environment. `ArchiveCandidatesAsync` previews a bounded policy. `ArchiveCompletedAsync` moves at most ten units per call: a terminal standalone execution or a whole completed flow. Active, Paused, and Incident flows remain live. Failures/cancellations/rejections/expiry require a separate failure cutoff; the dashboard's initial archive action selects successful work only. The preview is advisory and candidates are reselected atomically when the command executes.
 
-Archive packages contain job inputs/outputs, attempts, diagnostics, the pinned flow definition/input, signals, and event history. SHA-256 identifies the UTF-8 exported JSON. Bounds cap jobs, evidence counts, accumulated evidence size, and final package size. Oversized executions require separately designed streaming export rather than loading an unbounded package. An oversized candidate rejects a manual batch; automatic maintenance instead records an incident, preserves the unit and proceeds to other units on subsequent batches. `RetryRetentionIncidentAsync` removes that exclusion through an audited command after investigation.
+Archive packages contain job inputs/outputs, attempts, diagnostics, the pinned flow definition/input, signals, and event history. With payload protection, business values stay encrypted in the package, so reading them needs the key that wrote them ([ADR-027](adr/0027-payload-protection.md)). SHA-256 identifies the UTF-8 exported JSON. Bounds cap jobs, evidence counts, accumulated evidence size, and final package size. Oversized executions require separately designed streaming export rather than loading an unbounded package. An oversized candidate rejects a manual batch; automatic maintenance instead records an incident, preserves the unit and proceeds to other units on subsequent batches. `RetryRetentionIncidentAsync` removes that exclusion through an audited command after investigation.
 
 Export and verify a copy before using `PurgeArchiveAsync(id, expectedHash, command)` to remove the stored body. Purge keeps the archive tombstone and hash. The SDK operation is intentionally explicit; the dashboard exports but does not purge. Export contains sensitive data and requires both metadata and payload permissions. Deployments may add payload-access logging at the host boundary.
 
 Job/flow/signal request receipts, command receipts, audits, and definitions have separate lifetimes. Archival and body purge do not remove them. That preserves deduplication across retry, old producers, and restore windows, but these tables can still grow. Event trimming is separately enabled and blocked by lagging subscriptions, held evidence or unarchived executions.
 
-Separate hot/archive tables improve query isolation, not physical disk reclamation. PostgreSQL vacuum and SQLite checkpoint/vacuum require provider-specific maintenance windows. Do not split a live flow across databases. Cross-database/object-store archival uses export → verified external copy → explicit body purge, without a distributed transaction on the worker path.
+Separate hot/archive tables improve query isolation, not physical disk reclamation. PostgreSQL vacuum, SQLite checkpoint/vacuum, SQL Server and MySQL index maintenance and Oracle segment shrinking require provider-specific maintenance windows. Do not split a live flow across databases. Cross-database/object-store archival uses export → verified external copy → explicit body purge, without a distributed transaction on the worker path.
 
 ## Opt-in automatic maintenance
 

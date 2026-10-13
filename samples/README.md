@@ -28,7 +28,7 @@ One small shop, deployed the way a real system would be: shared definitions, job
 | `Shop.Worker` | Headless worker for scaling out. `--describe-worker` prints its capabilities; `--preflight` checks that it covers the stored work. |
 | `Shop.Dashboard` | Standalone console with OIDC sign-in, role-based permissions and tenant-scoped users. References no job code. |
 | `Shop.Mcp` | Read-only MCP endpoint for AI assistants, with bearer authentication and the same tenant scoping. |
-| `Shop.Tests` | The checkout flow tested on the real engine with `WorkThrough.Testing`. |
+| `Shop.Tests` | The checkout flow tested on the real engine with `WorkThrough.Testing`, with real jobs and with stubbed jobs. |
 
 ## Run it
 
@@ -81,7 +81,7 @@ Settings bind from the `Shop` section, with environment variables as `Shop__Name
 
 `Shop.Dashboard` reads `Identity:Authority`, `ClientId` and `ClientSecret` from host configuration or a secret store; without an authority it runs anonymously only in Development. Its role-to-permission map is in `appsettings.json`; see [dashboard security](../docs/dashboard-security.md). `Shop.Mcp` needs `Mcp:Authority`, `Mcp:Resource` and `Mcp:Environment` and has no anonymous mode; see [MCP](../docs/mcp.md). Both use an already initialized store.
 
-SQL Server and Oracle work the same way through `UseSqlServer` / `UseOracle`; see [providers](../docs/providers.md). The sample keeps to SQLite and PostgreSQL so that its order table DDL stays portable.
+SQL Server, Oracle, MySQL and MariaDB work the same way through `UseSqlServer`, `UseOracle` and `UseMySql`; see [providers](../docs/providers.md). The sample keeps to SQLite and PostgreSQL so that its order table DDL stays portable.
 
 ## Verification
 

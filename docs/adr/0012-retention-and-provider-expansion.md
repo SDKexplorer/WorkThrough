@@ -2,6 +2,8 @@
 
 Status: retention implemented on SQLite/PostgreSQL, 2026-10-10; provider expansion remains proposed. [ADR-013](0013-fenced-retention-maintenance.md) records schema-4 guarantees and remaining qualification.
 
+Amendment, 2026-10-13: provider expansion is delivered: SQL Server ([ADR-014](0014-sql-server-storage.md)), Oracle ([ADR-015](0015-oracle-storage.md)), and MySQL and MariaDB ([ADR-029](0029-mysql-storage.md)).
+
 ## Context
 
 Manual archival already preserves terminal execution evidence and deduplication receipts. It does not provide automatic retention or bound every growing table. The maintainer also requests SQL Server and Oracle. Existing relational SQL and initialization assume SQLite/PostgreSQL behavior, so a driver replacement is insufficient.

@@ -1,6 +1,19 @@
 # Verification record
 
-This is a chronological evidence log. Earlier package counts and pending states describe their recorded revision; current provider qualification and investigative contention results are in the 2026-10-10 sections below.
+This is a chronological evidence log. Earlier package counts and pending states describe their recorded revision. The summary below states the current position; each row points to its dated entry.
+
+## Current status — 2026-10-13
+
+| Area | Latest evidence | Still open |
+|---|---|---|
+| SQLite, PostgreSQL | Full suite on every change; PostgreSQL two-hour soak (233k jobs) and restore drill passed | — |
+| SQL Server, Oracle | Full suite in CI; 30-minute soaks passed (2026-10-12) | Two-hour soaks |
+| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers, locally and in CI (2026-10-13) | Soaks and throughput |
+| Multi-host | Container network-partition exercise passed (2026-10-13) | Separate physical machines |
+| Identity | OIDC against a local Keycloak 26.4 (2026-10-12) | Hosted providers (Entra ID, Auth0) |
+| Packages | Package-only consumers on SDK 8 and 10; templates build with every provider | Publication, license |
+| Runtimes | .NET 8 and .NET 10 | .NET 9 is not claimed |
+
 
 Date: 2026-10-08. Local macOS ARM64. Repository SDK 10.0.400; runtime packages target net8.0 and the Roslyn generator targets netstandard2.0. The compatibility gate also uses SDK 8.0.425 / runtime 8.0.31; the replacement worker runs on runtime 10.0.11.
 
@@ -369,3 +382,11 @@ Payload protection, failure branches and MySQL/MariaDB (2026-10-13):
   Found and fixed while qualifying: concurrent claims under a shared limit admitted 2 of 3 jobs, because InnoDB locked more candidate rows than a claim leased. Claims now lock candidates by identity. The trigger-based fault tests needed MySQL trigger syntax, and MySQL reserves `generated`, which a fixture used as an alias.
 - **SQL Server two-hour soak:** stopped at minute 56 with an unhandled deadlock. The victim was the soak's own per-minute measurement query, a large scan that takes shared locks without READ_COMMITTED_SNAPSHOT; the producer and workers were unaffected. The harness now retries a measurement read chosen as a deadlock victim, as the store does for its own reads.
 - **Open:** one SQLite test failed once with "SQL logic error" when beginning a read, during a run with four providers in parallel. It passed in isolation and in three further SQLite runs; the cause is not yet known.
+
+Easier adoption (2026-10-13):
+
+- **Delegate jobs:** a job registered with `AddJob(definition, job => ...)` resolves scoped services and returns output; an address takes one delegate.
+- **Flow tests:** `Stub`, `Reject` and `RunFlowAsync` drive the Shop checkout through its review signal and an incident, and the `workthrough-tests` template's two flow tests pass after `dotnet new` against the local packages.
+- **Hangfire import:** against Hangfire's in-memory storage, the importer planned an enqueued job, a scheduled job and a recurring job as ready, and reported an unmapped method and a seconds-level cron. Importing ran the jobs at their due times and created an enabled schedule; a second import created nothing; retiring deleted the jobs and removed the recurring job in Hangfire. Import is refused while Hangfire servers run. The migration sample runs in `verify.sh`.
+- **CI found:** on MariaDB, a claim under a flow's `MaxParallelSteps` gave up after three blocked steps of that flow and left admissible work for the next poll (6 of 7 jobs admitted in one round). A claim now skips the other steps of a flow it finds at its bound. 10 consecutive local runs of the admission tests then passed on MySQL and MariaDB; an earlier batch of 20 that overlapped heavy builds had 4 failures, so this remains under observation.
+

@@ -1,6 +1,6 @@
 # Stable identity and deliberate renames
 
-Implemented in the local alpha. `IdentityTests` covers both providers, and `scripts/check-refactor.sh` uses separately published applications with the original processor DLL removed.
+Implemented in the local alpha. `IdentityTests` runs on every provider, and `scripts/check-refactor.sh` uses separately published applications with the original processor DLL removed.
 
 Moving a class, namespace, folder, project, or assembly needs no job-data migration. Keep the permanent address, reference the new implementation project/package, rebuild the registration manifest, and deploy the worker. Stored work contains no CLR dispatch address.
 
@@ -74,4 +74,4 @@ Activate the complete reviewed mapping through `IProcessorRegistry.SetProcessorA
 
 Old and new names share global and local per-type capacity. Limits configured under either name continue to apply. Old queued jobs, saved flow revisions, schedules, diagnostics, and request receipts retain their original identities. New producers use the new definition. A key reused with a different request is a conflict, even if both addresses dispatch to the same processor.
 
-Aliases cannot be removed through this API. Further renames must retain every historical address and flatten their mappings. Old producers, archived records, delayed schedules, and restored backups can outlive an empty queue. Automatic payload upcasting, Hangfire import, and alias retirement remain separate future work.
+Aliases cannot be removed through this API. Further renames must retain every historical address and flatten their mappings. Old producers, archived records, delayed schedules, and restored backups can outlive an empty queue. Alias retirement remains future work. Input upcasts are described above; jobs stored by Hangfire move through the [Hangfire importer](migrating-from-hangfire.md).
