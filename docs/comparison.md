@@ -49,8 +49,8 @@ Quartz.NET is a scheduler; WorkThrough is a job and workflow engine with a sched
 
 | | WorkThrough | Quartz.NET |
 |---|---|---|
-| Triggers | Cron with optional seconds, or fixed intervals, in an IANA or Windows time zone, with start and end bounds | Cron with seconds, simple intervals, daily and calendar intervals |
-| Exclusions | Excluded dates per schedule (holidays) | Shared calendars (holidays, weekly, cron calendars) |
+| Triggers | Cron with optional seconds, fixed intervals, daily windows and wall-clock calendar intervals, in an IANA or Windows time zone, with start and end bounds | Cron with seconds, simple intervals, daily and calendar intervals |
+| Exclusions | Calendars of dates, yearly dates, weekdays, days of the month, daily ranges and cron matches, copied into each schedule | Named calendars of the same kinds, shared and editable at run time |
 | Missed runs | Skip, coalesce or catch up; skip or coalesce overlapping runs | Misfire instructions per trigger; `[DisallowConcurrentExecution]` |
 | Retries | Per-job attempts with backoff, rejection and deferral | None built in; the job reschedules itself |
 | Queues and limits | Weighted queues; fleet, type, key, tenant and rate limits | Thread pool size and trigger priority |
@@ -59,7 +59,7 @@ Quartz.NET is a scheduler; WorkThrough is a job and workflow engine with a sched
 | Stored identity | A versioned address | The job's CLR type name |
 | Operations | Built-in audited console, history, retention | Third-party dashboards |
 
-Quartz.NET still has more trigger kinds: shared calendars, daily time windows and wall-clock calendar intervals. Choose WorkThrough when scheduled work is part of a larger set of jobs and flows that need retries, limits, history and safe refactoring; [the importer](migrating-from-quartz.md) moves existing Quartz jobs and triggers.
+Quartz.NET still lets operators edit a named calendar shared by many triggers at run time, and has trigger priorities and listeners. Choose WorkThrough when scheduled work is part of a larger set of jobs and flows that need retries, limits, history and safe refactoring; [the importer](migrating-from-quartz.md) moves existing Quartz jobs and triggers.
 
 ## Trade-offs to weigh
 

@@ -2,6 +2,7 @@ using Hangfire;
 using Hangfire.InMemory;
 using Hangfire.States;
 using Hangfire.Storage;
+using System.Text.Json;
 using WorkThrough.Migration.Hangfire;
 using WorkThrough.Testing;
 using Xunit;
@@ -11,6 +12,13 @@ namespace WorkThrough.Tests;
 public class LegacyMailer
 {
     public void SendWelcome(string address) => throw new NotSupportedException(address);
+}
+
+public sealed record LegacyInvoice(string Number, decimal Total);
+
+public class LegacyBilling
+{
+    public void Send(LegacyInvoice invoice, int copies) => throw new NotSupportedException(invoice.Number + copies);
 }
 
 public class LegacyReports
@@ -97,5 +105,41 @@ public sealed class HangfireMigrationTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => migration.ImportAsync(migration.Plan() with { RunningServers = 1 }, host.Store, host.Store));
         Assert.Empty(await host.Store.ListAsync(new()));
+    }
+
+    private static readonly JobDefinition<InvoiceCopy> Bill = new("tests.hangfire.bill");
+
+    public sealed record InvoiceCopy(string Number, decimal Total, int Copies);
+
+    [Fact]
+    public async Task Jobs_map_by_stored_names_without_their_types_and_failed_jobs_run_again()
+    {
+        var storage = new InMemoryStorage();
+        var hangfire = new BackgroundJobClient(storage);
+        var queued = hangfire.Enqueue<LegacyBilling>(billing => billing.Send(new LegacyInvoice("INV-7", 120.5m), 2));
+        // Without filters, so Hangfire's automatic retry does not turn the failure into a scheduled retry.
+        var failed = new BackgroundJobClient(storage, new Hangfire.Common.JobFilterCollection())
+            .Create<LegacyBilling>(billing => billing.Send(new LegacyInvoice("INV-8", 9m), 1), new FailedState(new InvalidOperationException("smtp down")));
+        await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough.Stub(Bill));
+
+        var migration = new HangfireMigration(storage)
+            .MapByName(typeof(LegacyBilling).FullName!, nameof(LegacyBilling.Send), Bill,
+                call => new InvoiceCopy(call.Argument<LegacyInvoice>(0).Number, call.Argument<LegacyInvoice>(0).Total, call.Argument<int>(1)));
+        Assert.Equal([queued], migration.Plan().Ready.Select(item => item.HangfireId));
+
+        var plan = migration.IncludeFailed().Plan();
+        Assert.Equal([HangfireJobKind.Enqueued, HangfireJobKind.Failed], plan.Ready.OrderBy(item => item.Kind).Select(item => item.Kind));
+        var result = await migration.ImportAsync(plan, host.Store, host.Store);
+
+        var inputs = new List<InvoiceCopy>();
+        foreach (var imported in result.Imported)
+        {
+            inputs.Add((await host.WaitForJobAsync(imported.JobId!.Value)).Payload.Deserialize<InvoiceCopy>(JobJson.Options)!);
+        }
+
+        Assert.Equal([new("INV-7", 120.5m, 2), new("INV-8", 9m, 1)], inputs.OrderBy(input => input.Number));
+        migration.Retire(result);
+        using var connection = storage.GetConnection();
+        Assert.Equal(DeletedState.StateName, connection.GetJobData(failed)!.State);
     }
 }

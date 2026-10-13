@@ -47,7 +47,7 @@ Switch producers to `JobClient` as you go. Both systems can run side by side: Ha
 
 ## 2. Plan the import
 
-Add `WorkThrough.Migration.Hangfire` to a host where your Hangfire job types still load, usually the old application, and map each method:
+Add `WorkThrough.Migration.Hangfire` to a host that can reach Hangfire's storage, and map each method. A typed mapping needs the Hangfire job types to load, usually in the old application:
 
 ```csharp
 var migration = new HangfireMigration(JobStorage.Current)
@@ -61,9 +61,18 @@ foreach (var problem in plan.Problems)
 }
 ```
 
+When the old types are gone, map by the names Hangfire stored instead; arguments arrive as their stored JSON:
+
+```csharp
+migration.MapByName("MyApp.Billing.InvoiceSender", "Send", Billing.Send,
+    call => new SendInvoice(call.Argument<LegacyInvoice>(0).Number, call.Argument<int>(1)));
+```
+
+`IncludeFailed()` also imports jobs that failed in Hangfire, to run again with a fresh attempt budget.
+
 `Plan()` reads Hangfire through its storage API and changes nothing. It covers recurring jobs, enqueued jobs and scheduled jobs. Each item says what it becomes, or why it cannot move:
-- a method without a mapping;
-- a type that no longer loads;
+- a method without a mapping, typed or by name;
+- a type that no longer loads, without a mapping by name;
 - a converter that failed;
 - two recurring jobs whose names collide.
 
@@ -79,7 +88,7 @@ var result = await migration.ImportAsync(migration.Plan(), store, store);
 
 - Enqueued and scheduled jobs keep their queue and due time. Each uses the idempotency key `hangfire:<job id>`, so running the import again changes nothing.
 - Recurring jobs become published, enabled schedules named `hangfire.<id>` (lowercased, other characters replaced by `-`), in their original time zone. Six-field crons keep their seconds, and need engine protocol 9; a seconds field of 0 is dropped. `NameSchedules(id => ...)` picks other names.
-- Failed, processing, succeeded and deleted jobs stay in Hangfire.
+- Processing, succeeded and deleted jobs stay in Hangfire, and failed jobs do too unless `IncludeFailed()` imported them.
 
 ## 4. Retire the imported jobs in Hangfire
 
@@ -94,5 +103,5 @@ This deletes the imported jobs in Hangfire and removes the imported recurring jo
 ## Limits
 
 - Continuations, batches and job filters are not imported; rebuild them as flows and WorkThrough middleware.
-- Converters see Hangfire's deserialized arguments. Arguments that need the old types must be converted where those types load.
+- Typed converters see Hangfire's deserialized arguments; `MapByName` converters see their JSON, read with case-insensitive property names.
 - `WorkThrough.Migration.Hangfire` depends on Hangfire.Core, which is LGPL-3.0. Use it only for the migration; your application does not need it afterwards.

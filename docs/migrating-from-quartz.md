@@ -11,7 +11,9 @@ An importer moves Quartz.NET jobs and their triggers into WorkThrough schedules 
 | Cron trigger | `.Every("0 0 2 * * ?", input)`; six fields start with seconds |
 | Simple trigger | `.Every(TimeSpan.FromMinutes(30), input)` |
 | `StartAt` / `EndAt` | `schedule: s => s.Starting(...).Ending(...)` |
-| Holiday calendar | `schedule: s => s.Excluding(holidays)` |
+| Calendars (holiday, annual, weekly, monthly, daily, cron) | `ScheduleCalendar` and `schedule: s => s.Excluding(calendar)` |
+| Daily-time-interval trigger | `.Every(interval, input, schedule: s => s.Within(from, until, days))` |
+| Calendar-interval trigger | `.EveryCalendar(count, unit, first, input, timeZone)` |
 | `[DisallowConcurrentExecution]` | `ScheduleOverlap.Coalesce`, or `.AtMostRunning(1)` |
 | Misfire instructions | `ScheduleMisfire.Skip`, `Coalesce` or `CatchUp` |
 | `scheduler.TriggerJob(key)` | `await jobs.Enqueue(definition, input)` |
@@ -56,12 +58,12 @@ foreach (var problem in plan.Problems)
 ```
 
 The converter receives the trigger's job data, merged with the job's as Quartz does. `Get<T>` converts the strings Quartz stores. The plan converts each trigger as the [ADR](adr/0030-richer-schedules-and-quartz-import.md#decision) describes, and reports:
-- unmapped job classes;
+- unmapped job classes, and job classes that no longer load;
+- durable jobs without triggers;
 - failed conversions;
 - year-restricted crons;
-- daily-time-interval triggers;
-- non-holiday calendars;
-- day or week intervals in zones with daylight saving.
+- daily-time-interval triggers with a repeat count;
+- custom calendars, and calendars in another time zone than their trigger.
 
 ## 3. Stop Quartz and import
 
@@ -88,6 +90,6 @@ This unschedules the imported triggers, so restarting Quartz cannot fire them ag
 
 ## Limits
 
-- Calendars other than plain holiday calendars do not import; express them with cron fields or excluded dates.
+- Quartz reads a job's class to load it, so the importer must run where the old job classes load.
 - Quartz's job listeners, trigger listeners and priorities have no import; rebuild chains as flows.
 - `WorkThrough.Migration.Quartz` is built against Quartz.NET 3.22. Quartz 4 is not yet verified.

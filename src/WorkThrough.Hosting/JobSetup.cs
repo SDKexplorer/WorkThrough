@@ -44,6 +44,14 @@ public sealed class JobSetup<TInput>
     public JobSetup<TInput> Every(TimeSpan interval, TInput input, string? key = null, Func<ScheduleDefinition, ScheduleDefinition>? schedule = null) =>
         Seed(ScheduleDefinition.Every(key ?? definition.Identity.Key, interval, definition, input), schedule);
 
+    /// <summary>
+    /// Enqueues <paramref name="input"/> every <paramref name="count"/> days, weeks, months or years from <paramref name="first"/>, at the same
+    /// local time in <paramref name="timeZone"/> across daylight-saving changes.
+    /// </summary>
+    public JobSetup<TInput> EveryCalendar(int count, CalendarUnit unit, DateTimeOffset first, TInput input, string timeZone = ScheduleDefinition.DefaultTimeZone,
+        string? key = null, Func<ScheduleDefinition, ScheduleDefinition>? schedule = null) =>
+        Seed(ScheduleDefinition.EveryCalendar(key ?? definition.Identity.Key, count, unit, first, definition, input, timeZone), schedule);
+
     private JobSetup<TInput> Seed(ScheduleDefinition seeded, Func<ScheduleDefinition, ScheduleDefinition>? refine)
     {
         builder.SeedSchedules(refine is null ? seeded : refine(seeded));

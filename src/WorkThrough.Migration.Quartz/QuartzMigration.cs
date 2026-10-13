@@ -51,13 +51,31 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
         var items = new List<QuartzMigrationItem>();
         foreach (var jobKey in (await scheduler.GetJobKeys(GroupMatcher<JobKey>.AnyGroup(), cancellationToken)).OrderBy(key => key.ToString(), StringComparer.Ordinal))
         {
-            var job = await scheduler.GetJobDetail(jobKey, cancellationToken);
+            IJobDetail? job;
+            try
+            {
+                job = await scheduler.GetJobDetail(jobKey, cancellationToken);
+            }
+            catch (JobPersistenceException error)
+            {
+                // Quartz loads the job class to read a job; without it nothing about the job can be read.
+                items.Add(new(jobKey.ToString(), "", "", "?") { Problem = $"Quartz could not load the job: {error.Message}" });
+
+                continue;
+            }
+
             if (job is null)
             {
                 continue;
             }
 
-            foreach (var trigger in (await scheduler.GetTriggersOfJob(jobKey, cancellationToken)).OrderBy(t => t.Key.ToString(), StringComparer.Ordinal))
+            var triggers = await scheduler.GetTriggersOfJob(jobKey, cancellationToken);
+            if (triggers.Count == 0)
+            {
+                items.Add(new(job.Key.ToString(), "", "", job.JobType.FullName ?? job.JobType.Name) { Problem = "The job has no triggers; nothing fires it." });
+            }
+
+            foreach (var trigger in triggers.OrderBy(t => t.Key.ToString(), StringComparer.Ordinal))
             {
                 items.Add(await PlanTriggerAsync(job, trigger, cancellationToken));
             }
@@ -103,13 +121,21 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
 
         if (trigger.CalendarName is { } calendarName)
         {
-            var calendar = await scheduler.GetCalendar(calendarName, ct);
-            if (calendar is not HolidayCalendar { CalendarBase: null } holidays)
+            var quartzCalendar = await scheduler.GetCalendar(calendarName, ct);
+
+            // A plain interval has no time zone of its own, so it takes its calendar's.
+            if (schedule is { Interval: not null, Window: null } && quartzCalendar is BaseCalendar { TimeZone: { } calendarZone })
             {
-                return item with { Problem = $"Calendar {calendarName} is not a plain holiday calendar; only excluded dates import." };
+                schedule = schedule with { TimeZone = calendarZone.Id };
             }
 
-            schedule = schedule.Excluding([.. holidays.ExcludedDates.Select(DateOnly.FromDateTime)]);
+            var (calendar, calendarProblem) = CalendarOf(quartzCalendar, schedule.TimeZone);
+            if (calendar is null)
+            {
+                return item with { Problem = $"Calendar {calendarName}: {calendarProblem}" };
+            }
+
+            schedule = schedule.Excluding(calendar);
         }
 
         schedule = schedule with
@@ -152,24 +178,92 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
                 var end = simple.RepeatCount == RepeatIndefinitely ? (DateTimeOffset?)null : start + simple.RepeatInterval * simple.RepeatCount;
 
                 return (placeholder with { Interval = simple.RepeatInterval, StartsAt = start, EndsAt = end }, null);
+            case ICalendarIntervalTrigger calendar when FixedUnit(calendar.RepeatIntervalUnit) is { } fixedUnit:
+                return (placeholder with { Interval = fixedUnit * calendar.RepeatInterval, StartsAt = calendar.StartTimeUtc }, null);
             case ICalendarIntervalTrigger calendar:
-                var unit = calendar.RepeatIntervalUnit switch
+                var calendarUnit = calendar.RepeatIntervalUnit switch
                 {
-                    IntervalUnit.Second => TimeSpan.FromSeconds(1),
-                    IntervalUnit.Minute => TimeSpan.FromMinutes(1),
-                    IntervalUnit.Hour => TimeSpan.FromHours(1),
-                    IntervalUnit.Day or IntervalUnit.Week when calendar.TimeZone.SupportsDaylightSavingTime => (TimeSpan?)null,
-                    IntervalUnit.Day => TimeSpan.FromDays(1),
-                    IntervalUnit.Week => TimeSpan.FromDays(7),
-                    _ => null
+                    IntervalUnit.Day => CalendarUnit.Day,
+                    IntervalUnit.Week => CalendarUnit.Week,
+                    IntervalUnit.Month => CalendarUnit.Month,
+                    _ => CalendarUnit.Year
                 };
 
-                return unit is null
-                    ? (null, $"A calendar interval of {calendar.RepeatInterval} {calendar.RepeatIntervalUnit} in {calendar.TimeZone.Id} keeps wall-clock time; use a cron schedule instead.")
-                    : (placeholder with { Interval = unit.Value * calendar.RepeatInterval, StartsAt = calendar.StartTimeUtc }, null);
+                return (placeholder with
+                {
+                    CalendarInterval = new(calendar.RepeatInterval, calendarUnit),
+                    StartsAt = calendar.StartTimeUtc,
+                    TimeZone = calendar.TimeZone.Id
+                }, null);
+            case IDailyTimeIntervalTrigger daily when daily.RepeatCount != RepeatIndefinitely:
+                return (null, "A daily-time-interval trigger with a repeat count does not import; WorkThrough windows repeat every day.");
+            case IDailyTimeIntervalTrigger daily when FixedUnit(daily.RepeatIntervalUnit) is { } dailyUnit:
+                return (placeholder with
+                {
+                    Interval = dailyUnit * daily.RepeatInterval,
+                    TimeZone = daily.TimeZone.Id,
+                    Window = new(TimeOf(daily.StartTimeOfDay), TimeOf(daily.EndTimeOfDay), daily.DaysOfWeek.Count is 0 or 7 ? null : [.. daily.DaysOfWeek])
+                }, null);
             default:
                 return (null, $"{trigger.GetType().Name} triggers do not import; recreate them as cron or interval schedules.");
         }
+    }
+
+    private static TimeSpan? FixedUnit(IntervalUnit unit) => unit switch
+    {
+        IntervalUnit.Second => TimeSpan.FromSeconds(1),
+        IntervalUnit.Minute => TimeSpan.FromMinutes(1),
+        IntervalUnit.Hour => TimeSpan.FromHours(1),
+        _ => null
+    };
+
+    private static TimeOnly TimeOf(TimeOfDay time) => new(time.Hour, time.Minute, time.Second);
+
+    /// <summary>
+    /// A Quartz calendar, with its base calendars, as the times a schedule skips. Quartz evaluates a calendar in its own time zone, so one
+    /// in a zone other than the trigger's is reported.
+    /// </summary>
+    private static (ScheduleCalendar? Calendar, string? Problem) CalendarOf(ICalendar? quartz, string timeZone)
+    {
+        var calendar = new ScheduleCalendar();
+        for (var current = quartz; current is not null; current = current.CalendarBase)
+        {
+            if (current is BaseCalendar { TimeZone: { } zone } && zone.Id != timeZone)
+            {
+                return (null, $"it uses time zone {zone.Id}, but its trigger uses {timeZone}.");
+            }
+
+            switch (current)
+            {
+                case HolidayCalendar holidays:
+                    calendar = calendar.ExcludingDates([.. holidays.ExcludedDates.Select(DateOnly.FromDateTime)]);
+                    break;
+                case AnnualCalendar annual:
+                    calendar = annual.DaysExcluded.Aggregate(calendar, (result, day) => result.ExcludingEveryYear(day.Month, day.Day));
+                    break;
+                case WeeklyCalendar weekly:
+                    calendar = calendar.ExcludingWeekdays([.. Enum.GetValues<DayOfWeek>().Where(day => weekly.IsDayExcluded(day))]);
+                    break;
+                case MonthlyCalendar monthly:
+                    calendar = calendar.ExcludingDaysOfMonth([.. Enumerable.Range(1, 31).Where(monthly.IsDayExcluded)]);
+                    break;
+                case DailyCalendar daily:
+                    var day = DateTimeOffset.UtcNow.Date;
+                    var dailyZone = daily.TimeZone ?? TimeZoneInfo.Utc;
+                    var from = TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(daily.GetTimeRangeStartingTimeUtc(day), dailyZone).DateTime);
+                    var until = TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(daily.GetTimeRangeEndingTimeUtc(day), dailyZone).DateTime)
+                        .Add(TimeSpan.FromMilliseconds(1));
+                    calendar = daily.InvertTimeRange ? calendar.ExcludingTimes(until, from) : calendar.ExcludingTimes(from, until);
+                    break;
+                case CronCalendar cron when CronOf(cron.CronExpression.CronExpressionString) is { Cron: { } expression }:
+                    calendar = calendar.ExcludingCron(expression);
+                    break;
+                default:
+                    return (null, $"{current.GetType().Name} does not import.");
+            }
+        }
+
+        return (calendar, null);
     }
 
     /// <summary>

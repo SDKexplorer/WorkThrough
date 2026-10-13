@@ -6,18 +6,32 @@ For recurrence, add `.AddScheduler()` to any host using the store; it does not r
 
 `IJobSchedules` supports editable drafts with revision checks, validated publication, and independently audited enable/pause commands. Only one version of a schedule key can be enabled at a time; old deployments cannot silently overwrite a published definition. Pause the active version before enabling its replacement. Jobs already created continue when a schedule is paused.
 
-A schedule fires on a cron expression or a fixed interval, in an explicit installed time zone. Cron has five fields, or six with seconds first; an interval counts from the schedule's start, or from the Unix epoch. `Starting`, `Ending` and `Excluding(dates)` bound a schedule and skip dates such as holidays ([ADR-030](adr/0030-richer-schedules-and-quartz-import.md)):
+A schedule fires on one of three timings, in an explicit installed time zone ([ADR-030](adr/0030-richer-schedules-and-quartz-import.md)):
+
+- **Cron:** five fields, or six with seconds first.
+- **Interval:** a fixed period counted from the schedule's start, or from the Unix epoch; `Within(from, until, days)` limits it to daily hours on chosen weekdays.
+- **Calendar interval:** every so many days, weeks, months or years at the same local time, across daylight-saving changes.
+
+`Starting` and `Ending` bound a schedule. A `ScheduleCalendar` skips dates, dates every year, weekdays, days of the month, a daily time range and cron matches; define one calendar and apply it to many schedules with `Excluding(calendar)`:
 
 ```csharp
-.Job(Reports.Daily, job => job
-    .RunWith<DailyReportJob>()
-    .Every("0 0 9 * * MON-FRI", new DailyReport(1), "Europe/Bucharest", schedule: s => s.Excluding(Holidays.Romania2026)))
-.Job(Health.Probe, job => job
-    .RunWith<ProbeJob>()
-    .Every(TimeSpan.FromSeconds(30), new Probe("api")))
+var office = new ScheduleCalendar()
+    .ExcludingEveryYear(12, 25)
+    .ExcludingDates(new DateOnly(2026, 12, 26));
+
+builder.Services.AddWorkThrough()
+    .Job(Reports.Daily, job => job
+        .RunWith<DailyReportJob>()
+        .Every("0 0 9 * * MON-FRI", new DailyReport(1), "Europe/Bucharest", schedule: s => s.Excluding(office)))
+    .Job(Health.Probe, job => job
+        .RunWith<ProbeJob>()
+        .Every(TimeSpan.FromMinutes(10), new Probe("api"), schedule: s => s.Within(new(9, 0), new(17, 0), DayOfWeek.Monday, DayOfWeek.Friday)))
+    .Job(Billing.Invoice, job => job
+        .RunWith<InvoiceJob>()
+        .EveryCalendar(1, CalendarUnit.Month, new DateTimeOffset(2026, 1, 31, 7, 0, 0, TimeSpan.Zero), new Invoice(), "Europe/Bucharest"));
 ```
 
-Schedules with seconds, intervals, bounds or excluded dates need engine protocol 9; schedulers from earlier releases would fire them at the wrong times. [Cronos](https://github.com/HangfireIO/Cronos) supplies calendar/DST calculations; daily non-interval triggers are not repeated during fall-back, while its documented interval behavior is retained. Use the same time-zone database across scheduler hosts. UTC is simplest when wall-clock business timing is unnecessary.
+Schedules that use seconds, intervals, calendar intervals, windows, bounds or calendars need engine protocol 9; schedulers from earlier releases would fire them at the wrong times. [Cronos](https://github.com/HangfireIO/Cronos) supplies calendar/DST calculations; daily non-interval triggers are not repeated during fall-back, while its documented interval behavior is retained. Use the same time-zone database across scheduler hosts. UTC is simplest when wall-clock business timing is unnecessary.
 
 Overlap policies:
 
@@ -43,9 +57,8 @@ A seeded schedule that does not exist yet is drafted, published and enabled thro
 
 ## Not supported
 
-- **Shared calendars:** excluded dates belong to each schedule; there is no calendar shared by name. Repeat the dates, or keep them in one constant.
-- **Wall-clock intervals:** an interval is a fixed period, so a 1-day interval shifts by an hour across a daylight-saving change. Use a cron expression for "every day at 09:00".
-- **Daily time windows:** there is no "every 10 minutes between 09:00 and 17:00" trigger; use cron (`0 */10 9-16 * * *`).
+- **Run-time calendars:** a calendar is copied into each schedule that uses it. Changing it means saving new schedule versions; there is no named calendar operators edit in place.
+- **Fixed intervals and daylight saving:** a 1-day `Every(TimeSpan)` shifts by an hour across a change; use `EveryCalendar` or cron for "every day at 09:00".
 - **Recurring flow starts:** a schedule creates a job. To start a flow on a schedule, schedule a job that starts it with a flow idempotency key derived from its occurrence.
 - **Encryption:** schedule inputs are stored as plain JSON even with payload protection ([ADR-027](adr/0027-payload-protection.md)).
 
