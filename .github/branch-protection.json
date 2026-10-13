@@ -4,7 +4,8 @@
     "checks": [
       { "context": "console", "app_id": 15368 },
       { "context": "verify", "app_id": 15368 },
-      { "context": "oracle", "app_id": 15368 }
+      { "context": "oracle", "app_id": 15368 },
+      { "context": "mysql", "app_id": 15368 }
     ]
   },
   "enforce_admins": true,

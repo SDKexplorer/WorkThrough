@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>WorkThrough.Templates</PackageId>
+    <PackageType>Template</PackageType>
+    <Title>WorkThrough project templates</Title>
+    <Description>dotnet new templates for a WorkThrough background worker, a web API with jobs and the operations console, and xUnit tests for jobs and flows.</Description>
+    <PackageTags>dotnet-new;templates;workthrough;background-jobs</PackageTags>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="content/**/*" Exclude="content/**/bin/**;content/**/obj/**" />
+    <Compile Remove="**/*" />
+  </ItemGroup>
+</Project>

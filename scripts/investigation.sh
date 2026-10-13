@@ -8,12 +8,12 @@ case "$profile" in
   --smoke) retained=1000; baseline=5; investigation=10; repetitions=1 ;;
   --full) retained=100000; baseline=60; investigation=120; repetitions=3 ;;
   --soak) retained=100000; baseline=120; investigation=7200; repetitions=1 ;;
-  *) echo 'Use --smoke, --full or --soak [sqlite|postgres|sqlserver|oracle]' >&2; exit 2 ;;
+  *) echo 'Use --smoke, --full or --soak [sqlite|postgres|sqlserver|oracle|mysql|mariadb]' >&2; exit 2 ;;
 esac
-providers=(sqlite postgres sqlserver oracle)
+providers=(sqlite postgres sqlserver oracle mysql mariadb)
 if [[ -n "${2:-}" ]]; then
   case "$2" in
-    sqlite|postgres|sqlserver|oracle) providers=("$2") ;;
+    sqlite|postgres|sqlserver|oracle|mysql|mariadb) providers=("$2") ;;
     *) echo 'Unknown provider.' >&2; exit 2 ;;
   esac
 fi
@@ -27,6 +27,8 @@ for provider in "${providers[@]}"; do
     postgres) variable=DURABLEJOBS_POSTGRES ;;
     sqlserver) variable=DURABLEJOBS_SQLSERVER ;;
     oracle) variable=DURABLEJOBS_ORACLE ;;
+    mysql) variable=DURABLEJOBS_MYSQL ;;
+    mariadb) variable=DURABLEJOBS_MARIADB ;;
   esac
   if [[ "$provider" != sqlite && -z "${!variable:-}" ]]; then
     if [[ -n "${2:-}" ]]; then echo "Supply a disposable $variable connection." >&2; exit 2; fi

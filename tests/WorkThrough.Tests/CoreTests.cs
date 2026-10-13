@@ -58,26 +58,26 @@ public sealed class CoreTests
     public async Task Processors_with_the_same_input_type_dispatch_by_processor_identity()
     {
         var catalog = new JobCatalog();
-        catalog.RegisterProcessor<string, FirstProcessor>();
-        catalog.RegisterProcessor<string, SecondProcessor>();
-        catalog.RegisterProcessor<string, FirstProcessor>();
+        catalog.Register<string, FirstProcessor>();
+        catalog.Register<string, SecondProcessor>();
+        catalog.Register<string, FirstProcessor>();
         Assert.Equal(2, catalog.Registrations.Count);
         var context = new JobExecutionContext(Guid.NewGuid(), 1, null, null, null, Guid.NewGuid());
         var input = System.Text.Json.JsonSerializer.SerializeToElement("{\"value\":42}");
-        var first = await catalog.Get(ProcessorId.For<FirstProcessor>()).InvokeAsync(new FirstProcessor(), input, context, default);
-        var second = await catalog.Get(ProcessorId.For<SecondProcessor>()).InvokeAsync(new SecondProcessor(), input, context, default);
+        var first = await catalog.Get(JobIdentity.For<FirstProcessor>()).InvokeAsync(new FirstProcessor(), input, context, default);
+        var second = await catalog.Get(JobIdentity.For<SecondProcessor>()).InvokeAsync(new SecondProcessor(), input, context, default);
         Assert.Equal("first:{\"value\":42}", first.Output.GetString());
         Assert.Equal("second:{\"value\":42}", second.Output.GetString());
-        Assert.Throws<InvalidOperationException>(() => catalog.RegisterProcessor<string, ConflictingProcessor>());
+        Assert.Throws<InvalidOperationException>(() => catalog.Register<string, ConflictingProcessor>());
     }
 
     [Fact]
     public void Raw_string_steps_are_valid_but_property_bindings_require_an_object()
     {
-        var flow = new FlowBuilder("tests.raw", 1).Step("first", ProcessorId.For<FirstProcessor>(), "raw input").Build();
+        var flow = new FlowBuilder("tests.raw", 1).Step("first", JobIdentity.For<FirstProcessor>(), "raw input").Build();
         Assert.Equal("raw input", flow.Steps[0].Input.GetString());
         Assert.Throws<ArgumentException>(() => new FlowBuilder("tests.raw", 1)
-            .Step("first", ProcessorId.For<FirstProcessor>(), "raw input").BindInput("a", "a").Build());
+            .Step("first", JobIdentity.For<FirstProcessor>(), "raw input").BindInput("a", "a").Build());
     }
 
     [Theory]
@@ -93,30 +93,74 @@ public sealed class CoreTests
             .InvokeAsync(new FirstHandler(), document.RootElement, context, default));
     }
 
-    [Processor("tests.first")]
-    private sealed class FirstProcessor : IProcessor<string>
+    [Job("tests.first")]
+    private sealed class FirstProcessor : IJob<string>
     {
-        public Task<JobResult> ProcessAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
+        public Task<JobResult> ExecuteAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
             Task.FromResult(JobResult.From("first:" + input));
     }
-    [Processor("tests.second")]
-    private sealed class SecondProcessor : IProcessor<string>
+    [Job("tests.second")]
+    private sealed class SecondProcessor : IJob<string>
     {
-        public Task<JobResult> ProcessAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
+        public Task<JobResult> ExecuteAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
             Task.FromResult(JobResult.From("second:" + input));
     }
-    [Processor("tests.first")]
-    private sealed class ConflictingProcessor : IProcessor<string>
+    [Job("tests.first")]
+    private sealed class ConflictingProcessor : IJob<string>
     {
-        public Task<JobResult> ProcessAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
+        public Task<JobResult> ExecuteAsync(string input, JobExecutionContext context, CancellationToken cancellationToken) =>
             Task.FromResult(JobResult.Done());
     }
-    private sealed class FirstHandler : IJobHandler<Alpha>
+    private sealed class FirstHandler : IJob<Alpha>
     {
-        public Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.Done());
+        public Task<JobResult> ExecuteAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.Done());
     }
-    private sealed class OtherHandler : IJobHandler<Alpha>
+    private sealed class OtherHandler : IJob<Alpha>
     {
-        public Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.Done());
+        public Task<JobResult> ExecuteAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.Done());
+    }
+
+    [Fact]
+    public void Typed_bindings_save_the_same_definition_as_property_names()
+    {
+        var typed = new FlowBuilder("tests.typed", 1)
+            .Step("first", JobContractId.For<Alpha>())
+            .Step("second", JobContractId.For<Beta>()).After("first")
+                .BindInput((Beta beta) => beta.Value, (Alpha alpha) => alpha.Value, "first")
+                .WhenOutput("first", (Alpha alpha) => alpha.Value, "ready")
+            .Build();
+        var named = new FlowBuilder("tests.typed", 1)
+            .Step("first", JobContractId.For<Alpha>())
+            .Step("second", JobContractId.For<Beta>()).After("first")
+                .BindInput("value", "value", "first")
+                .WhenOutput("first", "value", "ready")
+            .Build();
+
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(named, JobJson.Options), System.Text.Json.JsonSerializer.Serialize(typed, JobJson.Options));
+    }
+
+    private sealed record PickList(IReadOnlyList<string> Parcels);
+
+    [Fact]
+    public void A_fan_out_saves_json_names_depends_on_its_source_and_requires_its_protocol()
+    {
+        var typed = new FlowBuilder("tests.fan-out", 1)
+            .Step("pick", JobContractId.For<Alpha>())
+            .ForEach("ship", JobContractId.For<Beta>(), "pick", (PickList list) => list.Parcels, (Beta beta) => beta.Value)
+            .Build();
+        var named = new FlowBuilder("tests.fan-out", 1)
+            .Step("pick", JobContractId.For<Alpha>())
+            .ForEach("ship", JobContractId.For<Beta>(), "pick", "parcels", "value")
+            .Build();
+
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(named, JobJson.Options), System.Text.Json.JsonSerializer.Serialize(typed, JobJson.Options));
+        Assert.Equal(["pick"], typed.Steps[1].After);
+        Assert.Equal(EngineProtocol.FanOut, typed.RequiredProtocol);
+        Assert.Equal(EngineProtocol.Baseline, new FlowBuilder("tests.plain", 1).Step("only", JobContractId.For<Alpha>()).Build().RequiredProtocol);
+        Assert.Throws<ArgumentException>(() => new FlowBuilder("tests.brackets", 1).Step("ship[0]", JobContractId.For<Alpha>()).Build());
+        Assert.Throws<ArgumentException>(() => new FlowBuilder("tests.collision", 1)
+            .Step("pick", JobContractId.For<Alpha>())
+            .ForEach("ship", JobContractId.For<Beta>(), "pick", "parcels", "value").BindInput("value", "value", "pick")
+            .Build());
     }
 }

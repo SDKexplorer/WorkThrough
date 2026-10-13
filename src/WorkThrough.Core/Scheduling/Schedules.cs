@@ -15,7 +15,25 @@ public enum ScheduleMisfire
 
 public sealed record ScheduleDefinition(string Key, int Version, string Cron, string TimeZone, JobContractId Processor,
     JsonElement Input, string Queue = JobDefaults.Queue, int MaxAttempts = JobDefaults.MaxAttempts, ScheduleOverlap Overlap = ScheduleOverlap.SkipIfActive,
-    ScheduleMisfire Misfire = ScheduleMisfire.Coalesce, string? CorrelationId = null);
+    ScheduleMisfire Misfire = ScheduleMisfire.Coalesce, string? CorrelationId = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? PartitionKey = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? TenantId = null)
+{
+    public const string DefaultTimeZone = "UTC";
+
+    /// <summary>A schedule that invokes a typed processor definition with fixed input.</summary>
+    public static ScheduleDefinition Create<TInput>(string key, string cron, JobDefinition<TInput> processor, TInput input,
+        string timeZone = DefaultTimeZone, int version = 1)
+    {
+        ArgumentNullException.ThrowIfNull(processor);
+
+        return new(key, version, cron, timeZone, processor.Identity, JsonSerializer.SerializeToElement(input, JobJson.Options));
+    }
+
+    /// <summary>A schedule that enqueues fixed input at the address its type's [JobContract] declares.</summary>
+    public static ScheduleDefinition Create<TInput>(string key, string cron, TInput input, string timeZone = DefaultTimeZone, int version = 1) =>
+        new(key, version, cron, timeZone, JobContractId.For<TInput>(), JsonSerializer.SerializeToElement(input, JobJson.Options));
+}
 public sealed record StoredSchedule(ScheduleDefinition Definition, DefinitionStatus Status, int Revision, bool Enabled, DateTimeOffset? NextOccurrence);
 
 /// <summary>Outcome is one of <see cref="ScheduleOccurrenceOutcomes"/>.</summary>

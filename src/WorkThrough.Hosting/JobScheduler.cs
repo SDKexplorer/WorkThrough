@@ -13,10 +13,10 @@ internal sealed class JobScheduler(IJobSchedules schedules, IServiceProvider ser
         {
             try
             {
-                await schedules.DispatchDueSchedulesAsync(cancellationToken: stoppingToken);
+                await DispatchLoop.DrainAsync(schedules.DispatchDueSchedulesAsync, stoppingToken);
                 if (services.GetService<IWorkflowSignals>() is { } signals)
                 {
-                    await signals.DispatchSignalsAsync(cancellationToken: stoppingToken);
+                    await DispatchLoop.DrainAsync(signals.DispatchSignalsAsync, stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

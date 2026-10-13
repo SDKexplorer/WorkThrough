@@ -11,8 +11,8 @@
         </div>
         <p class="nav-label">WORKSPACE</p>
         <nav aria-label="Console sections">
-            @if (can(permission.ReadExecutions)) { @for (item of ['executions', 'definitions',
-            'schedules', 'workers', 'archives']; track item) {
+            @if (can(permission.ReadExecutions)) { @for (item of storeWide() ? ['executions',
+            'definitions', 'schedules', 'workers', 'archives'] : ['executions']; track item) {
             <button
                 type="button"
                 [attr.aria-current]="section() === item ? 'page' : null"
@@ -22,7 +22,7 @@
                 : item === 'workers' ? 'Workers & capacity' : item === 'archives' ? 'Archives' :
                 'Executions' }}
             </button>
-            } } @if (can(permission.ReadAudit)) {
+            } } @if (storeWide() && can(permission.ReadAudit)) {
             <button
                 type="button"
                 [attr.aria-current]="section() === 'audit' ? 'page' : null"
@@ -33,10 +33,14 @@
             }
         </nav>
         <div class="live-sidebar-bottom">
-            <span class="muted">{{ user() }}</span
-            ><button class="outline" type="button" (click)="light.set(!light())">
-                {{ light() ? 'Dark appearance' : 'Light appearance' }}</button
-            ><small class="muted">WorkThrough · alpha</small>
+            <span class="muted">{{ user() }}</span>
+            @if (tenants(); as visible) {
+            <small class="muted">Tenants: {{ visible.join(', ') || 'none' }}</small>
+            }
+            <button class="outline" type="button" (click)="toggleAppearance()">
+                {{ light() ? 'Dark appearance' : 'Light appearance' }}
+            </button>
+            <small class="muted">WorkThrough · alpha</small>
         </div>
     </aside>
     <main id="live-content" class="live-main">
@@ -65,13 +69,12 @@
         </header>
         @if (error()) {
         <p class="live-alert" role="alert">{{ error() }} Displayed data may be stale.</p>
-        } @if (can(permission.ReadExecutions)) {
+        } @if (storeWide() && can(permission.ReadExecutions)) {
         <section class="live-metrics" aria-label="Stored job totals">
-            @for (state of ['Queued', 'Running', 'Succeeded', 'Failed']; track state) {
+            @for (total of totals(); track total.label) {
             <article>
-                <span class="muted">{{ state }}</span
-                ><strong>{{ stats().counts[state] ?? 0 }}</strong
-                ><small class="muted">Current stored jobs</small>
+                <span class="muted">{{ total.label }}</span><strong>{{ total.count }}</strong
+                ><small class="muted">{{ total.detail }}</small>
             </article>
             }
         </section>
@@ -218,6 +221,11 @@
                     <p class="eyebrow">EXECUTION INSPECTOR</p>
                     <h2>{{ detail.job.contract.key }}</h2>
                     <code class="muted">{{ detail.job.id }}</code>
+                    @if (detail.job.partitionKey) {
+                    <p class="muted">Partition <code>{{ detail.job.partitionKey }}</code></p>
+                    } @if (detail.job.tenantId) {
+                    <p class="muted">Tenant <code>{{ detail.job.tenantId }}</code></p>
+                    }
                 </div>
                 <span class="badge" [attr.data-status]="detail.job.status"
                     >{{ detail.job.status }}</span
@@ -247,7 +255,27 @@
                 [selected]="detail.job.stepId"
                 (choose)="inspectStep($event)"
             />
-            }
+            @if (flow.flow.parentJobId || flow.flow.forkedFromRunId || flow.children.length) {
+            <div class="live-graph-header">
+                @if (flow.flow.forkedFromRunId) {
+                <button class="outline" (click)="inspectFirstJob(flow.flow.forkedFromRunId)">
+                    Forked from
+                </button>
+                } @if (flow.flow.parentJobId) {
+                <button
+                    class="outline"
+                    (click)="inspectRun(flow.flow.parentJobId, flow.flow.parentRunId)"
+                >
+                    Parent flow
+                </button>
+                } @for (child of flow.children; track child.run.id) {
+                <button class="outline" (click)="inspectRun(child.jobId, child.run.id)">
+                    {{ child.run.flowKey }} · v{{ child.run.version }}
+                    <span class="badge">{{ child.run.status }}</span>
+                </button>
+                }
+            </div>
+            } }
             <div class="live-inspector-body">
                 <section>
                     <h3>Attempt history</h3>
@@ -274,6 +302,12 @@
                         <summary>Input</summary>
                         <pre>{{ detail.payload | json }}</pre>
                     </details>
+                    @if (detail.originalPayload) {
+                    <details>
+                        <summary>Original input, before correction</summary>
+                        <pre>{{ detail.originalPayload | json }}</pre>
+                    </details>
+                    }
                     <details>
                         <summary>Output</summary>
                         <pre>{{ detail.output | json }}</pre>
@@ -301,6 +335,19 @@
                 ['Failed','Cancelled','Rejected','Expired'].includes(detail.job.status)) {
                 <button class="primary" (click)="openAction('recover', detail.job)">
                     Recover failed step
+                </button>
+                } @if (can(permission.RecoverFlows) && detail.job.stepId && flow() &&
+                ['Succeeded','Failed','Incident'].includes(flow()!.flow.status) &&
+                !detail.job.stepId.includes('[') && !detail.job.stepId.includes(':')) {
+                <button class="outline" (click)="openFork(flow()!, detail.job.stepId)">
+                    Fork from this step
+                </button>
+                } @if (can(permission.CorrectInputs) && detail.sensitive && ![signalProcessorKey,
+                childFlowProcessorKey].includes(detail.job.contract.key) &&
+                ['Failed','Cancelled','Rejected','Expired'].includes(detail.job.status) &&
+                (!detail.job.workflowRunId || flow()?.flow?.status === 'Incident')) {
+                <button class="outline" (click)="openCorrection(detail.job, detail.payload)">
+                    Correct input
                 </button>
                 } @if (can(permission.CancelJobs) &&
                 ['Waiting','Queued','Running','AwaitingSignal'].includes(detail.job.status)) {
@@ -516,7 +563,35 @@
                 </table>
             </div>
         </section>
-        } @if (section() === 'workers') { @if (deployment(); as report) {
+        } @if (section() === 'workers') { @if (protocol(); as engine) {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Engine protocol</h2>
+                    <p class="muted">
+                        Shared execution semantics every worker must understand. A higher level
+                        activates once no older worker is live or holds a lease.
+                    </p>
+                </div>
+                <span class="badge" [class.failed]="engine.active > engine.supported"
+                    >Level {{ engine.active }}</span
+                >
+            </div>
+            @if (engine.active > engine.supported) {
+            <p class="live-alert" role="alert">
+                The store requires level {{ engine.active }}; this console understands {{
+                engine.supported }}. Upgrade this host.
+            </p>
+            } @else if (engine.blockers.length) {
+            <p class="muted">
+                Level {{ engine.supported }} waits for these workers to upgrade or stop:
+                <code>{{ engine.blockers.join(', ') }}</code>
+            </p>
+            } @else {
+            <p class="muted">Every live worker runs at the active level.</p>
+            }
+        </section>
+        } @if (deployment(); as report) {
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
@@ -608,6 +683,7 @@
                             <th>Queues</th>
                             <th>Processors</th>
                             <th>Admission</th>
+                            <th>Engine</th>
                             <th>Acquisition health</th>
                         </tr>
                     </thead>
@@ -624,7 +700,10 @@
                                 <small
                                     >{{ processorName(worker, processor) }} · v{{ processor.version
                                     }}</small
-                                ><small class="muted">{{ processor.key }}</small> }
+                                ><small class="muted">{{ processor.key }}</small>
+                                @if (upcastTarget(worker, processor); as target) {
+                                <small class="muted">runs as v{{ target.version }}</small>
+                                } }
                             </td>
                             <td>
                                 <span class="badge"
@@ -638,6 +717,7 @@
                                 </button>
                                 }
                             </td>
+                            <td>Level {{ worker.protocol ?? 1 }}</td>
                             <td>
                                 {{ acquisitionStatus(worker) }} @if
                                 (worker.acquisition?.lastSucceededAt) {
@@ -650,7 +730,7 @@
                         </tr>
                         } @empty {
                         <tr>
-                            <td colspan="7" class="live-empty">No worker heartbeats recorded.</td>
+                            <td colspan="8" class="live-empty">No worker heartbeats recorded.</td>
                         </tr>
                         }
                     </tbody>
@@ -674,6 +754,37 @@
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
+                    <h2>Keyed and rate limits</h2>
+                    <p class="muted">
+                        Keyed limits cap running attempts per partition key or tenant. Rate limits
+                        cap starts per window.
+                    </p>
+                </div>
+            </div>
+            <div class="live-limits">
+                @for (limit of admission().keyedLimits; track limit.scope + ':' + limit.jobKey) {
+                <article>
+                    <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
+                    ><strong>{{ limit.maximumPerKey }}</strong
+                    ><small class="muted">Running per {{ keyScopeLabel(limit.scope) }}</small>
+                </article>
+                } @for (limit of admission().rateLimits; track limit.jobKey + ':' + limit.perKey) {
+                <article>
+                    <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
+                    ><strong>{{ limit.permits }}</strong
+                    ><small class="muted"
+                        >Starts per {{ duration(limit.window) }}{{ limit.perKey ? ' per ' +
+                        keyScopeLabel(limit.perKey) : '' }}</small
+                    >
+                </article>
+                } @if (!admission().keyedLimits.length && !admission().rateLimits.length) {
+                <p class="muted">No keyed or rate limits configured.</p>
+                }
+            </div>
+        </section>
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
                     <h2>Queue admission</h2>
                     <p class="muted">Pausing stops new attempts. Running processors can finish.</p>
                 </div>
@@ -684,6 +795,7 @@
                         <tr>
                             <th>Queue</th>
                             <th>State</th>
+                            <th>Weight</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -692,6 +804,7 @@
                         <tr>
                             <td><code>{{ queue.queue }}</code></td>
                             <td>{{ queue.paused ? 'Paused' : 'Accepting' }}</td>
+                            <td>{{ queue.weight }}</td>
                             <td>
                                 @if (can(permission.ManageQueues)) {
                                 <button class="outline" (click)="queueAction(queue)">
@@ -702,7 +815,7 @@
                         </tr>
                         } @empty {
                         <tr>
-                            <td colspan="3" class="live-empty">No queues observed.</td>
+                            <td colspan="4" class="live-empty">No queues observed.</td>
                         </tr>
                         }
                     </tbody>
@@ -934,6 +1047,17 @@
     >
         <h2 id="command-title">{{ pending()?.title }}</h2>
         <p class="muted">This action records your identity and reason in the audit trail.</p>
+        @if (pending()?.input !== undefined) {
+        <label for="command-input">Input (JSON)</label
+        ><textarea
+            id="command-input"
+            rows="10"
+            spellcheck="false"
+            [disabled]="!!pending()?.command"
+            [value]="inputJson()"
+            (input)="inputJson.set($any($event.target).value)"
+        ></textarea>
+        }
         <label for="command-reason">Reason</label
         ><textarea
             id="command-reason"

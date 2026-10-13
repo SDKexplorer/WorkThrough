@@ -1,6 +1,6 @@
 # Retention automation and additional providers
 
-Status: retention and all four providers implemented, 2026-10-10; SQL Server and Oracle passed native CI qualification on their documented initial matrix; expanded load/restore qualification remains pending. The maintainer requested cleanup/archiving and additional providers. This plan complements [MCP operations](mcp-operations.spec.md) and [current retention semantics](../docs/operations-and-retention.md).
+Status: retention and SQLite, PostgreSQL, SQL Server and Oracle implemented, 2026-10-10; MySQL and MariaDB added 2026-10-13 ([ADR-029](../docs/adr/0029-mysql-storage.md)). Every provider passes native CI; expanded load qualification remains pending, and the PostgreSQL restore drill passed. The maintainer requested cleanup/archiving and additional providers. This plan complements [MCP operations](mcp-operations.spec.md) and [current retention semantics](../docs/operations-and-retention.md).
 
 ## Current capability and intended result
 

@@ -80,7 +80,8 @@ public abstract partial class RelationalJobStore : IJobOutbox
         var source = (string)(await ScalarAsync(connection, transaction, "SELECT id FROM dj_store", ct))!;
         var envelope = job with
         {
-            IdempotencyKey = job.IdempotencyKey ?? $"outbox:{source}:{job.Id:N}"
+            IdempotencyKey = job.IdempotencyKey ?? $"outbox:{source}:{job.Id:N}",
+            Payload = await ProtectedAsync(connection, transaction, job.Payload, ct)
         };
         await ExecuteAsync(connection, transaction, "INSERT INTO dj_outbox(id,request,status,idempotency_key,fingerprint) VALUES (@id,@request,@status,@key,@hash)", ct,
             ("id", job.Id.ToString()), ("request", JsonSerializer.Serialize(envelope, JobJson.Options)), ("status", OutboxStatuses.Pending),
@@ -138,7 +139,8 @@ public abstract partial class RelationalJobStore : IJobOutbox
             return null;
         }
 
-        var claim = new OutboxClaim(JsonSerializer.Deserialize<JobRecord>(payload, JobJson.Options)!, Guid.NewGuid());
+        var request = JsonSerializer.Deserialize<JobRecord>(payload, JobJson.Options)!;
+        var claim = new OutboxClaim(request with { Payload = Required(request.Payload) }, Guid.NewGuid());
         await ExecuteAsync(connection, transaction, "UPDATE dj_outbox SET status=@status,lease_token=@token,lease_expires_at=@expiry WHERE id=@id", ct,
             ("status", OutboxStatuses.Delivering), ("token", claim.Token.ToString()),
             ("expiry", checked(now + (long)OutboxDeliveryLease.TotalMilliseconds)), ("id", claim.Job.Id.ToString()));

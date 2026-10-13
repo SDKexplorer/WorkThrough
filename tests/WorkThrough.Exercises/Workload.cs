@@ -9,6 +9,8 @@ namespace WorkThrough.Exercises;
 internal static class Workload
 {
     public const string Queue = "exercise";
+    public const int LocalSlots = 4;
+    public const int PollMilliseconds = 10;
     public static JobDefinition<WorkItem> Fast { get; } = new("exercises.fast");
     public static JobDefinition<WorkItem> Limited { get; } = new("exercises.limited");
     public static readonly TimeSpan Lease = TimeSpan.FromSeconds(30);
@@ -34,20 +36,25 @@ internal static class Workload
         {
             jobs.UsePostgreSql(connection);
         }
+        else if (provider is "mysql" or "mariadb")
+        {
+            jobs.UseMySql(connection);
+        }
         else
         {
             jobs.UseSqlite(connection);
         }
 
         jobs.InitializeStorageOnStart(false)
-            .AddProcessor<WorkItem, Processor>(Fast).AddProcessor<WorkItem, LimitedProcessor>(Limited)
+            .AddJob<WorkItem, Processor>(Fast).AddJob<WorkItem, LimitedProcessor>(Limited)
             .AddWorker(options =>
             {
-                options.WorkerId = $"exercise-{Environment.ProcessId}";
-                options.Queues = [Queue];
-                options.MaxConcurrentJobs = 4;
+                // Containers all run as process 1, so they name themselves.
+                options.WorkerId = Environment.GetEnvironmentVariable("WT_EXERCISE_WORKER_ID") is { Length: > 0 } id ? id : $"exercise-{Environment.ProcessId}";
+                options.Queues = Environment.GetEnvironmentVariable("WT_EXERCISE_QUEUES") is { Length: > 0 } queues ? queues.Split(',') : [Queue];
+                options.MaxConcurrentJobs = int.TryParse(Environment.GetEnvironmentVariable("WT_EXERCISE_SLOTS"), out var slots) ? slots : LocalSlots;
                 options.PerJobLimits[Limited.Identity.Key] = 2;
-                options.PollInterval = TimeSpan.FromMilliseconds(10);
+                options.PollInterval = TimeSpan.FromMilliseconds(PollMilliseconds);
                 options.LeaseDuration = Environment.GetEnvironmentVariable("WT_EXERCISE_CRASH") == "1" ? TimeSpan.FromSeconds(2) : Lease;
             });
         using var host = builder.Build();
@@ -57,9 +64,9 @@ internal static class Workload
         await host.WaitForShutdownAsync();
     }
 
-    public sealed class Processor(EffectStore effects) : IProcessor<WorkItem>
+    public sealed class Processor(EffectStore effects) : IJob<WorkItem>
     {
-        public async Task<JobResult> ProcessAsync(WorkItem input, JobExecutionContext context, CancellationToken ct)
+        public async Task<JobResult> ExecuteAsync(WorkItem input, JobExecutionContext context, CancellationToken ct)
         {
             if (input.DelayMs > 0)
             {
@@ -78,10 +85,10 @@ internal static class Workload
             return JobResult.From(input.Index);
         }
     }
-    public sealed class LimitedProcessor(EffectStore effects) : IProcessor<WorkItem>
+    public sealed class LimitedProcessor(EffectStore effects) : IJob<WorkItem>
     {
         private readonly Processor inner = new(effects);
-        public Task<JobResult> ProcessAsync(WorkItem input, JobExecutionContext context, CancellationToken ct) => inner.ProcessAsync(input, context, ct);
+        public Task<JobResult> ExecuteAsync(WorkItem input, JobExecutionContext context, CancellationToken ct) => inner.ExecuteAsync(input, context, ct);
     }
 }
 

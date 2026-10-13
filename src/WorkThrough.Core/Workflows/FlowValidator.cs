@@ -39,14 +39,52 @@ public static class FlowValidator
                     throw new ArgumentException("A signal wait requires a timeout of one millisecond to 365 days and the built-in signal address.");
                 }
             }
+            else if (step.Child is { } child)
+            {
+                _ = new JobContractId(child.FlowKey, child.FlowVersion);
+                if (step.Contract != FlowChild.Processor || child.Timeout <= TimeSpan.Zero || child.Timeout > FlowChild.MaximumTimeout)
+                {
+                    throw new ArgumentException($"Child step {step.Id} requires the built-in child address and a timeout of up to 365 days.");
+                }
+            }
             else if (step.Contract.Key == SignalWait.Processor.Key)
             {
                 throw new ArgumentException("Use WaitForSignal to declare a durable wait.");
+            }
+            else if (step.Contract.Key == FlowChild.Processor.Key)
+            {
+                throw new ArgumentException("Use Child to run another flow.");
             }
 
             if (string.IsNullOrWhiteSpace(step.Id) || string.IsNullOrWhiteSpace(step.Queue) || step.MaxAttempts < 1)
             {
                 throw new ArgumentException("Steps require an ID, queue, and positive retry count.");
+            }
+
+            // Fan-out items are named id[index] and compensations id:undo, so these characters would make step IDs ambiguous.
+            if (step.Id.IndexOfAny(['[', ']', ':']) >= 0)
+            {
+                throw new ArgumentException($"Step ID {step.Id} must not contain brackets or colons.");
+            }
+
+            if (step.Loop is { } loop && (step.Child is null || step.ForEach is not null || step.Input.ValueKind != JsonValueKind.Object
+                || loop.MaximumIterations is < 1 or > FlowLoop.Limit || string.IsNullOrWhiteSpace(loop.UntilStep)
+                || string.IsNullOrWhiteSpace(loop.UntilProperty) || loop.Expected.ValueKind == JsonValueKind.Undefined))
+            {
+                throw new ArgumentException($"Loop step {step.Id} must run a child flow with an object input, a condition, and 1–{FlowLoop.Limit} iterations.");
+            }
+
+            if (step.Compensation is { } compensation && (step.Signal is not null || step.Child is not null || step.ForEach is not null
+                || string.IsNullOrWhiteSpace(compensation.Queue) || compensation.MaxAttempts < 1
+                || compensation.Contract.Key is var key && (key == SignalWait.Processor.Key || key == FlowChild.Processor.Key)))
+            {
+                throw new ArgumentException($"Step {step.Id} can be compensated only when it runs a job, by a job with a queue and positive retry count.");
+            }
+
+            if (step.OnFailureOf is { } failed && (step.After is not [var only] || only != failed || step.Condition is not null
+                || step.Input.ValueKind != JsonValueKind.Object || steps.GetValueOrDefault(failed)?.ForEach is not null))
+            {
+                throw new ArgumentException($"Failure branch {step.Id} must follow only {failed}, which must not be a fan-out, take an object input, and have no condition.");
             }
 
             if (step.Input.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
@@ -59,9 +97,17 @@ public static class FlowValidator
                 throw new ArgumentException($"Input bindings for {step.Id} require a JSON object.");
             }
 
+            if (step.ForEach is { } forEach)
+            {
+                if (step.Signal is not null || step.Input.ValueKind != JsonValueKind.Object || step.Bindings.Any(x => x.TargetProperty == forEach.TargetProperty))
+                {
+                    throw new ArgumentException($"Fan-out step {step.Id} needs a processor, an object input, and an item property no binding sets.");
+                }
+            }
+
             var ancestors = new HashSet<string>();
             Collect(step.Id);
-            foreach (var reference in step.Bindings.Select(x => x.SourceStep).Append(step.Condition?.SourceStep).OfType<string>())
+            foreach (var reference in step.Bindings.Select(x => x.SourceStep).Append(step.Condition?.SourceStep).Append(step.ForEach?.SourceStep).OfType<string>())
             {
                 if (!ancestors.Contains(reference))
                 {
@@ -135,7 +181,9 @@ public static class FlowValidator
             }
 
             if (step is null || step.Contract is null || step.After is null || step.Bindings is null
-                || step.After.Any(string.IsNullOrWhiteSpace) || step.Bindings.Any(b => b is null || string.IsNullOrWhiteSpace(b.TargetProperty) || string.IsNullOrWhiteSpace(b.SourceProperty)))
+                || step.After.Any(string.IsNullOrWhiteSpace) || step.Bindings.Any(b => b is null || string.IsNullOrWhiteSpace(b.TargetProperty) || string.IsNullOrWhiteSpace(b.SourceProperty))
+                || step.ForEach is { } forEach && (string.IsNullOrWhiteSpace(forEach.SourceStep) || string.IsNullOrWhiteSpace(forEach.SourceProperty)
+                    || string.IsNullOrWhiteSpace(forEach.TargetProperty)))
             {
                 throw new ArgumentException("Steps require a processor, dependency array, and valid binding array.");
             }

@@ -1,8 +1,14 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace WorkThrough.Storage;
 
 public sealed partial class OracleJobStore
 {
-    private sealed record SchemaStep(string Name, bool Index, string Sql);
+    /// <summary>One idempotent migration step. A step with a column adds that column to table <paramref name="Name"/>.</summary>
+    private sealed record SchemaStep(string Name, bool Index, string Sql, string? Column = null);
+
+    /// <summary>Schema 4. Never edit or reorder: its fingerprint identifies existing installations.</summary>
     private static readonly SchemaStep[] OracleSchema =
     [
         new("DJ_ADMISSION", false, """
@@ -197,4 +203,138 @@ public sealed partial class OracleJobStore
             CREATE INDEX ix_dj_jobs_terminal ON dj_jobs(status,terminal_at,id)
             """),
     ];
+
+    /// <summary>Schema 5 additions (ADR-018), applied after the schema-4 steps.</summary>
+    private static readonly SchemaStep[] OracleAdmissionSchema =
+    [
+        new("DJ_JOBS", false, """
+            ALTER TABLE dj_jobs ADD partition_key VARCHAR2(256 CHAR)
+            """, Column: "PARTITION_KEY"),
+        new("DJ_JOBS", false, """
+            ALTER TABLE dj_jobs ADD tenant_id VARCHAR2(256 CHAR)
+            """, Column: "TENANT_ID"),
+        new("DJ_JOBS", false, """
+            ALTER TABLE dj_jobs ADD trace_parent VARCHAR2(64 CHAR)
+            """, Column: "TRACE_PARENT"),
+        new("DJ_FLOWS", false, """
+            ALTER TABLE dj_flows ADD max_parallel NUMBER(10) CHECK(max_parallel>0)
+            """, Column: "MAX_PARALLEL"),
+        new("DJ_QUEUE_CONTROLS", false, """
+            ALTER TABLE dj_queue_controls ADD weight NUMBER(10) DEFAULT 1 NOT NULL
+            """, Column: "WEIGHT"),
+        new("DJ_QUEUE_TURNS", false, """
+            CREATE TABLE dj_queue_turns (queue VARCHAR2(512 CHAR) PRIMARY KEY,pass NUMBER(19) NOT NULL) SEGMENT CREATION IMMEDIATE
+            """),
+        new("DJ_QUEUE_CLOCK", false, """
+            CREATE TABLE dj_queue_clock (id NUMBER(10) PRIMARY KEY,value NUMBER(19) NOT NULL) SEGMENT CREATION IMMEDIATE
+            """),
+        new("DJ_KEYED_LIMITS", false, """
+            CREATE TABLE dj_keyed_limits (
+            job_key VARCHAR2(120 CHAR) NOT NULL,key_scope NUMBER(10) NOT NULL,maximum NUMBER(10) NOT NULL CHECK(maximum>=0),
+            PRIMARY KEY(job_key,key_scope)) SEGMENT CREATION IMMEDIATE
+            """),
+        new("DJ_RATE_LIMITS", false, """
+            CREATE TABLE dj_rate_limits (
+            job_key VARCHAR2(120 CHAR) NOT NULL,key_scope NUMBER(10) NOT NULL,permits NUMBER(10) NOT NULL CHECK(permits>0),
+            window_ms NUMBER(19) NOT NULL CHECK(window_ms>0),PRIMARY KEY(job_key,key_scope)) SEGMENT CREATION IMMEDIATE
+            """),
+        new("IX_DJ_JOBS_PARTITION", true, """
+            CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key)
+            """),
+        // Oracle omits all-null keys from B-tree indexes, so work without a tenant or bound never maintains these.
+        new("IX_DJ_JOBS_TENANT", true, """
+            CREATE INDEX ix_dj_jobs_tenant ON dj_jobs(tenant_id)
+            """),
+        new("IX_DJ_FLOWS_BOUNDED", true, """
+            CREATE INDEX ix_dj_flows_bounded ON dj_flows(max_parallel)
+            """),
+        new("DJ_RATE_LEDGER", false, """
+            CREATE TABLE dj_rate_ledger (
+            job_key VARCHAR2(120 CHAR) NOT NULL,key_scope NUMBER(10) NOT NULL,rate_key VARCHAR2(256 CHAR) NOT NULL,
+            started_at NUMBER(19) NOT NULL,job_id VARCHAR2(36 CHAR) NOT NULL) SEGMENT CREATION IMMEDIATE
+            """),
+        new("IX_DJ_RATE_LEDGER", true, """
+            CREATE INDEX ix_dj_rate_ledger ON dj_rate_ledger(job_key,key_scope,rate_key,started_at)
+            """),
+        new("IX_DJ_RATE_LEDGER_TIME", true, """
+            CREATE INDEX ix_dj_rate_ledger_time ON dj_rate_ledger(started_at)
+            """),
+    ];
+
+    /// <summary>Schema 6 additions (ADR-021), applied after the schema-5 steps.</summary>
+    private static readonly SchemaStep[] OracleCompatibilitySchema =
+    [
+        new("DJ_COMPATIBILITY", false, """
+            CREATE TABLE dj_compatibility (id NUMBER(10) PRIMARY KEY,reader_minimum NUMBER(10) NOT NULL,protocol NUMBER(10) NOT NULL)
+            SEGMENT CREATION IMMEDIATE
+            """),
+    ];
+
+    /// <summary>Schema 7 additions (ADR-022), applied after the schema-6 steps.</summary>
+    private static readonly SchemaStep[] OracleLimitLockSchema =
+    [
+        new("DJ_LIMIT_LOCKS", false, """
+            CREATE TABLE dj_limit_locks (id NUMBER(10) PRIMARY KEY) SEGMENT CREATION IMMEDIATE
+            """),
+    ];
+
+    /// <summary>Schema 8 additions (ADR-023), applied after the schema-7 steps.</summary>
+    private static readonly SchemaStep[] OracleChildFlowSchema =
+    [
+        new("DJ_FLOWS", false, """
+            ALTER TABLE dj_flows ADD parent_run_id VARCHAR2(36 CHAR)
+            """, Column: "PARENT_RUN_ID"),
+        new("DJ_FLOWS", false, """
+            ALTER TABLE dj_flows ADD parent_job_id VARCHAR2(36 CHAR)
+            """, Column: "PARENT_JOB_ID"),
+        new("DJ_FLOWS", false, """
+            ALTER TABLE dj_flows ADD depth NUMBER(10)
+            """, Column: "DEPTH"),
+        new("IX_DJ_FLOWS_PARENT", true, """
+            CREATE INDEX ix_dj_flows_parent ON dj_flows(parent_run_id)
+            """),
+    ];
+
+    /// <summary>Schema 9 additions: the first input of a corrected job.</summary>
+    private static readonly SchemaStep[] OracleCorrectionSchema =
+    [
+        new("DJ_JOBS", false, """
+            ALTER TABLE dj_jobs ADD original_payload CLOB
+            """, Column: "ORIGINAL_PAYLOAD"),
+    ];
+
+    /// <summary>Schema 10 additions: the source of a forked run.</summary>
+    private static readonly SchemaStep[] OracleForkSchema =
+    [
+        new("DJ_FLOWS", false, """
+            ALTER TABLE dj_flows ADD forked_from_run_id VARCHAR2(36 CHAR)
+            """, Column: "FORKED_FROM_RUN_ID"),
+    ];
+
+    private static readonly SchemaStep[] OracleSchemaSteps =
+        [.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema, .. OracleCorrectionSchema,
+            .. OracleForkSchema];
+
+    /// <summary>Identifies the installed step list; any edit to a step's SQL changes it.</summary>
+    private static readonly string SchemaFingerprint = Fingerprint(OracleSchemaSteps);
+
+    /// <summary>Completed earlier installations that this schema extends by resuming after their last step.</summary>
+    private static readonly (int Version, int Steps, string Fingerprint)[] Predecessors =
+    [
+        (4, OracleSchema.Length, Fingerprint(OracleSchema)),
+        (5, OracleSchema.Length + OracleAdmissionSchema.Length, Fingerprint([.. OracleSchema, .. OracleAdmissionSchema])),
+        (6, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length,
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema])),
+        (7, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length + OracleLimitLockSchema.Length,
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema])),
+        (8, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length + OracleLimitLockSchema.Length + OracleChildFlowSchema.Length,
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema])),
+        (9, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length + OracleLimitLockSchema.Length + OracleChildFlowSchema.Length
+            + OracleCorrectionSchema.Length,
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema,
+                .. OracleCorrectionSchema]))
+    ];
+
+    private static string Fingerprint(IEnumerable<SchemaStep> steps) => Convert.ToHexString(SHA256.HashData(
+        Encoding.UTF8.GetBytes(string.Join("\n", steps.Select(step => step.Sql.ReplaceLineEndings("\n"))))));
 }

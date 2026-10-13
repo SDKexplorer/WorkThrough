@@ -5,7 +5,7 @@
 | Implemented tool | Evidence |
 |---|---|
 | `workthrough_get_context` | Actual store ID/database observation time, configured environment/resource, tool schema version, limits and unavailable capabilities |
-| `workthrough_search_executions` | Paged live metadata by correlation, processor/version, queue, current status, flow-run ID and creation/failed-attempt time |
+| `workthrough_search_executions` | Paged live metadata by correlation, processor/version, queue, current status, flow-run ID, partition key, tenant and creation/failed-attempt time |
 | `workthrough_get_execution` | One live execution's metadata by ID, including older retained work |
 | `workthrough_get_attempts` | Paged attempt outcomes/timestamps with an exclusive attempt-number continuation |
 | `workthrough_get_diagnostics` | One attempt's bounded exception type/message/stack after host redaction; requires both execution and payload permissions |
@@ -14,7 +14,7 @@
 | `workthrough_search_archives` | Paged archive summaries by archival time, correlation and kind, including purged-body summaries |
 | `workthrough_get_archive` | One summary by standalone job ID or whole-flow run ID, with no age restriction |
 | `workthrough_preview_retention` | Advisory preview of a caller-supplied manual archive policy; never deletes data |
-| `workthrough_get_capacity` | Snapshot of waiting reasons, shared limits/admitted leases and bounded recent worker evidence |
+| `workthrough_get_capacity` | Snapshot of waiting reasons (shared, partition, tenant, rate and flow-parallelism limits), admitted leases and bounded recent worker evidence |
 | `workthrough_get_metrics` | Windowed live attempt counts, successful attempt throughput and mean/max attempt duration |
 | `workthrough_get_retention` | Persisted automatic policy, pending/last batch, holds/incidents and journal/subscriber positions |
 
@@ -38,7 +38,7 @@ The event page exposes the global journal retention floor and last sequence. `re
 
 ## Runtime evidence
 
-`workthrough_get_capacity` takes an execution `id` and `workerExamples` (default 10, maximum 100). The database snapshot checks shared total/type admission, including processor aliases, queue and flow state, delayed/retrying work, execution deadlines and last progress. Limits count unexpired admitted leases. They cannot prove that a handler or its external effects stopped after lease expiry.
+`workthrough_get_capacity` takes an execution `id` and `workerExamples` (default 10, maximum 100). The database snapshot checks shared total/type admission (including processor aliases), partition and tenant limits, rate limits, a flow run's `MaxParallelSteps`, queue and flow state, delayed/retrying work, execution deadlines and last progress. Tenant-scoped callers receive the reason without fleet-wide counts or worker examples. Limits count unexpired admitted leases. They cannot prove that a handler or its external effects stopped after lease expiry.
 
 Recent worker evidence requires the exact processor version and queue on the same heartbeat, no older than 60 seconds. At most 501 workers are examined; more than 500 or an oversized/incomplete heartbeat reports `workerCoverageIncomplete`. Missing or stale evidence never proves no worker exists. Draining, exhausted local total capacity and consecutive acquisition failures have distinct reasons. Free per-type local slots and future acquisition success cannot be inferred. Worker examples are bounded metadata without progress descriptions or lease tokens.
 
@@ -86,7 +86,7 @@ await app.RunAsync();
 
 Initialize/upgrade storage through the deployment process before starting a read-only host. Disabling startup initialization prevents schema/index writes by this host. Give it read-only database credentials where possible. SQLite needs an absolute local file path; `Mode=ReadOnly` is supported. Tested PostgreSQL connections set `default_transaction_read_only=on`; that verifies query behavior, not a deployment's role grants.
 
-[Demo.Mcp](../samples/Demo.Mcp/Program.cs) uses `Operations:ConnectionString`, `Authority`, `Resource`, `Environment` and optional `EndpointPath` configuration. Environment variables use the `Operations__` prefix. It supplies no development credential, anonymous fallback, worker or initializer. Configure ASP.NET's listener/TLS as usual.
+[Shop.Mcp](../samples/Shop.Mcp/Program.cs) uses `Mcp:Authority`, `Resource`, `Environment` and optional `EndpointPath`, plus the shop's `Shop:Sqlite` or `Shop:PostgreSql` store; environment variables use the `Mcp__` and `Shop__` prefixes. It registers the tenant-claim resolver and supplies no development credential, anonymous fallback, worker or initializer. Configure ASP.NET's listener/TLS as usual.
 
 Register one WorkThrough MCP server per service collection. The host owns the public URI and maps the same path; use a dedicated host for independent stores. This release does not configure `UsePathBase` or proxy path rewriting. Behind a TLS-terminating proxy, configure trusted forwarded headers before authentication so ASP.NET observes HTTPS; never trust arbitrary forwarded headers. Resource and authority URIs require HTTPS. `AllowLoopbackHttp` is an explicit local-test exception only for a loopback resource URI; bind the development listener to loopback too.
 
@@ -98,7 +98,7 @@ Configure the identity provider to issue access tokens for the exact `Resource.A
 
 RFC 9728 metadata is mapped at `/.well-known/oauth-protected-resource` followed by the resource path. Unauthorized responses include its fixed configured URL in `WWW-Authenticate`. Metadata advertises the authorization server and header-based bearer access. The identity provider remains responsible for OAuth client registration, consent and token issuance. WorkThrough creates neither a user directory nor an authorization server.
 
-Every tool call rechecks `WorkThrough.executions.read` with an `OperationResource` containing the configured endpoint/environment and the appropriate `ExecutionId`, `WorkflowRunId` or `ArchiveId`. Diagnostics additionally checks `payloads.read`; audit and cleanup preview additionally check `audit.read` and `retention.read`. Override policies after registration for host restrictions. Search access is store-wide; flow access covers all nodes/events in that run. This is **not** per-row tenant isolation. Correlation filters and cursors never grant authority. Dashboard policies still receive `DashboardResource`; permission constants are shared without replacing that compatibility hook.
+Every tool call rechecks `WorkThrough.executions.read` with an `OperationResource` containing the configured endpoint/environment and the appropriate `ExecutionId`, `WorkflowRunId` or `ArchiveId`. Diagnostics additionally checks `payloads.read`; audit and cleanup preview additionally check `audit.read` and `retention.read`. Override policies after registration for host restrictions. Search access is store-wide unless the host registers an `ITenantAccessResolver`. Tenant-scoped principals list and call only the seven per-execution tools, see their tenants' executions only, and receive absent results for anything else ([ADR-019](adr/0019-tenant-access-isolation.md)). Flow access covers all nodes/events in that run. Correlation filters and cursors never grant authority. Dashboard policies still receive `DashboardResource`; permission constants are shared without replacing that compatibility hook.
 
 Discovery is permission-filtered; unregistered direct calls are rejected. Browser origins other than the configured resource origin are rejected, and the adapter does not enable cross-origin CORS. Native authenticated clients send no Origin header. Arbitrary cross-origin browser embedding is outside this release.
 
@@ -120,6 +120,6 @@ Errors contain bounded codes/request IDs, not database exceptions. SDK tool-bind
 
 Tests use the official C# 2.2.0 client over Streamable HTTP with its current protocol, plus an independent HTTP JSON-RPC client using revision 2025-11-25. The latter exercises wire requests/responses without the C# client implementation; it is not a claim that two third-party AI applications were validated. Fresh NuGet-only consumers make authenticated calls over real loopback Kestrel on SDK/runtime 8 and 10.
 
-Tests cover signed JWTs, wrong issuer/audience/expiration, no dashboard-scheme fallback, direct permission/resource checks, unknown mutations, redaction, pagination, read-only database connections, size/rate/concurrency limits, deadline/disconnect cancellation and failed access sinks. A [short 100,000-job contention campaign](performance.md#initial-retained-history-campaign--2026-10-10) completed on all four providers with 20 official C# clients and two worker processes, with no correctness failures; the proposed throughput budget was missed in some runs. The repeatable harness and CI smoke exercise those paths. See [verification](verification.md) for completed gates. External identity-provider discovery/login, desktop AI application setup, repeated contention analysis and a two-hour soak remain deployment/release gates.
+Tests cover signed JWTs, wrong issuer/audience/expiration, no dashboard-scheme fallback, direct permission/resource checks, unknown mutations, redaction, pagination, read-only database connections, size/rate/concurrency limits, deadline/disconnect cancellation and failed access sinks. A [short 100,000-job contention campaign](performance.md#initial-retained-history-campaign--2026-10-10) completed on SQLite, PostgreSQL, SQL Server and Oracle with 20 official C# clients (a smoke version also passed on MySQL and MariaDB) and two worker processes, with no correctness failures; the proposed throughput budget was missed in some runs. The repeatable harness and CI smoke exercise those paths. See [verification](verification.md) for completed gates. Hosted identity-provider discovery/login, desktop AI application setup, repeated contention analysis and a two-hour soak with investigators remain deployment/release gates.
 
 Protocol references: [official SDK](https://github.com/modelcontextprotocol/csharp-sdk), [HTTP guidance](https://csharp.sdk.modelcontextprotocol.io/v2/concepts/transports/transports.html), [authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).

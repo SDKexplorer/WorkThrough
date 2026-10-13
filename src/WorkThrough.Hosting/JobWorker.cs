@@ -14,22 +14,26 @@ internal enum AttemptOutcome
 
 internal sealed class JobWorker(
     IJobStore store, JobCatalog catalog, IServiceScopeFactory scopes,
-    IOptionsMonitor<JobWorkerOptions> options, ILogger<JobWorker> logger) : BackgroundService
+    IOptionsMonitor<JobWorkerOptions> options, WorkerStatus status, ILogger<JobWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan SettlementTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MissingKeyRetryDelay = TimeSpan.FromSeconds(30);
+    private const int LeaseRenewalsPerDuration = 3;
     private const string ShutdownReason = "Host shutdown interrupted execution";
     private const string DeadlineMessage = "The configured execution deadline elapsed.";
 
     private long registryRevision;
+    private CompletionBatcher? completions;
     private DateTimeOffset nextHeartbeat = DateTimeOffset.MinValue;
-    private WorkerAcquisition acquisition = new(null, null, 0);
+    private bool protocolCurrent;
+    private string? reportedBlockers;
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         if (catalog.Registrations.Count == 0)
         {
-            throw new InvalidOperationException("A worker requires handlers. Use AddGeneratedJobs or AddJob before starting it.");
+            throw new InvalidOperationException("A worker requires jobs. Use AddJob or AddGeneratedJobs before starting it.");
         }
 
         // Validate the actual deployment and scoped DI graph before claiming work.
@@ -56,6 +60,8 @@ internal sealed class JobWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Disposed after every running attempt below has been observed, so shutdown settlements still commit.
+        await using var batcher = completions = new CompletionBatcher(store, SettlementTimeout);
         var running = new Dictionary<Guid, (JobRecord Job, Task Task)>();
         try
         {
@@ -69,10 +75,15 @@ internal sealed class JobWorker(
 
                 var settings = options.CurrentValue;
                 await HeartbeatAsync(settings, running.Count, stoppingToken);
-                if (await ClaimAsync(settings, running.Values.Select(x => x.Job).ToArray(), stoppingToken) is { } job)
+                var claimed = await ClaimAsync(settings, running.Values.Select(x => x.Job).ToArray(), stoppingToken);
+                foreach (var job in claimed)
                 {
                     // A revoked attempt can still be physically running when a replacement is admitted.
                     running.Add(job.LeaseToken!.Value, (job, Task.Run(() => ExecuteAttemptAsync(job, settings, stoppingToken), CancellationToken.None)));
+                }
+
+                if (claimed.Count > 0)
+                {
                     continue;
                 }
 
@@ -109,12 +120,15 @@ internal sealed class JobWorker(
         try
         {
             var processors = catalog.Registrations.Select(r => r.Identity).ToArray();
-            var descriptions = catalog.Registrations.Select(r => new ProcessorDescription(r.Identity, r.CanonicalIdentity, r.DisplayName)).ToArray();
+            var descriptions = catalog.Registrations
+                .Select(r => new ProcessorDescription(r.Identity, r.CanonicalIdentity, r.DisplayName) { UpcastTo = r.UpcastTo }).ToArray();
             var heartbeat = new WorkerHeartbeat(settings.WorkerId, default, processors, settings.Queues, settings.MaxConcurrentJobs, running, descriptions)
             {
-                Acquisition = acquisition
+                Acquisition = status.Acquisition,
+                Protocol = EngineProtocol.Supported
             };
             await diagnostics.HeartbeatAsync(heartbeat, ct);
+            await ActivateProtocolAsync(ct);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)
         {
@@ -124,35 +138,90 @@ internal sealed class JobWorker(
         nextHeartbeat = DateTimeOffset.UtcNow + HeartbeatInterval;
     }
 
-    private async Task<JobRecord?> ClaimAsync(JobWorkerOptions settings, IReadOnlyCollection<JobRecord> running, CancellationToken ct)
+    /// <summary>
+    /// Raises the store to this build's protocol once the fleet allows it (ADR-021). Until then the worker keeps the active semantics,
+    /// and reports the workers that still block the upgrade whenever that set changes.
+    /// </summary>
+    private async Task ActivateProtocolAsync(CancellationToken ct)
+    {
+        if (protocolCurrent || store is not IEngineProtocol protocols)
+        {
+            return;
+        }
+
+        var state = await protocols.ActivateEngineProtocolAsync(EngineProtocol.Supported, ct);
+        protocolCurrent = state.Active >= EngineProtocol.Supported;
+        var blockers = string.Join(", ", state.Blockers);
+        if (protocolCurrent)
+        {
+            logger.LogInformation("Engine protocol {Protocol} is active", state.Active);
+        }
+        else if (blockers != reportedBlockers)
+        {
+            logger.LogInformation("Engine protocol stays at {Active} until these workers upgrade or stop: {Blockers}", state.Active, blockers);
+        }
+
+        reportedBlockers = blockers;
+    }
+
+    /// <summary>Claims as many jobs as there are free local slots, within each local per-job limit, in one admission transaction.</summary>
+    private async Task<IReadOnlyList<JobRecord>> ClaimAsync(JobWorkerOptions settings, IReadOnlyCollection<JobRecord> running, CancellationToken ct)
     {
         var admissible = AdmissibleProcessors(settings, running);
-        if (running.Count >= settings.MaxConcurrentJobs || admissible.Length == 0)
+        var free = Math.Min(settings.MaxConcurrentJobs - running.Count, ClaimRequest.MaximumBatch);
+        if (free <= 0 || admissible.Length == 0)
         {
-            return null;
+            return [];
         }
 
         try
         {
-            acquisition = acquisition with { LastAttemptAt = DateTimeOffset.UtcNow };
-            var job = await store.ClaimAsync(new(settings.WorkerId, admissible, settings.Queues, settings.LeaseDuration, registryRevision), ct);
-            acquisition = acquisition with { LastSucceededAt = DateTimeOffset.UtcNow, ConsecutiveFailures = 0 };
+            status.Acquisition = status.Acquisition with { LastAttemptAt = DateTimeOffset.UtcNow };
+            var request = new ClaimRequest(settings.WorkerId, admissible, settings.Queues, settings.LeaseDuration, registryRevision)
+            {
+                MaximumJobs = free,
+                Budgets = LocalBudgets(settings, running)
+            };
+            var jobs = await store.ClaimBatchAsync(request, ct);
+            status.Acquisition = status.Acquisition with { LastSucceededAt = DateTimeOffset.UtcNow, ConsecutiveFailures = 0 };
 
-            return job;
+            return jobs;
         }
         catch (ProcessorRegistryChangedException exception)
         {
             // Retrying cannot succeed. Running attempts finish, then the failed service stops the host for a restart.
             logger.LogCritical(exception, "Processor mappings changed after this worker started; it stopped acquiring work");
+            status.Stopped = "Processor mappings changed after this worker started.";
+            throw;
+        }
+        catch (EngineProtocolException exception)
+        {
+            // An older build would misread work under the newer protocol. Running attempts finish, then the host stops.
+            logger.LogCritical(exception, "The store requires a newer WorkThrough; this worker stopped acquiring work");
+            status.Stopped = exception.Message;
             throw;
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogError(exception, "Job acquisition failed; storage will be retried");
-            acquisition = acquisition with { ConsecutiveFailures = Math.Min(acquisition.ConsecutiveFailures, int.MaxValue - 1) + 1 };
+            status.Acquisition = status.Acquisition with { ConsecutiveFailures = Math.Min(status.Acquisition.ConsecutiveFailures, int.MaxValue - 1) + 1 };
 
-            return null;
+            return [];
         }
+    }
+
+    /// <summary>Remaining local capacity per limited job-key group, so a batch cannot exceed <see cref="JobWorkerOptions.PerJobLimits"/>.</summary>
+    private ContractBudget[] LocalBudgets(JobWorkerOptions settings, IEnumerable<JobRecord> running)
+    {
+        var active = running.GroupBy(job => catalog.CapacityKey(job.Contract.Key)).ToDictionary(group => group.Key, group => group.Count());
+
+        return settings.PerJobLimits.GroupBy(limit => catalog.CapacityKey(limit.Key)).Select(group =>
+        {
+            var keys = catalog.Registrations.Select(registration => registration.Identity.Key)
+                .Where(key => catalog.CapacityKey(key) == group.Key).Distinct().ToArray();
+
+            return new ContractBudget(keys, group.Min(limit => limit.Value) - active.GetValueOrDefault(group.Key));
+        }).ToArray();
     }
 
     /// <summary>Processors whose local per-job limit still has room on this worker.</summary>
@@ -173,7 +242,10 @@ internal sealed class JobWorker(
     {
         var started = Stopwatch.GetTimestamp();
         var outcome = AttemptOutcome.InfrastructureFailure;
-        using var activity = WorkThroughTelemetry.Activities.StartActivity("workthrough.process", ActivityKind.Consumer);
+        // The attempt continues the producer's trace when one was captured at enqueue.
+        using var activity = ActivityContext.TryParse(job.TraceParent, null, out var parent)
+            ? WorkThroughTelemetry.Activities.StartActivity("workthrough.process", ActivityKind.Consumer, parent)
+            : WorkThroughTelemetry.Activities.StartActivity("workthrough.process", ActivityKind.Consumer);
         activity?.SetTag("workthrough.processor", job.Contract.ToString());
         activity?.SetTag("workthrough.job.id", job.Id);
         activity?.SetTag("workthrough.correlation.id", job.CorrelationId);
@@ -227,6 +299,13 @@ internal sealed class JobWorker(
         try
         {
             invocation.Token.ThrowIfCancellationRequested();
+
+            // An envelope would bind to an input of defaults, so the handler never sees it.
+            if (PayloadEnvelope.IsProtected(job.Payload))
+            {
+                throw new PayloadKeyMissingException(PayloadEnvelope.KeyOf(job.Payload));
+            }
+
             result = await JobPipeline.InvokeAsync(scope.ServiceProvider, new(job, registration, context), handler, invocation.Token);
             result.Validate();
             invocation.Token.ThrowIfCancellationRequested();
@@ -277,6 +356,13 @@ internal sealed class JobWorker(
     private async Task<AttemptOutcome> SettleFailureAsync(IServiceProvider services, JobRecord job, JobWorkerOptions settings, Exception exception)
     {
         var decision = services.GetRequiredService<IJobRetryPolicy>().Decide(job, exception);
+
+        // A missing key is this host's configuration, not the job's fault, so the work is never rejected for it.
+        if (exception is PayloadKeyMissingException && !decision.Retry)
+        {
+            decision = RetryDecision.After(MissingKeyRetryDelay);
+        }
+
         if (decision.Delay < TimeSpan.Zero || decision.Delay > JobLimits.MaximumDelay)
         {
             throw new InvalidOperationException("Retry delay is outside the supported range.");
@@ -298,7 +384,8 @@ internal sealed class JobWorker(
     private async Task<AttemptOutcome> SettleResultAsync(IServiceProvider services, JobRecord job, JobResult result)
     {
         using var timeout = new CancellationTokenSource(SettlementTimeout);
-        if (!await store.CompleteAsync(job.Id, job.LeaseToken!.Value, result, timeout.Token))
+        var completion = new AttemptCompletion(job.Id, job.LeaseToken!.Value, result);
+        if (!await (completions?.CompleteAsync(completion, timeout.Token) ?? store.CompleteAsync(completion.JobId, completion.LeaseToken, result, timeout.Token)))
         {
             logger.LogWarning("Job {JobId} lost ownership before completion; its result was not committed", job.Id);
 
@@ -368,30 +455,47 @@ internal sealed class JobWorker(
         return outcome;
     }
 
+    /// <summary>
+    /// Renews every third of the lease. A refused renewal means ownership is gone. A failed renewal is retried on the next tick,
+    /// so a brief storage outage does not abandon healthy handlers; the attempt is cancelled once the lease may have expired.
+    /// </summary>
     private async Task RenewLeaseAsync(Guid id, Guid token, TimeSpan duration, CancellationTokenSource attempt, CancellationToken stop)
     {
+        var interval = duration / LeaseRenewalsPerDuration;
+        var renewed = Stopwatch.GetTimestamp();
         try
         {
-            using var timer = new PeriodicTimer(duration / 3);
+            using var timer = new PeriodicTimer(interval);
             while (await timer.WaitForNextTickAsync(stop))
             {
-                if (await store.RenewAsync(id, token, duration, stop))
+                try
                 {
-                    continue;
+                    if (!await store.RenewAsync(id, token, duration, stop))
+                    {
+                        await attempt.CancelAsync();
+
+                        return;
+                    }
+
+                    renewed = Stopwatch.GetTimestamp();
                 }
+                catch (Exception exception) when (exception is not OperationCanceledException || !stop.IsCancellationRequested)
+                {
+                    // The next tick would come after the lease may already have expired.
+                    if (Stopwatch.GetElapsedTime(renewed) + interval >= duration)
+                    {
+                        logger.LogError(exception, "Cannot renew job {JobId} before its lease may expire; requesting cancellation", id);
+                        await attempt.CancelAsync();
 
-                await attempt.CancelAsync();
+                        return;
+                    }
 
-                return;
+                    logger.LogWarning(exception, "Renewing job {JobId} failed; retrying while the lease remains valid", id);
+                }
             }
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested)
         {
-        }
-        catch (Exception exception)
-        {
-            logger.LogError(exception, "Cannot renew job {JobId}; requesting cancellation", id);
-            await attempt.CancelAsync();
         }
     }
 

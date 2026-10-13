@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Xunit;
 
 namespace WorkThrough.Tests;

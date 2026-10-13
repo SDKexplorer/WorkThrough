@@ -1,7 +1,7 @@
-import { Component, ElementRef, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, signal, viewChild } from '@angular/core';
 import { DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { SavedFlowGraph } from './saved-flow-graph';
-import { CsrfHeader, Permission, SignalProcessorKey } from './permissions';
+import { ChildFlowProcessorKey, CsrfHeader, Permission, SignalProcessorKey } from './permissions';
 
 interface Processor {
     key: string;
@@ -20,6 +20,8 @@ interface Job {
     workflowRunId: string | null;
     stepId: string | null;
     workerId: string | null;
+    partitionKey: string | null;
+    tenantId: string | null;
 }
 interface Attempt {
     number: number;
@@ -34,6 +36,7 @@ interface Detail {
     health: { reason: string; suspectedStalled: boolean; progress: unknown };
     sensitive: boolean;
     payload: unknown;
+    originalPayload: unknown;
     output: unknown;
     error: string | null;
     attempts: Attempt[];
@@ -54,6 +57,7 @@ interface Graph {
         after: string[];
         queue: string;
         conditional: boolean;
+        onFailureOf?: string | null;
     }[];
 }
 interface Definition {
@@ -63,9 +67,19 @@ interface Definition {
     status: string;
     graph: Graph;
 }
+interface FlowRun {
+    id: string;
+    flowKey: string;
+    version: number;
+    status: string;
+    parentRunId?: string | null;
+    parentJobId?: string | null;
+    forkedFromRunId?: string | null;
+}
 interface Flow {
     jobs: Job[];
-    flow: { id: string; flowKey: string; version: number; status: string };
+    flow: FlowRun;
+    children: { run: FlowRun; jobId: string | null }[];
     graph: Graph;
     events: { sequence: number; jobId: string; kind: string; at: string; attempt: number }[];
 }
@@ -82,6 +96,11 @@ interface Schedule {
     overlap: string;
     misfire: string;
 }
+interface EngineProtocolState {
+    active: number;
+    supported: number;
+    blockers: string[];
+}
 interface Worker {
     acquisition?: {
         lastAttemptAt: string | null;
@@ -92,7 +111,9 @@ interface Worker {
         identity: Processor;
         canonicalIdentity: Processor;
         displayName: string | null;
+        upcastTo?: Processor | null;
     }[];
+    protocol?: number;
     workerId: string;
     seenAt: string;
     processors: Processor[];
@@ -143,6 +164,23 @@ interface QueueControl {
     queue: string;
     paused: boolean;
     revision: number;
+    weight: number;
+}
+type KeyScope = 'Partition' | 'Tenant';
+const DurationUnits: [number, string][] = [
+    [86400, 'd'],
+    [3600, 'h'],
+    [60, 'min'],
+    [1, 's'],
+];
+interface AdmissionPolicies {
+    keyedLimits: { scope: KeyScope; jobKey: string | null; maximumPerKey: number }[];
+    rateLimits: {
+        jobKey: string | null;
+        permits: number;
+        window: string;
+        perKey: KeyScope | null;
+    }[];
 }
 interface WorkerControl {
     workerId: string;
@@ -177,6 +215,8 @@ interface Pending {
     wrapper?: 'command';
     value?: object;
     command?: object;
+    /** Initial JSON for an input the operator edits in the dialog. */
+    input?: string;
 }
 
 interface RetentionStatus {
@@ -224,6 +264,17 @@ const EmptyFlowDraft = JSON.stringify(
     2,
 );
 
+const AppearanceKey = 'workthrough.appearance';
+
+/** The viewer's saved appearance, else their system preference. Storage can be unavailable, as in private windows. */
+function initialAppearance(): 'light' | 'dark' {
+    try {
+        const saved = localStorage.getItem(AppearanceKey);
+        if (saved === 'light' || saved === 'dark') return saved;
+    } catch {}
+    return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
 @Component({
     selector: 'app-console',
     imports: [DatePipe, DecimalPipe, JsonPipe, SavedFlowGraph],
@@ -232,24 +283,30 @@ const EmptyFlowDraft = JSON.stringify(
 export class LiveConsoleComponent {
     readonly permission = Permission;
     readonly signalProcessorKey = SignalProcessorKey;
+    readonly childFlowProcessorKey = ChildFlowProcessorKey;
     readonly base = document.body.dataset['base'] ?? '';
-    readonly light = signal(false);
+    readonly light = signal(initialAppearance() === 'light');
     readonly section = signal('executions');
     readonly busy = signal(false);
     readonly error = signal('');
     readonly updated = signal<Date | null>(null);
     readonly permissions = signal<string[]>([]);
     readonly user = signal('');
+    /** Null for store-wide access; otherwise the only tenants this user can see (ADR-019). */
+    readonly tenants = signal<string[] | null>(null);
+    readonly storeWide = computed(() => this.tenants() === null);
     readonly jobs = signal<Job[]>([]);
     readonly stats = signal<Statistics>({ counts: {}, limits: [] });
     readonly metrics = signal<RuntimeMetrics | null>(null);
     readonly metricsError = signal('');
     readonly definitions = signal<Definition[]>([]);
     readonly workers = signal<Worker[]>([]);
+    readonly protocol = signal<EngineProtocolState | null>(null);
     readonly schedules = signal<Schedule[]>([]);
     readonly deployment = signal<DeploymentReport | null>(null);
     readonly controls = signal<Controls>({ queues: [], workers: [] });
     readonly archives = signal<Archive[]>([]);
+    readonly admission = signal<AdmissionPolicies>({ keyedLimits: [], rateLimits: [] });
     readonly archiveCandidates = signal<Candidate[] | null>(null);
     readonly retention = signal<RetentionStatus | null>(null);
     readonly retentionError = signal('');
@@ -260,6 +317,7 @@ export class LiveConsoleComponent {
     readonly detail = signal<Detail | null>(null);
     readonly flow = signal<Flow | null>(null);
     readonly pending = signal<Pending | null>(null);
+    readonly inputJson = signal('');
     readonly confirmation = viewChild<ElementRef<HTMLDialogElement>>('confirmation');
     readonly draftEditor = signal(false);
     readonly draftJson = signal(EmptyFlowDraft);
@@ -308,12 +366,19 @@ export class LiveConsoleComponent {
     }
     async initialize() {
         try {
-            const access = await this.request<{ permissions: string[]; user: string }>(
-                '/api/access',
-            );
+            const access = await this.request<{
+                permissions: string[];
+                user: string;
+                tenants: string[] | null;
+            }>('/api/access');
             this.permissions.set(access.permissions);
             this.user.set(access.user);
-            if (!this.can(Permission.ReadExecutions) && this.can(Permission.ReadAudit))
+            this.tenants.set(access.tenants ?? null);
+            if (
+                !this.can(Permission.ReadExecutions) &&
+                this.storeWide() &&
+                this.can(Permission.ReadAudit)
+            )
                 this.section.set('audit');
             await this.refresh();
         } catch (e) {
@@ -325,7 +390,12 @@ export class LiveConsoleComponent {
         this.busy.set(true);
         this.error.set('');
         try {
-            if (this.can(Permission.ReadExecutions)) {
+            if (this.can(Permission.ReadExecutions) && !this.storeWide()) {
+                const filter = new URLSearchParams({ offset: String(this.offset) });
+                if (this.correlation) filter.set('correlationId', this.correlation);
+                if (this.status) filter.set('status', this.status);
+                this.jobs.set(await this.request<Job[]>('/api/jobs?' + filter));
+            } else if (this.can(Permission.ReadExecutions)) {
                 const filter = new URLSearchParams({ offset: String(this.offset) });
                 if (this.correlation) filter.set('correlationId', this.correlation);
                 if (this.status) filter.set('status', this.status);
@@ -338,6 +408,7 @@ export class LiveConsoleComponent {
                     deployment,
                     controls,
                     archives,
+                    admission,
                 ] = await Promise.all([
                     this.request<Job[]>('/api/jobs?' + filter),
                     this.request<Statistics>('/api/stats'),
@@ -347,15 +418,22 @@ export class LiveConsoleComponent {
                     this.request<DeploymentReport>('/api/deployment'),
                     this.request<Controls>('/api/controls'),
                     this.request<Archive[]>('/api/archives?' + filter),
+                    this.request<AdmissionPolicies>('/api/admission'),
                 ]);
                 this.controls.set(controls);
                 this.archives.set(archives);
+                this.admission.set(admission);
                 this.jobs.set(jobs);
                 this.stats.set(stats);
                 this.definitions.set(definitions);
                 this.workers.set(workers);
                 this.schedules.set(schedules);
                 this.deployment.set(deployment);
+                try {
+                    this.protocol.set(await this.request<EngineProtocolState>('/api/protocol'));
+                } catch {
+                    this.protocol.set(null);
+                }
                 try {
                     this.metrics.set(await this.request<RuntimeMetrics>('/api/metrics'));
                     this.metricsError.set('');
@@ -366,9 +444,13 @@ export class LiveConsoleComponent {
                     );
                 }
             }
-            if (this.can(Permission.ReadAudit))
+            if (this.storeWide() && this.can(Permission.ReadAudit))
                 this.audit.set(await this.request<Audit[]>('/api/audit'));
-            if (this.can(Permission.ReadExecutions) && this.can(Permission.ReadRetention)) {
+            if (
+                this.storeWide() &&
+                this.can(Permission.ReadExecutions) &&
+                this.can(Permission.ReadRetention)
+            ) {
                 try {
                     this.retention.set(await this.request<RetentionStatus>('/api/retention'));
                     this.retentionError.set('');
@@ -409,6 +491,10 @@ export class LiveConsoleComponent {
             if (version === this.inspection) this.error.set(this.message(e));
         }
     }
+    /** Opens a job by ID, for links between parent and child runs. */
+    async inspectRun(jobId: string | null | undefined, runId: string | null | undefined) {
+        if (jobId && runId) await this.inspect({ id: jobId, workflowRunId: runId } as Job);
+    }
     async inspectStep(id: string) {
         const job = this.flow()?.jobs.find(
             (j) => j.workflowRunId === this.flow()?.flow.id && j.stepId === id,
@@ -437,6 +523,31 @@ export class LiveConsoleComponent {
         this.offset = Math.max(0, this.offset + direction * 100);
         void this.refresh();
     }
+    /** Starts a new run of this flow from the step, keeping the outcomes of earlier work. */
+    openFork(flow: Flow, stepId: string) {
+        this.ask({
+            title: `Fork a new run from step ${stepId}`,
+            path: `/api/flows/${flow.flow.id}/fork`,
+            wrapper: 'command',
+            value: { fromStep: stepId },
+        });
+    }
+    /** Opens the first job of another run, such as a fork's source. */
+    async inspectFirstJob(runId: string | null | undefined) {
+        if (!runId) return;
+        const source = await this.request<Flow>('/api/flows/' + runId);
+        await this.inspectRun(source.jobs[0]?.id, runId);
+    }
+    /** Edits a failed job's input, then retries it, or recovers it when it is a step of a flow in an incident. */
+    openCorrection(job: Job, payload: unknown) {
+        this.ask({
+            title: 'Correct input and run again',
+            path: `/api/jobs/${job.id}/correct`,
+            expectedAttempt: job.attempt,
+            wrapper: 'command',
+            input: JSON.stringify(payload, null, 2),
+        });
+    }
     openAction(action: string, job: Job) {
         this.ask({
             title:
@@ -463,7 +574,44 @@ export class LiveConsoleComponent {
                     queue,
                     paused: false,
                     revision: 0,
+                    weight: 1,
                 },
+        );
+    }
+    /** Stored totals; terminal problems are grouped because an operator acts on them the same way. */
+    readonly totals = computed(() => {
+        const count = (...states: string[]) =>
+            states.reduce((sum, state) => sum + (this.stats().counts[state] ?? 0), 0);
+        return [
+            { label: 'Queued', count: count('Queued'), detail: 'Ready for a worker' },
+            { label: 'Running', count: count('Running'), detail: 'Holding a lease' },
+            { label: 'Succeeded', count: count('Succeeded'), detail: 'Current stored jobs' },
+            {
+                label: 'Needs attention',
+                count: count('Failed', 'Rejected', 'Expired'),
+                detail: 'Failed, rejected or expired',
+            },
+        ];
+    });
+    /** Formats a whole .NET TimeSpan ("d.hh:mm:ss") in its largest exact unit, e.g. "1 min"; anything else stays as stored. */
+    duration(value: string): string {
+        const match = /^(?:(\d+)\.)?(\d+):(\d+):(\d+)$/.exec(value);
+        if (!match) return value;
+        const [, days = '0', hours, minutes, seconds] = match;
+        const total =
+            ((Number(days) * 24 + Number(hours)) * 60 + Number(minutes)) * 60 + Number(seconds);
+        const [size, label] = DurationUnits.find(([unit]) => total % unit === 0) ?? [1, 's'];
+        return `${total / size} ${label}`;
+    }
+    keyScopeLabel(scope: KeyScope): string {
+        return scope === 'Tenant' ? 'tenant' : 'partition key';
+    }
+    /** The version whose job runs this processor address through an upcast, if any. */
+    upcastTarget(worker: Worker, processor: Processor): Processor | null {
+        return (
+            worker.descriptions?.find(
+                (d) => d.identity.key === processor.key && d.identity.version === processor.version,
+            )?.upcastTo ?? null
         );
     }
     processorName(worker: Worker, processor: Processor): string {
@@ -597,6 +745,7 @@ export class LiveConsoleComponent {
     }
     ask(pending: Pending) {
         this.pending.set(pending);
+        this.inputJson.set(pending.input ?? '');
         this.reason.set('');
         this.commandError.set('');
         this.confirmation()?.nativeElement.showModal();
@@ -607,6 +756,15 @@ export class LiveConsoleComponent {
     async confirm() {
         const pending = this.pending();
         if (!pending || !this.reason().trim() || this.submitting()) return;
+        let value = pending.value;
+        if (pending.input !== undefined) {
+            try {
+                value = { input: JSON.parse(this.inputJson()) };
+            } catch {
+                this.commandError.set('The input must be valid JSON.');
+                return;
+            }
+        }
         this.submitting.set(true);
         this.commandError.set('');
         const command = pending.command ?? {
@@ -619,7 +777,7 @@ export class LiveConsoleComponent {
         try {
             const result = await this.request<unknown>(
                 pending.path,
-                pending.wrapper ? { ...pending.value, command } : command,
+                pending.wrapper ? { ...value, command } : command,
             );
             if (pending.path.endsWith('/draft') && typeof result === 'number')
                 this.draftRevision.set(result);
@@ -645,6 +803,10 @@ export class LiveConsoleComponent {
                     RetryScheduled: 'Waiting for the next retry',
                     Scheduled: 'Scheduled for later',
                     SharedCapacity: 'Waiting for shared capacity',
+                    PartitionCapacity: 'Waiting for a free slot in its partition',
+                    TenantCapacity: 'Waiting for a free slot for its tenant',
+                    FlowParallelism: 'Waiting for its flow run to finish a parallel step',
+                    RateLimited: 'Waiting for the rate limit window',
                     WorkerCapacity: 'Waiting for worker capacity',
                     NoRecentCapableWorker: 'No recent worker supports this processor and queue',
                     LeaseExpired: 'Lease expired · awaiting recovery',
@@ -656,6 +818,12 @@ export class LiveConsoleComponent {
                 } as Record<string, string>
             )[reason] ?? reason
         );
+    }
+    toggleAppearance(): void {
+        this.light.set(!this.light());
+        try {
+            localStorage.setItem(AppearanceKey, this.light() ? 'light' : 'dark');
+        } catch {}
     }
     private message(e: unknown) {
         return e instanceof Error ? e.message : 'The request failed.';

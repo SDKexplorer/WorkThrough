@@ -1,9 +1,21 @@
+using System.Text.Json;
+
 namespace WorkThrough;
 
 /// <summary>A trusted host supplies the issuer and stable subject; display names are historical labels.</summary>
-public sealed record OperationActor(string Issuer, string Subject, string? DisplayName = null);
+public sealed record OperationActor(string Issuer, string Subject, string? DisplayName = null)
+{
+    public const string ServiceIssuer = "service";
 
-public sealed record AdministrativeCommand(Guid Id, OperationActor Actor, string Reason);
+    /// <summary>An application, script or deployment acting through code rather than a signed-in user.</summary>
+    public static OperationActor Service(string name) => new(ServiceIssuer, name, name);
+}
+
+public sealed record AdministrativeCommand(Guid Id, OperationActor Actor, string Reason)
+{
+    /// <summary>A command with a fresh ID. To retry the same command safely after a lost response, resend this same instance.</summary>
+    public static AdministrativeCommand New(OperationActor actor, string reason) => new(Guid.NewGuid(), actor, reason);
+}
 
 public sealed record AuditEntry(Guid CommandId, DateTimeOffset At, OperationActor Actor, string Action, string Target, string Reason, string Outcome, string? Changes = null);
 
@@ -22,8 +34,33 @@ public interface IJobAdministration
     Task<Result> RetryJobAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> CancelJobAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> RecoverStepAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces the input of a failed, rejected, expired or cancelled job and runs it again: a standalone job is queued, a step of a flow
+    /// in an incident is recovered. The first input is kept as <see cref="JobRecord.OriginalPayload"/>; the audit records digests only.
+    /// </summary>
+    Task<Result> CorrectInputAsync(Guid id, int expectedAttempt, JsonElement input, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Starts a new run of a finished, failed or suspended run's pinned definition, with the same input and keys, from step
+    /// <paramref name="fromStep"/>: steps outside it and its descendants keep their succeeded or skipped outcomes without running
+    /// again; the rest run anew. The source run is unchanged. Returns the new run.
+    /// </summary>
+    Task<Result<Guid>> ForkRunAsync(Guid runId, string fromStep, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> SetFlowPausedAsync(Guid id, bool paused, AdministrativeCommand command, CancellationToken cancellationToken = default);
     Task<Result> ChangeLimitAsync(ConcurrencyLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>Creates or replaces the keyed limit for its key scope and job key.</summary>
+    Task<Result> SetKeyedLimitAsync(KeyedLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the keyed limit for a job key, or the all-work limit when the job key is null.</summary>
+    Task<Result> RemoveKeyedLimitAsync(KeyScope scope, string? jobKey, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>Creates or replaces the rate limit for its job key and per-key scope.</summary>
+    Task<Result> SetRateLimitAsync(RateLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
+    Task<Result> RemoveRateLimitAsync(string? jobKey, KeyScope? perKey, AdministrativeCommand command, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<AuditEntry>> AuditAsync(int limit = 100, CancellationToken cancellationToken = default);
 }
 

@@ -31,6 +31,8 @@ public abstract partial class RelationalJobStore
     private static void ValidateScheduleDraft(ScheduleDefinition definition, int expectedRevision)
     {
         _ = new JobContractId(definition.Key, definition.Version);
+        AdmissionKeys.Validate(definition.PartitionKey, KeyScope.Partition, nameof(definition));
+        AdmissionKeys.Validate(definition.TenantId, KeyScope.Tenant, nameof(definition));
         ArgumentOutOfRangeException.ThrowIfNegative(expectedRevision);
     }
 
@@ -155,7 +157,11 @@ public abstract partial class RelationalJobStore
         if (!skipped)
         {
             job = new JobRecord(Guid.NewGuid(), definition.Processor, definition.Input, definition.Queue, definition.CorrelationId,
-                JobStatus.Queued, 0, definition.MaxAttempts, now, now);
+                JobStatus.Queued, 0, definition.MaxAttempts, now, now)
+            {
+                PartitionKey = definition.PartitionKey,
+                TenantId = definition.TenantId
+            };
             await InsertJobAsync(connection, transaction, job, ct);
             await JournalAsync(connection, transaction, job, now.ToUnixTimeMilliseconds(), ExecutionEventKinds.ScheduledOccurrence, ct);
         }

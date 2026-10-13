@@ -1,5 +1,4 @@
 using System.Data.Common;
-using WorkThrough.Storage;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -74,6 +73,8 @@ public sealed class ProviderIdentityTests
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = "INSERT INTO dj_schema(version) VALUES (999)";
+        await command.ExecuteNonQueryAsync();
+        command.CommandText = "UPDATE dj_compatibility SET reader_minimum=999";
         await command.ExecuteNonQueryAsync();
         await Assert.ThrowsAsync<InvalidOperationException>(() => harness.NewStore().InitializeAsync());
     }

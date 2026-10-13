@@ -1,6 +1,7 @@
-using Microsoft.Data.Sqlite;
-using Microsoft.Data.SqlClient;
 using System.Data.Common;
+using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
+using MySqlConnector;
 using Npgsql;
 using Oracle.ManagedDataAccess.Client;
 using WorkThrough.Storage;
@@ -14,8 +15,12 @@ internal sealed class StoreHarness : IAsyncDisposable
     private string? adminConnection;
     private string? database;
     private string? oraclePassword;
+    private string? mySqlDatabase;
     public string? OracleSchema => Store is OracleJobStore ? schema : null;
     public string? ReadOnlyConnectionString { get; private set; }
+    /// <summary>A SQL Server database with READ_COMMITTED_SNAPSHOT on, where settlements and unrestricted claims skip the application lock.</summary>
+    public const string SqlServerVersionedReads = "sqlserver-rcsi";
+
     public required Func<RelationalJobStore> NewStore { get; init; }
     public required string ConnectionString { get; init; }
     public RelationalJobStore Store => NewStore();
@@ -54,6 +59,7 @@ internal sealed class StoreHarness : IAsyncDisposable
         SqlServerJobStore => new SqlConnection(ConnectionString),
         PostgresJobStore => new NpgsqlConnection(ConnectionString),
         SqliteJobStore => new SqliteConnection(ConnectionString),
+        MySqlJobStore => new MySqlConnection(ConnectionString),
         _ => throw new InvalidOperationException("Unknown test provider.")
     };
 
@@ -63,6 +69,7 @@ internal sealed class StoreHarness : IAsyncDisposable
         SqlServerJobStore => builder.UseSqlServer(ConnectionString),
         PostgresJobStore => builder.UsePostgreSql(ConnectionString),
         SqliteJobStore => builder.UseSqlite(ConnectionString),
+        MySqlJobStore => builder.UseMySql(ConnectionString),
         _ => throw new InvalidOperationException("Unknown test provider.")
     };
 
@@ -95,7 +102,7 @@ internal sealed class StoreHarness : IAsyncDisposable
                 NewStore = () => new OracleJobStore(cs)
             };
         }
-        else if (provider == "sqlserver")
+        else if (provider is "sqlserver" or SqlServerVersionedReads)
         {
             var admin = Environment.GetEnvironmentVariable("DURABLEJOBS_SQLSERVER")
                 ?? throw new InvalidOperationException("SQL Server tests require a disposable server connection with database creation privileges.");
@@ -103,7 +110,8 @@ internal sealed class StoreHarness : IAsyncDisposable
             await using var connection = new SqlConnection(admin);
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
-            command.CommandText = $"CREATE DATABASE [{database}]; ALTER DATABASE [{database}] SET ALLOW_SNAPSHOT_ISOLATION ON;";
+            command.CommandText = $"CREATE DATABASE [{database}]; ALTER DATABASE [{database}] SET ALLOW_SNAPSHOT_ISOLATION ON;" +
+                (provider == SqlServerVersionedReads ? $" ALTER DATABASE [{database}] SET READ_COMMITTED_SNAPSHOT ON;" : "");
             await command.ExecuteNonQueryAsync();
             var cs = new SqlConnectionStringBuilder(admin) { InitialCatalog = database }.ToString();
             harness = new()
@@ -130,6 +138,26 @@ internal sealed class StoreHarness : IAsyncDisposable
                 adminConnection = admin,
                 ConnectionString = cs,
                 NewStore = () => new PostgresJobStore(cs)
+            };
+        }
+        else if (provider is "mysql" or "mariadb")
+        {
+            var variable = provider == "mysql" ? "DURABLEJOBS_MYSQL" : "DURABLEJOBS_MARIADB";
+            var admin = Environment.GetEnvironmentVariable(variable)
+                ?? throw new InvalidOperationException($"{provider} tests require {variable}: a disposable server connection with database creation privileges.");
+            var name = "dj_test_" + Guid.NewGuid().ToString("N");
+            await using var connection = new MySqlConnection(admin);
+            await connection.OpenAsync();
+            await using var command = new MySqlCommand($"CREATE DATABASE {name}", connection);
+            await command.ExecuteNonQueryAsync();
+            // Bound each fixture pool, as for Oracle, so parallel tests stay within the server's connection limit.
+            var cs = new MySqlConnectionStringBuilder(admin) { Database = name, MaximumPoolSize = 16 }.ConnectionString;
+            harness = new()
+            {
+                mySqlDatabase = name,
+                adminConnection = admin,
+                ConnectionString = cs,
+                NewStore = () => new MySqlJobStore(cs)
             };
         }
         else if (provider == "sqlite")
@@ -207,6 +235,26 @@ internal sealed class StoreHarness : IAsyncDisposable
         }.ToString();
     }
 
+    /// <summary>A login that may only read this fixture's database. MySQL limits user names to 32 characters.</summary>
+    public async Task ProvisionReadOnlyMySqlAsync()
+    {
+        if (mySqlDatabase is null || ReadOnlyConnectionString is not null)
+        {
+            return;
+        }
+
+        var login = MySqlReader;
+        var password = "Test_" + Guid.NewGuid().ToString("N");
+        await using var connection = new MySqlConnection(adminConnection);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand($"CREATE USER '{login}'@'%' IDENTIFIED BY '{password}'; GRANT SELECT ON {mySqlDatabase}.* TO '{login}'@'%';",
+            connection);
+        await command.ExecuteNonQueryAsync();
+        ReadOnlyConnectionString = new MySqlConnectionStringBuilder(ConnectionString) { UserID = login, Password = password, Pooling = false }.ConnectionString;
+    }
+
+    private string MySqlReader => "r_" + mySqlDatabase![^24..];
+
     public async ValueTask DisposeAsync()
     {
         if (database is not null)
@@ -248,6 +296,16 @@ internal sealed class StoreHarness : IAsyncDisposable
             await command.ExecuteNonQueryAsync();
         }
 
+        if (mySqlDatabase is not null)
+        {
+            await MySqlConnection.ClearPoolAsync(new MySqlConnection(ConnectionString));
+            await using var connection = new MySqlConnection(adminConnection);
+            await connection.OpenAsync();
+            await using var command = new MySqlCommand($"DROP DATABASE {mySqlDatabase}" +
+                (ReadOnlyConnectionString is null ? "" : $"; DROP USER '{MySqlReader}'@'%'"), connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
         if (directory is not null)
         {
             SqliteConnection.ClearPool(new SqliteConnection(ConnectionString));
@@ -258,7 +316,10 @@ internal sealed class StoreHarness : IAsyncDisposable
     {
         await using var command = connection.CreateCommand();
         command.CommandText = $"DROP USER {user} CASCADE";
-        for (var attempt = 0; ; attempt++)
+
+        // Sessions killed by fault tests can take several seconds to leave v$session on a loaded instance.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (true)
         {
             try
             {
@@ -266,7 +327,7 @@ internal sealed class StoreHarness : IAsyncDisposable
 
                 return;
             }
-            catch (OracleException error) when (error.Number == 1940 && attempt < 20)
+            catch (OracleException error) when (error.Number == 1940 && DateTime.UtcNow < deadline)
             {
                 // Oracle may retain pooled sessions after ClearPool. Disconnect only this fixture's exact user.
                 await using var sessions = connection.CreateCommand();

@@ -32,9 +32,14 @@ public sealed class WorkThroughBuilder
         where TStore : class, IJobStore, IJobQueries, IExecutionQueries, IExecutionInspectionQueries, IOperationHistoryQueries,
         IRuntimeQueries, IRetentionQueries, IRetentionAdministration, IRetentionMaintenance, IJobAdministration, IWorkflowDefinitions,
         IJobDiagnostics, IJobSchedules, IDeploymentQueries, IProcessorRegistry, IExecutionOperations, IExecutionArchives,
-        IWorkflowSignals, IJobOutbox, IExecutionEvents
+        IWorkflowSignals, IJobOutbox, IExecutionEvents, IAdmissionPolicies
     {
         ArgumentNullException.ThrowIfNull(store);
+        if (Initialization.PayloadProtector is { } protector)
+        {
+            Protect(store, protector);
+        }
+
         Services.AddSingleton(store);
         Type[] ports =
         [
@@ -42,7 +47,7 @@ public sealed class WorkThroughBuilder
             typeof(IRuntimeQueries), typeof(IRetentionQueries), typeof(IRetentionAdministration), typeof(IRetentionMaintenance),
             typeof(IJobAdministration), typeof(IWorkflowDefinitions), typeof(IJobDiagnostics), typeof(IJobSchedules), typeof(IDeploymentQueries),
             typeof(IProcessorRegistry), typeof(IExecutionOperations), typeof(IExecutionArchives), typeof(IWorkflowSignals), typeof(IJobOutbox),
-            typeof(IExecutionEvents)
+            typeof(IExecutionEvents), typeof(IAdmissionPolicies)
         ];
         foreach (var port in ports)
         {
@@ -52,41 +57,103 @@ public sealed class WorkThroughBuilder
         return this;
     }
 
-    public WorkThroughBuilder AddJob<TJob, THandler>() where THandler : class, IJobHandler<TJob>
+    /// <summary>Registers a job at the address its [Job] attribute, or its input's [JobContract], declares.</summary>
+    public WorkThroughBuilder AddJob<TInput, TJob>() where TJob : class, IJob<TInput>
     {
-        Catalog.Register<TJob, THandler>();
-        Services.TryAddScoped<THandler>();
+        Catalog.Register<TInput, TJob>();
+        Services.TryAddScoped<TJob>();
 
         return this;
     }
 
-    /// <summary>Registers a processor by its attributed permanent identity.</summary>
-    public WorkThroughBuilder AddProcessor<TInput, TProcessor>() where TProcessor : class, IProcessor<TInput>
+    /// <summary>Binds a typed permanent address to a job class at the composition root.</summary>
+    public WorkThroughBuilder AddJob<TInput, TJob>(JobDefinition<TInput> definition, params JobContractId[] aliases)
+        where TJob : class, IJob<TInput>
     {
-        Catalog.RegisterProcessor<TInput, TProcessor>();
-        Services.TryAddScoped<TProcessor>();
+        Catalog.Register<TInput, TJob>(definition, aliases);
+        Services.TryAddScoped<TJob>();
 
         return this;
     }
 
-    /// <summary>Binds a typed permanent address to an implementation at the composition root.</summary>
-    public WorkThroughBuilder AddProcessor<TInput, TProcessor>(JobDefinition<TInput> definition, params JobContractId[] aliases)
-        where TProcessor : class, IProcessor<TInput>
+    /// <summary>Binds an explicit permanent address to a job class.</summary>
+    public WorkThroughBuilder AddJob<TInput, TJob>(JobContractId identity, params JobContractId[] aliases)
+        where TJob : class, IJob<TInput> => AddJob<TInput, TJob>(new JobDefinition<TInput>(identity), aliases);
+
+    /// <summary>Runs <paramref name="execute"/> for work at the definition's address; the job succeeds when it completes.</summary>
+    /// <example><c>.AddJob(Emails.Welcome, job =&gt; job.Service&lt;IMailer&gt;().SendAsync(job.Input.Address, job.CancellationToken))</c></example>
+    public WorkThroughBuilder AddJob<TInput>(JobDefinition<TInput> definition, Func<JobCall<TInput>, Task> execute)
     {
-        Catalog.RegisterProcessor<TInput, TProcessor>(definition, aliases);
-        Services.TryAddScoped<TProcessor>();
+        ArgumentNullException.ThrowIfNull(execute);
+
+        return AddJob(definition, async job =>
+        {
+            await execute(job).ConfigureAwait(false);
+
+            return JobResult.Done();
+        });
+    }
+
+    /// <summary>Runs <paramref name="execute"/> for work at the definition's address; its result can carry an output or reject the work.</summary>
+    public WorkThroughBuilder AddJob<TInput>(JobDefinition<TInput> definition, Func<JobCall<TInput>, Task<JobResult>> execute)
+    {
+        Catalog.Register(definition, execute);
+        Services.TryAddScoped<DelegateJobHandler>();
 
         return this;
     }
 
-    /// <summary>Binds an explicit permanent identity to an implementation.</summary>
-    public WorkThroughBuilder AddProcessor<TInput, TProcessor>(JobContractId identity, params JobContractId[] aliases)
-        where TProcessor : class, IProcessor<TInput> => AddProcessor<TInput, TProcessor>(new JobDefinition<TInput>(identity), aliases);
+    /// <summary>Runs <paramref name="execute"/> for work at the address of <typeparamref name="TInput"/>'s [JobContract].</summary>
+    public WorkThroughBuilder AddJob<TInput>(Func<JobCall<TInput>, Task> execute) =>
+        AddJob(new JobDefinition<TInput>(JobContractId.For<TInput>()), execute);
+
+    /// <summary>
+    /// Registers every job class in the assembly at the address its [Job] attribute, or its input's [JobContract], declares. It
+    /// follows the source generator's rules at startup instead of build time. Classes marked [ManualJobRegistration] are left to AddJob.
+    /// </summary>
+    public WorkThroughBuilder AddJobs(Assembly assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        var register = typeof(WorkThroughBuilder).GetMethods().Single(method => method.Name == nameof(AddJob) && method.GetParameters().Length == 0);
+        var jobs = assembly.GetTypes()
+            .Where(type => type is { IsClass: true, IsAbstract: false, ContainsGenericParameters: false }
+                && type.GetCustomAttribute<ManualJobRegistrationAttribute>() is null)
+            .OrderBy(type => type.FullName, StringComparer.Ordinal);
+        foreach (var job in jobs)
+        {
+            var inputs = job.GetInterfaces().Where(type => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IJob<>))
+                .Select(type => type.GetGenericArguments()[0]);
+            foreach (var input in inputs)
+            {
+                if (job.GetCustomAttribute<JobAttribute>() is null && input.GetCustomAttribute<JobContractAttribute>() is null)
+                {
+                    throw new InvalidOperationException($"Job {job.FullName} needs a [Job] address, or an input type with a [JobContract] address. " +
+                        "Mark it [ManualJobRegistration] to register it with AddJob instead.");
+                }
+
+                register.MakeGenericMethod(input, job).Invoke(this, BindingFlags.DoNotWrapExceptions, null, null, null);
+            }
+        }
+
+        return this;
+    }
+
+    /// <summary>
+    /// Serves stored work at an older version of a job's address with the job registered for <paramref name="to"/>, converting each
+    /// stored input first. Register the target job before its upcasts.
+    /// </summary>
+    /// <example><c>.AddUpcast(new JobContractId("invoices.generate", 1), InvoiceJobs.Generate, (InvoiceV1 old) =&gt; new GenerateInvoice(old.Id, "EUR"))</c></example>
+    public WorkThroughBuilder AddUpcast<TOld, TNew>(JobContractId from, JobDefinition<TNew> to, Func<TOld, TNew> convert)
+    {
+        Catalog.Upcast(from, to, convert);
+
+        return this;
+    }
 
     public WorkThroughBuilder AddGeneratedJobs(Assembly assembly)
     {
         var marker = assembly.GetCustomAttribute<JobModuleAttribute>()
-            ?? throw new InvalidOperationException($"No generated job manifest in {assembly.GetName().Name}. Reference WorkThrough.Generators or register handlers explicitly.");
+            ?? throw new InvalidOperationException($"No generated job manifest in {assembly.GetName().Name}. Reference WorkThrough.Generators or register jobs explicitly with AddJob.");
         var module = (IJobModule)Activator.CreateInstance(marker.ModuleType)!;
         module.Register(Catalog);
         foreach (var registration in Catalog.Registrations)
@@ -109,6 +176,7 @@ public sealed class WorkThroughBuilder
             && x.LeaseDuration >= MinimumLease && x.Queues.Length > 0
             && !(x.ExecutionTimeout <= TimeSpan.Zero) && !(x.ProgressTimeout <= TimeSpan.Zero)
             && x.PerJobLimits.All(y => y.Value >= 0), "Invalid worker concurrency, lease, or queue configuration.").ValidateOnStart();
+        Services.TryAddSingleton<WorkerStatus>();
         Services.AddHostedService<JobWorker>();
 
         return this;
@@ -181,6 +249,69 @@ public sealed class WorkThroughBuilder
         Initialization.Limits.AddRange(limits);
 
         return this;
+    }
+
+    /// <summary>Sets initial partition-key and tenant limits. Existing database policies survive restarts and deployments.</summary>
+    public WorkThroughBuilder SeedKeyedLimits(params KeyedLimit[] limits)
+    {
+        Initialization.KeyedLimits.AddRange(limits);
+
+        return this;
+    }
+
+    /// <summary>Sets initial rate limits. Existing database policies survive restarts and deployments.</summary>
+    public WorkThroughBuilder SeedRateLimits(params RateLimit[] limits)
+    {
+        Initialization.RateLimits.AddRange(limits);
+
+        return this;
+    }
+
+    /// <summary>
+    /// Creates, publishes and enables these schedules at startup when their key and version do not exist yet. Existing schedules,
+    /// including ones operators disabled or changed, are never modified. Requires <see cref="AddScheduler"/> somewhere in the fleet.
+    /// </summary>
+    public WorkThroughBuilder SeedSchedules(params ScheduleDefinition[] schedules)
+    {
+        foreach (var schedule in schedules)
+        {
+            ScheduleClock.Validate(schedule);
+        }
+
+        Initialization.Schedules.AddRange(schedules);
+
+        return this;
+    }
+
+    /// <summary>
+    /// Encrypts job inputs and outputs, flow inputs and signal payloads at rest with AES-256-GCM (ADR-027). New values use
+    /// <paramref name="currentKey"/>; keep retired keys in <paramref name="keys"/> while stored work still uses them. Every host that runs
+    /// or advances work needs the same key ring. Encryption starts once engine protocol 7 is active.
+    /// </summary>
+    public WorkThroughBuilder ProtectPayloads(string currentKey, IReadOnlyDictionary<string, byte[]> keys) =>
+        ProtectPayloads(new AesGcmPayloadProtector(keys, currentKey));
+
+    /// <summary>Encrypts business data at rest with a custom protector, for example one backed by a key management service.</summary>
+    public WorkThroughBuilder ProtectPayloads(IPayloadProtector protector)
+    {
+        ArgumentNullException.ThrowIfNull(protector);
+        Initialization.PayloadProtector = protector;
+        foreach (var store in Services.Where(service => !service.IsKeyedService).Select(service => service.ImplementationInstance).OfType<IJobStore>())
+        {
+            Protect(store, protector);
+        }
+
+        return this;
+    }
+
+    private static void Protect(object store, IPayloadProtector protector)
+    {
+        if (store is not IPayloadProtection protection)
+        {
+            throw new NotSupportedException($"{store.GetType().Name} cannot protect payloads.");
+        }
+
+        protection.PayloadProtector = protector;
     }
 
     public WorkThroughBuilder InitializeStorageOnStart(bool enabled)

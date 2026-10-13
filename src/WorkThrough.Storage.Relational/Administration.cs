@@ -1,4 +1,6 @@
 using System.Data.Common;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace WorkThrough.Storage;
@@ -79,6 +81,7 @@ public abstract partial class RelationalJobStore
                 }
             }
 
+            await RequireProtocolAsync(connection, transaction, ct);
             var result = await change(connection, transaction, ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_commands(id,fingerprint,result) VALUES (@id,@fingerprint,@result)", ct,
                 ("id", command.Id.ToString()), ("fingerprint", fingerprint), ("result", JsonSerializer.Serialize(result, JobJson.Options)));
@@ -133,25 +136,74 @@ public abstract partial class RelationalJobStore
     public Task<Result> RecoverStepAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
         AdminAsync(command, AuditActions.RecoverStep, id.ToString(), new { expectedAttempt }, async (connection, transaction, ct) =>
         {
+            await LockFlowsOfAsync(connection, transaction, [id], ct);
             var job = await ExpectedJobAsync(connection, transaction, id, expectedAttempt, ct);
-            if (job.WorkflowRunId is not { } run || !job.Status.IsUnsuccessful())
+            await ResumeStepAsync(connection, transaction, job, ExecutionEventKinds.RecoveryRequested, ct);
+        }, cancellationToken);
+
+    public Task<Result> CorrectInputAsync(Guid id, int expectedAttempt, JsonElement input, AdministrativeCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (input.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null || JobLimits.ExceedsInlineSize(input))
+        {
+            throw new ArgumentException("A corrected input must be non-null JSON of at most 1 MiB.", nameof(input));
+        }
+
+        // The audit keeps a digest, not the input: payloads stay behind their own permission.
+        var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input.GetRawText())));
+
+        return AdminAsync(command, AuditActions.CorrectInput, id.ToString(), new { expectedAttempt, input = digest }, async (connection, transaction, ct) =>
+        {
+            await LockFlowsOfAsync(connection, transaction, [id], ct);
+            var job = await ExpectedJobAsync(connection, transaction, id, expectedAttempt, ct);
+            if (!job.Status.IsUnsuccessful() || job.Contract == SignalWait.Processor || job.Contract == FlowChild.Processor)
             {
-                throw new StateConflictException("Recovery requires a failed or cancelled flow step.");
+                throw new StateConflictException("Only the input of a failed, rejected, expired or cancelled job can be corrected.");
             }
 
-            if (await ReadFlowStatusAsync(connection, transaction, run, ct) != FlowStatus.Incident)
+            if (job.WorkflowRunId is { } run && await ReadFlowStatusAsync(connection, transaction, run, ct) != FlowStatus.Incident)
             {
-                throw new StateConflictException("The flow must have a recoverable incident.");
+                throw new StateConflictException("A step's input can be corrected while its flow has a recoverable incident.");
+            }
+
+            await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET original_payload=COALESCE(original_payload,payload),payload=@input WHERE id=@id", ct,
+                ("input", await StoredAsync(connection, transaction, input, ct)), ("id", id.ToString()));
+            if (job.WorkflowRunId is not null)
+            {
+                await ResumeStepAsync(connection, transaction, job, ExecutionEventKinds.InputCorrected, ct);
+
+                return;
             }
 
             var now = await NowAsync(connection, transaction, ct);
-            var resumed = job.Contract == SignalWait.Processor ? JobStatus.Waiting : JobStatus.Queued;
             await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status=@status,available_at=@now,error=NULL,max_attempts=attempt+1 WHERE id=@id", ct,
-                ("status", resumed.ToString()), ("now", now), ("id", id.ToString()));
-            await SetFlowStatusAsync(connection, transaction, run, FlowStatus.Running, ct);
-            await JournalAsync(connection, transaction, job, now, ExecutionEventKinds.RecoveryRequested, ct);
-            await AdvanceWorkflowAsync(connection, transaction, run, ct);
+                ("status", nameof(JobStatus.Queued)), ("now", now), ("id", id.ToString()));
+            await JournalAsync(connection, transaction, job, now, ExecutionEventKinds.InputCorrected, ct);
         }, cancellationToken);
+    }
+
+    /// <summary>Runs an unsuccessful step of a flow in an incident again, with its history and idempotency key intact.</summary>
+    private async Task ResumeStepAsync(DbConnection connection, DbTransaction transaction, JobRecord job, string journalKind, CancellationToken ct)
+    {
+        if (job.WorkflowRunId is not { } run || !job.Status.IsUnsuccessful())
+        {
+            throw new StateConflictException("Recovery requires a failed or cancelled flow step.");
+        }
+
+        if (await ReadFlowStatusAsync(connection, transaction, run, ct) != FlowStatus.Incident)
+        {
+            throw new StateConflictException("The flow must have a recoverable incident.");
+        }
+
+        var now = await NowAsync(connection, transaction, ct);
+        // Waits are planned again: a signal re-arms its deadline and a child step starts a fresh child run.
+        var resumed = job.Contract == SignalWait.Processor || job.Contract == FlowChild.Processor ? JobStatus.Waiting : JobStatus.Queued;
+        await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status=@status,available_at=@now,error=NULL,max_attempts=attempt+1 WHERE id=@id", ct,
+            ("status", resumed.ToString()), ("now", now), ("id", job.Id.ToString()));
+        await SetFlowStatusAsync(connection, transaction, run, FlowStatus.Running, ct);
+        await JournalAsync(connection, transaction, job, now, journalKind, ct);
+        await AdvanceWorkflowAsync(connection, transaction, run, ct);
+    }
 
     public Task<Result> SetFlowPausedAsync(Guid id, bool paused, AdministrativeCommand command, CancellationToken cancellationToken = default)
     {

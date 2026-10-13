@@ -22,7 +22,7 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
                 return new(storeId, observed, id, false, ReadinessReasons.NotLive, false, null, false, null, null, null, null, null, [], 0, false, false);
             }
 
-            var capacity = await ReadCapacityAsync(connection, transaction, state.Key, observed.ToUnixTimeMilliseconds(), ct);
+            var capacity = await ReadCapacityAsync(connection, transaction, id, state.Key, observed.ToUnixTimeMilliseconds(), ct);
             var workers = new List<ReadinessWorker>();
             await using (var command = OperationCommand(connection, transaction, ReadinessWorkersSql,
                 ("id", id.ToString()), ("fresh", (observed - WorkerHeartbeat.Freshness).ToUnixTimeMilliseconds())))
@@ -88,6 +88,26 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
         if (capacity.GlobalMaximum <= capacity.GlobalAdmitted || capacity.ProcessorMaximum <= capacity.ProcessorAdmitted)
         {
             return ReadinessReasons.SharedCapacity;
+        }
+
+        if (capacity.PartitionLimited)
+        {
+            return ReadinessReasons.PartitionCapacity;
+        }
+
+        if (capacity.TenantLimited)
+        {
+            return ReadinessReasons.TenantCapacity;
+        }
+
+        if (capacity.FlowMaximum <= capacity.FlowAdmitted)
+        {
+            return ReadinessReasons.FlowParallelism;
+        }
+
+        if (capacity.RateLimited)
+        {
+            return ReadinessReasons.RateLimited;
         }
 
         return incomplete ? ReadinessReasons.WorkerCoverageIncomplete : ExplainWorkers(matching);
@@ -156,7 +176,50 @@ public abstract partial class RelationalJobStore : IRuntimeQueries
             Date(reader, "deadline"), Date(reader, "last_progress_at"), reader.IsDBNull(10) ? null : reader.GetInt64(10));
     }
 
-    private async Task<CapacityObservation> ReadCapacityAsync(DbConnection connection, DbTransaction transaction, string key, long now, CancellationToken ct)
+    private async Task<CapacityObservation> ReadCapacityAsync(DbConnection connection, DbTransaction transaction, Guid id, string key, long now, CancellationToken ct)
+    {
+        var shared = await ReadSharedCapacityAsync(connection, transaction, key, now, ct);
+        await using var command = OperationCommand(connection, transaction, $"""
+            SELECT CASE WHEN {KeyBlockedSql("j", KeyScope.Partition)} THEN 1 ELSE 0 END AS partition_limited,
+              CASE WHEN {KeyBlockedSql("j", KeyScope.Tenant)} THEN 1 ELSE 0 END AS tenant_limited,
+              CASE WHEN {RateBlockedSql("j")} THEN 1 ELSE 0 END AS rate_limited,
+              {KeyMaximumSql(KeyScope.Partition)} AS partition_maximum,
+              {KeyAdmittedSql(KeyScope.Partition)} AS partition_admitted,
+              {KeyMaximumSql(KeyScope.Tenant)} AS tenant_maximum,
+              {KeyAdmittedSql(KeyScope.Tenant)} AS tenant_admitted,
+              (SELECT f.max_parallel FROM dj_flows f WHERE f.id=j.workflow_run_id) AS flow_maximum,
+              (SELECT COUNT(*) FROM dj_jobs fr WHERE j.workflow_run_id IS NOT NULL AND fr.workflow_run_id=j.workflow_run_id
+                AND fr.status='Running' AND fr.lease_expires_at>@now) AS flow_admitted
+            FROM dj_jobs j WHERE j.id=@id
+            """, ("id", id.ToString()), ("now", now), ("all", AllJobsLimitKey));
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+
+        return shared with
+        {
+            PartitionLimited = Convert.ToInt32(reader.GetValue(0)) != 0,
+            TenantLimited = Convert.ToInt32(reader.GetValue(1)) != 0,
+            RateLimited = Convert.ToInt32(reader.GetValue(2)) != 0,
+            PartitionMaximum = reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3)),
+            PartitionAdmitted = Convert.ToInt64(reader.GetValue(4)),
+            TenantMaximum = reader.IsDBNull(5) ? null : Convert.ToInt32(reader.GetValue(5)),
+            TenantAdmitted = Convert.ToInt64(reader.GetValue(6)),
+            FlowMaximum = reader.IsDBNull(7) ? null : Convert.ToInt32(reader.GetValue(7)),
+            FlowAdmitted = Convert.ToInt64(reader.GetValue(8))
+        };
+
+        static string KeyMaximumSql(KeyScope scope) => $"""
+            (SELECT MIN(kl.maximum) FROM dj_keyed_limits kl WHERE j.{KeyColumn(scope)} IS NOT NULL AND kl.key_scope={(int)scope}
+              AND (kl.job_key=@all OR {AdmissionGroupSql("kl.job_key")}={AdmissionGroupSql("j.job_key")}))
+            """;
+
+        static string KeyAdmittedSql(KeyScope scope) => $"""
+            (SELECT COUNT(*) FROM dj_jobs kr WHERE j.{KeyColumn(scope)} IS NOT NULL AND kr.{KeyColumn(scope)}=j.{KeyColumn(scope)}
+              AND kr.status='Running' AND kr.lease_expires_at>@now)
+            """;
+    }
+
+    private async Task<CapacityObservation> ReadSharedCapacityAsync(DbConnection connection, DbTransaction transaction, string key, long now, CancellationToken ct)
     {
         await using var command = OperationCommand(connection, transaction, """
             SELECT (SELECT maximum FROM dj_limits WHERE job_key=@all),

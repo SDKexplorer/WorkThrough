@@ -25,7 +25,7 @@ public sealed class ExtensionTests
         builder.Services.AddSingleton(probe);
         builder.Services.AddScoped<Lifetime>();
         builder.Services.AddWorkThrough().UseSqlite(database.ConnectionString)
-            .AddProcessor<Alpha, Processor>(new JobDefinition<Alpha>("tests.pipeline"))
+            .AddJob<Alpha, Processor>(new JobDefinition<Alpha>("tests.pipeline"))
             .AddMiddleware<Outer>().AddValidator<Alpha, Validator>().AddMiddleware<Inner>()
             .AddObserver<BrokenObserver>().AddObserver<CommittedObserver>()
             .AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(10));
@@ -77,9 +77,9 @@ public sealed class ExtensionTests
         public bool Disposed { get; private set; }
         public void Dispose() => Disposed = true;
     }
-    public sealed class Processor(PipelineProbe probe, Lifetime lifetime) : IProcessor<Alpha>
+    public sealed class Processor(PipelineProbe probe, Lifetime lifetime) : IJob<Alpha>
     {
-        public async Task<JobResult> ProcessAsync(Alpha input, JobExecutionContext context, CancellationToken ct)
+        public async Task<JobResult> ExecuteAsync(Alpha input, JobExecutionContext context, CancellationToken ct)
         {
             probe.Trace.Enqueue("processor");
             await Task.Delay(50, ct);

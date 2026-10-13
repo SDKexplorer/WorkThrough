@@ -15,7 +15,8 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         {ClippedLabelSql("j.correlation_id")} AS correlation_id,j.status,j.attempt,j.max_attempts,
         j.created_at,j.available_at,j.terminal_at,j.expires_at,j.workflow_run_id,
         {ClippedLabelSql("j.step_id")} AS step_id,j.causation_job_id,
-        CASE WHEN {LabelTooLongSql("j.queue")} OR {LabelTooLongSql("j.correlation_id")} OR {LabelTooLongSql("j.step_id")} THEN 1 ELSE 0 END AS clipped
+        CASE WHEN {LabelTooLongSql("j.queue")} OR {LabelTooLongSql("j.correlation_id")} OR {LabelTooLongSql("j.step_id")} THEN 1 ELSE 0 END AS clipped,
+        j.partition_key,j.tenant_id
         """;
 
     public async Task<ExecutionStoreContext> GetExecutionContextAsync(CancellationToken cancellationToken = default)
@@ -140,7 +141,8 @@ public abstract partial class RelationalJobStore : IExecutionQueries
                 reader.GetString(3), Text(reader, "correlation_id"), Enum.Parse<JobStatus>(reader.GetString(5)),
                 reader.GetInt32(6), reader.GetInt32(7), Date(reader, "created_at")!.Value, Date(reader, "available_at")!.Value,
                 Date(reader, "terminal_at"), Date(reader, "expires_at"), ParseGuid(Text(reader, "workflow_run_id")),
-                Text(reader, "step_id"), ParseGuid(Text(reader, "causation_job_id")), reader.GetInt32(15) != 0));
+                Text(reader, "step_id"), ParseGuid(Text(reader, "causation_job_id")), reader.GetInt32(15) != 0, Text(reader, "partition_key"),
+                Text(reader, "tenant_id")));
         }
 
         return items;
@@ -165,6 +167,12 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         Add("contract_version", "version", query.ContractVersion);
         Add("queue", "queue", query.Queue);
         Add("workflow_run_id", "flow", query.WorkflowRunId?.ToString());
+        Add("partition_key", "partition", query.PartitionKey);
+        Add("tenant_id", "tenant", query.TenantId);
+        if (query.TenantIds is not null)
+        {
+            conditions.Add(TenantFilterSql("j.tenant_id", query.TenantIds, values));
+        }
 
         void Add(string column, string parameter, object? value)
         {
@@ -196,6 +204,8 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         }
 
         ValidateFilterLengths(query.Cursor, query.CorrelationId, query.Queue);
+        AdmissionKeys.Validate(query.PartitionKey, KeyScope.Partition, nameof(query));
+        AdmissionKeys.Validate(query.TenantId, KeyScope.Tenant, nameof(query));
 
         if (query.From is { } from && query.Until is { } until)
         {

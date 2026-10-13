@@ -8,7 +8,9 @@ namespace WorkThrough.Storage;
 /// <remarks>Use a dedicated database with ALLOW_SNAPSHOT_ISOLATION enabled. Identity strings may not end in a space.</remarks>
 public sealed partial class SqlServerJobStore : RelationalJobStore
 {
+    private const int PartitionedSchemaPredecessor = 4;
     private readonly string connectionString;
+    private bool? versionedReads;
 
     public SqlServerJobStore(string connectionString)
     {
@@ -42,7 +44,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
 
         var assignments = string.Join(",", updates.Split(',').Select(column => $"{column}={supplied[column]}"));
 
-        // All callers already hold the same transaction-owned exclusive store lock.
+        // Callers hold the exclusive store lock, or write a key only its owner writes (a worker's heartbeat, an attempt's progress).
         return $"UPDATE {table} SET {assignments} WHERE {predicate}; IF @@ROWCOUNT=0 {insert}";
     }
 
@@ -50,7 +52,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
     {
         foreach (var (name, value) in values)
         {
-            if (value is string text && IsIdentityParameter(name) && text.EndsWith(' '))
+            if (value is string text && IsIdentityParameter(BaseParameterName(name)) && text.EndsWith(' '))
             {
                 throw new ArgumentException($"SQL Server identity parameter '{name}' cannot end in a space. No identity is trimmed or normalized.");
             }
@@ -69,12 +71,42 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
         return command;
     }
 
-    private static bool IsIdentityParameter(string name) => name is "id" or "job" or "run" or "flow" or "worker" or "key"
+    private static bool IsIdentityParameter(string name) => name is "id" or "job" or "run" or "flow" or "worker" or "key" or "partition" or "tenant"
         or "name" or "correlation" or "queue" or "step" or "target" or "alias" or "group" or "destination" or "action"
-        || name.StartsWith("queue", StringComparison.Ordinal) || name.StartsWith("key", StringComparison.Ordinal);
+        || name.StartsWith("queue", StringComparison.Ordinal) || name.StartsWith("key", StringComparison.Ordinal)
+        || name.StartsWith("tenant", StringComparison.Ordinal);
 
     protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(IsolationLevel.Snapshot, cancellationToken);
+
+    /// <summary>Owned-row writes take no application lock; their lease token or worker ID fences them.</summary>
+    protected override async Task<DbTransaction> BeginOwnedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+    /// <summary>
+    /// Settlements and unrestricted claims skip the application lock only when READ_COMMITTED_SNAPSHOT is on. Plain reads would
+    /// otherwise wait on rows that a concurrent claim holds while that claim waits on the settlement's rows.
+    /// </summary>
+    protected override async Task<DbTransaction> BeginRowLockedWriteAsync(DbConnection connection, CancellationToken cancellationToken)
+    {
+        versionedReads ??= Convert.ToInt32(await ScalarAsync(connection, null,
+            "SELECT is_read_committed_snapshot_on FROM sys.databases WHERE database_id=DB_ID()", cancellationToken)) == 1;
+
+        return versionedReads.Value
+            ? await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            : await BeginWriteAsync(connection, cancellationToken);
+    }
+
+    protected override string SeedLimitLocksSql => $"""
+        WITH n(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM n WHERE i<{LimitLockRows - 1})
+        INSERT INTO dj_limit_locks(id) SELECT i FROM n WHERE NOT EXISTS (SELECT 1 FROM dj_limit_locks l WHERE l.id=n.i) OPTION (MAXRECURSION {LimitLockRows})
+        """;
+
+    protected override string LockingSelectSql(string columns, string table, string predicate, bool skipLocked) =>
+        $"SELECT {columns} FROM {table} WITH (UPDLOCK,ROWLOCK{(skipLocked ? ",READPAST" : "")}) WHERE {predicate}";
+
+    protected override string SkipLockedJobsSql(string predicate, string order, int limit) =>
+        $"SELECT TOP ({limit}) * FROM dj_jobs j WITH (UPDLOCK,ROWLOCK,READPAST) WHERE {predicate} ORDER BY {order}";
 
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {
@@ -107,13 +139,24 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
         }
 
         await ExecuteAsync(connection, transaction, "IF OBJECT_ID(N'dj_schema',N'U') IS NULL CREATE TABLE dj_schema(version int NOT NULL PRIMARY KEY)", ct);
-        var version = await ScalarAsync(connection, transaction, "SELECT MAX(version) FROM dj_schema", ct);
-        if (version is not null and not DBNull && Convert.ToInt32(version) != SchemaVersion)
+        var stored = await ScalarAsync(connection, transaction, "SELECT MAX(version) FROM dj_schema", ct);
+        int? version = stored is null or DBNull ? null : Convert.ToInt32(stored);
+        // Schema 4 and 5 stores upgrade in place; stop their writers first, because they predate the compatibility record.
+        if (version < PartitionedSchemaPredecessor)
         {
             throw new InvalidOperationException("Unsupported SQL Server WorkThrough schema version. Stop writers and use a compatible migration.");
         }
 
+        if (version is { } existing && await UsesNewerSchemaAsync(connection, transaction, existing, ct))
+        {
+            return true;
+        }
+
         await ExecuteAsync(connection, transaction, SqlServerSchema, ct);
+        await ExecuteAsync(connection, transaction, SqlServerAdmissionSchema, ct);
+        await ExecuteAsync(connection, transaction, SqlServerAdmissionIndexes, ct);
+        await SeedCompatibilityAsync(connection, transaction, newStore: version is null, ct);
+        await SeedLimitLocksAsync(connection, transaction, ct);
         await ExecuteAsync(connection, transaction, """
             IF NOT EXISTS(SELECT 1 FROM dj_store) INSERT INTO dj_store(id) VALUES (@id);
             IF NOT EXISTS(SELECT 1 FROM dj_schema WHERE version=@version) INSERT INTO dj_schema(version) VALUES (@version);

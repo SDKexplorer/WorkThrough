@@ -22,10 +22,10 @@ Requirements derive from the conversation: assembly relocation first; extensible
 - FR-012: When a predecessor completes, completion and the activation/skipping of eligible successors shall commit atomically.
 - FR-013: When an existing flow version is republished with different content, publication shall fail and request a new version.
 - FR-014: When executions share a correlation ID, queries shall return them as a group without treating correlation as uniqueness or concurrency ownership.
-- FR-015 (planned): When a checkpoint fork is requested, the engine shall create a new causally linked run while preserving the original history.
-- FR-016 (planned): Where a compensation handler is declared, the engine shall record its execution independently from restoring workflow state.
+- FR-015: When a checkpoint fork is requested, the engine shall create a new causally linked run while preserving the original history.
+- FR-016: Where a compensation handler is declared and a flow fails under the Compensate policy, the engine shall run it as its own recorded job, in reverse dependency order, independently from restoring workflow state (ADR-025).
 - FR-017: The minimum modern runtime shall be .NET 8. Where a runtime and consumer SDK are advertised as supported, packages and generated registration shall be verified using that runtime and SDK; ADR-005 records the matrix and tooling decisions.
-- FR-018 (planned): When supported producer and worker versions differ, the engine shall preserve the documented envelope, contract, and flow semantics; incompatible schema/protocol combinations shall be rejected before work is claimed.
+- FR-018: When supported producer and worker versions differ, the engine shall preserve the documented envelope, contract, and flow semantics; incompatible schema/protocol combinations shall be rejected before work is claimed.
 - FR-019: When a recoverable technical failure exhausts retries, the engine shall retain an incident and block dependent steps while preserving the distinction from deliberately skipped branches.
 - FR-020: When an operator inspects a run diagram, the dashboard shall display that run's saved definition revision and execution states without loading application assemblies.
 - FR-021: When an operator performs a recovery action, the engine shall validate authorization and current state, apply the transition atomically, and retain an audit record without rewriting prior attempt history.
@@ -38,13 +38,21 @@ Requirements derive from the conversation: assembly relocation first; extensible
 - FR-028: When the dashboard displays action history, it shall distinguish human/service administration from worker attempts, filter within authorized scope, and preserve stable actor identity independently of display-name changes.
 
 - FR-029: Flow and schedule definitions shall support draft authoring before publication. Drafts cannot execute; publication validates and freezes a revision; retiring a published flow revision prevents new starts while active runs retain their pinned definition. Editing published content creates a draft and never mutates active execution history. Publication, retirement, and schedule activation changes require authorization and audit.
+- FR-030: While a keyed limit, tenant limit, rate limit or flow parallelism bound covering a job is exhausted, the engine shall leave the job queued and admit other eligible work; every bound shall hold across independent hosts (ADR-018).
+- FR-031: When several queues served by one worker have ready work, claims shall be divided according to queue weights, and a queue that was idle shall gain no burst credit.
+- FR-032: Where the host registers tenant access, a tenant-scoped principal shall see and operate on executions of its tenants only, other work shall be indistinguishable from absent work, and store-wide surfaces shall be denied (ADR-019).
+- FR-033: When an application seeds policies or schedules, missing ones shall be created once across concurrently starting hosts, and existing ones shall never be overwritten.
+- FR-034: When a flow uses fan-out, a child flow, a bounded loop or a failure branch, every host that advances it shall support the engine protocol level it requires; a definition above the store's active level shall be refused at start (ADR-021, ADR-023, ADR-026, ADR-028).
+- FR-035: Where payload protection is configured, stores shall write business values encrypted once the required protocol is active, and a worker without the key shall retry the job without running or rejecting it (ADR-027).
+- FR-036: When an input contract gains a new version, stored work at the old version shall run through a registered upcast without rewriting its stored address or input (ADR-024).
+- FR-037: When Hangfire jobs are imported, every job shall either import exactly once under a stable idempotency key or be reported with the reason it cannot move, and no import shall run while Hangfire servers are registered.
 
 ## Non-functional requirements
 
 - Correctness: run the provider conformance suite on every advertised backend; physically test replacement deployment artifacts.
 - Portability: Core has no host/web/database references. A provider must not weaken guarantees silently.
 - Security: dashboard defaults to host authorization; mutations require anti-forgery validation; queries are parameterized; UI uses text rendering for untrusted values.
-- Performance: no production SLA is claimed. Record idle database traffic and admission/completion throughput before choosing production defaults. Initial PostgreSQL writes serialize deliberately.
+- Performance: no production SLA is claimed. Record idle database traffic and admission/completion throughput before choosing production defaults. Claims serialize per limit and key through lock rows, settlements need no admission lock, and limits stay exact (ADR-020, ADR-022).
 - Maintainability: deterministic warning-clean builds, nullable references, reviewed schema/API changes, actual package-consumer validation, and preserved exception evidence without default payload logging.
 - Operations: cancellation is cooperative; delivery is at least once; interruption, failure, expiry, and success have distinct attempt outcomes.
 

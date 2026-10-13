@@ -1,5 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
-
 namespace WorkThrough;
 
 /// <summary>Optional query ports and the tools and capabilities each one enables.</summary>

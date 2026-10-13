@@ -1,0 +1,797 @@
+{
+  "recordedAt": "2026-10-12T07:19:09.862171+00:00",
+  "gitRevision": "unrecorded",
+  "workingTree": "unrecorded",
+  "runtime": ".NET 8.0.31",
+  "os": "Darwin 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:17:26 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T6041",
+  "logicalProcessors": 16,
+  "databaseVersion": "Microsoft SQL Server 2022 (RTM-CU27) (KB5104824) - 16.0.4295.3 (X64) \n\tAug 26 2026 11:02:22 \n\tCopyright (C) 2022 Microsoft Corporation\n\tDeveloper Edition (64-bit) on Linux (Ubuntu 22.04.5 LTS) \u003CX64\u003E",
+  "workload": {
+    "minutes": 30,
+    "workerProcesses": 3,
+    "localSlots": 4,
+    "offeredPerSecond": 25,
+    "tenants": 10,
+    "partitionsPerTenant": 20,
+    "tenantMaximum": 4,
+    "partitionMaximum": 1,
+    "ratePermitsPerSecond": 5,
+    "flowPercent": 10,
+    "flowWidth": 4,
+    "maxParallelSteps": 2,
+    "limitedPercent": 10,
+    "handlerDelayMs": 20,
+    "retention": "disabled; history accumulates"
+  },
+  "outcome": {
+    "jobs": 53253,
+    "offered": 40956,
+    "flowStarts": 4099,
+    "notSucceeded": 0,
+    "retriedJobs": 0
+  },
+  "drainSeconds": 0.015105,
+  "memory": {
+    "unit": "MiB, sum of worker resident sets",
+    "start": 263.859375,
+    "end": 382.109375,
+    "phases": [
+      {
+        "phase": "start",
+        "peak": 263.859375
+      },
+      {
+        "phase": "1",
+        "peak": 375.984375
+      },
+      {
+        "phase": "2",
+        "peak": 378.375
+      },
+      {
+        "phase": "3",
+        "peak": 379.21875
+      },
+      {
+        "phase": "4",
+        "peak": 380.125
+      },
+      {
+        "phase": "5",
+        "peak": 380.296875
+      },
+      {
+        "phase": "6",
+        "peak": 380.78125
+      },
+      {
+        "phase": "7",
+        "peak": 380.828125
+      },
+      {
+        "phase": "8",
+        "peak": 380.890625
+      },
+      {
+        "phase": "9",
+        "peak": 380.890625
+      },
+      {
+        "phase": "10",
+        "peak": 381.078125
+      },
+      {
+        "phase": "11",
+        "peak": 381.34375
+      },
+      {
+        "phase": "12",
+        "peak": 381.3125
+      },
+      {
+        "phase": "13",
+        "peak": 381.390625
+      },
+      {
+        "phase": "14",
+        "peak": 381.328125
+      },
+      {
+        "phase": "15",
+        "peak": 381.40625
+      },
+      {
+        "phase": "16",
+        "peak": 381.5
+      },
+      {
+        "phase": "17",
+        "peak": 381.546875
+      },
+      {
+        "phase": "18",
+        "peak": 381.546875
+      },
+      {
+        "phase": "19",
+        "peak": 381.65625
+      },
+      {
+        "phase": "20",
+        "peak": 381.6875
+      },
+      {
+        "phase": "21",
+        "peak": 381.71875
+      },
+      {
+        "phase": "22",
+        "peak": 381.71875
+      },
+      {
+        "phase": "23",
+        "peak": 382.125
+      },
+      {
+        "phase": "24",
+        "peak": 382.1875
+      },
+      {
+        "phase": "25",
+        "peak": 382.21875
+      },
+      {
+        "phase": "26",
+        "peak": 382.1875
+      },
+      {
+        "phase": "27",
+        "peak": 382.21875
+      },
+      {
+        "phase": "28",
+        "peak": 382.203125
+      },
+      {
+        "phase": "29",
+        "peak": 382.203125
+      },
+      {
+        "phase": "30",
+        "peak": 382.21875
+      }
+    ]
+  },
+  "minutes": [
+    {
+      "minute": 1,
+      "offeredTotal": 1465,
+      "startedJobs": 1909,
+      "completedAttempts": 1909,
+      "backlog": 3,
+      "storedJobs": 1912,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 22,
+        "p95": 576,
+        "p99": 1267,
+        "max": 1447
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 376.078125,
+      "workerCpuSeconds": 58.83712080000001
+    },
+    {
+      "minute": 2,
+      "offeredTotal": 2937,
+      "startedJobs": 1920,
+      "completedAttempts": 1920,
+      "backlog": 6,
+      "storedJobs": 3835,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 514,
+        "p99": 1220,
+        "max": 1357
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 378.375,
+      "workerCpuSeconds": 115.5246249
+    },
+    {
+      "minute": 3,
+      "offeredTotal": 4406,
+      "startedJobs": 1897,
+      "completedAttempts": 1891,
+      "backlog": 20,
+      "storedJobs": 5740,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 537,
+        "p99": 1238,
+        "max": 1391
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 379.21875,
+      "workerCpuSeconds": 172.058354
+    },
+    {
+      "minute": 4,
+      "offeredTotal": 5887,
+      "startedJobs": 1928,
+      "completedAttempts": 1934,
+      "backlog": 0,
+      "storedJobs": 7654,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 16,
+        "p95": 576,
+        "p99": 1236,
+        "max": 1361
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 380.125,
+      "workerCpuSeconds": 229.2079874
+    },
+    {
+      "minute": 5,
+      "offeredTotal": 7369,
+      "startedJobs": 1930,
+      "completedAttempts": 1930,
+      "backlog": 2,
+      "storedJobs": 9586,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 16,
+        "p95": 515,
+        "p99": 1245,
+        "max": 1330
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 380.21875,
+      "workerCpuSeconds": 286.0450415
+    },
+    {
+      "minute": 6,
+      "offeredTotal": 8831,
+      "startedJobs": 1906,
+      "completedAttempts": 1904,
+      "backlog": 8,
+      "storedJobs": 11498,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 22,
+        "p95": 657,
+        "p99": 1294,
+        "max": 1457
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 380.75,
+      "workerCpuSeconds": 342.9119374
+    },
+    {
+      "minute": 7,
+      "offeredTotal": 10298,
+      "startedJobs": 1893,
+      "completedAttempts": 1897,
+      "backlog": 2,
+      "storedJobs": 13385,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 18,
+        "p95": 654,
+        "p99": 1270,
+        "max": 1464
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 380.796875,
+      "workerCpuSeconds": 398.74359569999996
+    },
+    {
+      "minute": 8,
+      "offeredTotal": 11769,
+      "startedJobs": 1923,
+      "completedAttempts": 1923,
+      "backlog": 0,
+      "storedJobs": 15306,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 22,
+        "p95": 673,
+        "p99": 1322,
+        "max": 1476
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 380.890625,
+      "workerCpuSeconds": 457.0714457
+    },
+    {
+      "minute": 9,
+      "offeredTotal": 13219,
+      "startedJobs": 1878,
+      "completedAttempts": 1870,
+      "backlog": 26,
+      "storedJobs": 17204,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 663,
+        "p99": 1289,
+        "max": 1388
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 380.828125,
+      "workerCpuSeconds": 512.5676624
+    },
+    {
+      "minute": 10,
+      "offeredTotal": 14671,
+      "startedJobs": 1894,
+      "completedAttempts": 1900,
+      "backlog": 0,
+      "storedJobs": 19078,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 700,
+        "p99": 1334,
+        "max": 1406
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 380.90625,
+      "workerCpuSeconds": 568.3118332
+    },
+    {
+      "minute": 11,
+      "offeredTotal": 16100,
+      "startedJobs": 1847,
+      "completedAttempts": 1848,
+      "backlog": 5,
+      "storedJobs": 20930,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 18,
+        "p95": 805,
+        "p99": 1356,
+        "max": 1654
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.3125,
+      "workerCpuSeconds": 624.0578333
+    },
+    {
+      "minute": 12,
+      "offeredTotal": 17531,
+      "startedJobs": 1874,
+      "completedAttempts": 1865,
+      "backlog": 12,
+      "storedJobs": 22805,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 18,
+        "p95": 704,
+        "p99": 1310,
+        "max": 1415
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.21875,
+      "workerCpuSeconds": 679.4812833
+    },
+    {
+      "minute": 13,
+      "offeredTotal": 18937,
+      "startedJobs": 1827,
+      "completedAttempts": 1835,
+      "backlog": 11,
+      "storedJobs": 24637,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 25,
+        "p95": 845,
+        "p99": 1328,
+        "max": 1418
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.296875,
+      "workerCpuSeconds": 735.4604457
+    },
+    {
+      "minute": 14,
+      "offeredTotal": 20348,
+      "startedJobs": 1834,
+      "completedAttempts": 1840,
+      "backlog": 5,
+      "storedJobs": 26465,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 21,
+        "p95": 778,
+        "p99": 1352,
+        "max": 1506
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.328125,
+      "workerCpuSeconds": 790.5444749000001
+    },
+    {
+      "minute": 15,
+      "offeredTotal": 21723,
+      "startedJobs": 1788,
+      "completedAttempts": 1780,
+      "backlog": 18,
+      "storedJobs": 28260,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 30,
+        "p95": 809,
+        "p99": 1399,
+        "max": 1532
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.359375,
+      "workerCpuSeconds": 846.0988124
+    },
+    {
+      "minute": 16,
+      "offeredTotal": 23103,
+      "startedJobs": 1785,
+      "completedAttempts": 1789,
+      "backlog": 13,
+      "storedJobs": 30042,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 848,
+        "p99": 1381,
+        "max": 1483
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.484375,
+      "workerCpuSeconds": 900.7837791
+    },
+    {
+      "minute": 17,
+      "offeredTotal": 24450,
+      "startedJobs": 1761,
+      "completedAttempts": 1768,
+      "backlog": 5,
+      "storedJobs": 31799,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 861,
+        "p99": 1391,
+        "max": 1565
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.546875,
+      "workerCpuSeconds": 955.9435374
+    },
+    {
+      "minute": 18,
+      "offeredTotal": 25803,
+      "startedJobs": 1745,
+      "completedAttempts": 1744,
+      "backlog": 2,
+      "storedJobs": 33540,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 18,
+        "p95": 863,
+        "p99": 1471,
+        "max": 1736
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.484375,
+      "workerCpuSeconds": 1010.9042582
+    },
+    {
+      "minute": 19,
+      "offeredTotal": 27112,
+      "startedJobs": 1704,
+      "completedAttempts": 1702,
+      "backlog": 29,
+      "storedJobs": 35269,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 26,
+        "p95": 963,
+        "p99": 1437,
+        "max": 1660
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.65625,
+      "workerCpuSeconds": 1064.4149665999998
+    },
+    {
+      "minute": 20,
+      "offeredTotal": 28440,
+      "startedJobs": 1739,
+      "completedAttempts": 1742,
+      "backlog": 5,
+      "storedJobs": 36989,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 894,
+        "p99": 1412,
+        "max": 1660
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.578125,
+      "workerCpuSeconds": 1118.5842708
+    },
+    {
+      "minute": 21,
+      "offeredTotal": 29748,
+      "startedJobs": 1698,
+      "completedAttempts": 1698,
+      "backlog": 7,
+      "storedJobs": 38687,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 943,
+        "p99": 1384,
+        "max": 1503
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.71875,
+      "workerCpuSeconds": 1171.5200458
+    },
+    {
+      "minute": 22,
+      "offeredTotal": 31042,
+      "startedJobs": 1684,
+      "completedAttempts": 1684,
+      "backlog": 5,
+      "storedJobs": 40369,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 25,
+        "p95": 980,
+        "p99": 1467,
+        "max": 1650
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 381.71875,
+      "workerCpuSeconds": 1225.8610249
+    },
+    {
+      "minute": 23,
+      "offeredTotal": 32309,
+      "startedJobs": 1634,
+      "completedAttempts": 1628,
+      "backlog": 34,
+      "storedJobs": 42026,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 998,
+        "p99": 1485,
+        "max": 1748
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 382.09375,
+      "workerCpuSeconds": 1279.5488123999999
+    },
+    {
+      "minute": 24,
+      "offeredTotal": 33596,
+      "startedJobs": 1675,
+      "completedAttempts": 1681,
+      "backlog": 0,
+      "storedJobs": 43675,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 1014,
+        "p99": 1493,
+        "max": 1693
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 382.1875,
+      "workerCpuSeconds": 1334.3466665
+    },
+    {
+      "minute": 25,
+      "offeredTotal": 34850,
+      "startedJobs": 1642,
+      "completedAttempts": 1642,
+      "backlog": 0,
+      "storedJobs": 45317,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 18,
+        "p95": 1016,
+        "p99": 1478,
+        "max": 1599
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 382.140625,
+      "workerCpuSeconds": 1388.6185498999998
+    },
+    {
+      "minute": 26,
+      "offeredTotal": 36094,
+      "startedJobs": 1606,
+      "completedAttempts": 1607,
+      "backlog": 2,
+      "storedJobs": 46923,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 17,
+        "p95": 1060,
+        "p99": 1473,
+        "max": 1695
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 382.171875,
+      "workerCpuSeconds": 1442.8542665999998
+    },
+    {
+      "minute": 27,
+      "offeredTotal": 37298,
+      "startedJobs": 1564,
+      "completedAttempts": 1562,
+      "backlog": 2,
+      "storedJobs": 48485,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 18,
+        "p95": 1115,
+        "p99": 1527,
+        "max": 1676
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 382.140625,
+      "workerCpuSeconds": 1494.5952749
+    },
+    {
+      "minute": 28,
+      "offeredTotal": 38531,
+      "startedJobs": 1615,
+      "completedAttempts": 1616,
+      "backlog": 11,
+      "storedJobs": 50111,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 18,
+        "p95": 1117,
+        "p99": 1497,
+        "max": 1778
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 382.203125,
+      "workerCpuSeconds": 1548.2161915
+    },
+    {
+      "minute": 29,
+      "offeredTotal": 39787,
+      "startedJobs": 1624,
+      "completedAttempts": 1628,
+      "backlog": 1,
+      "storedJobs": 51727,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 16,
+        "p95": 1101,
+        "p99": 1564,
+        "max": 1733
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 382.09375,
+      "workerCpuSeconds": 1602.0398582000003
+    },
+    {
+      "minute": 30,
+      "offeredTotal": 40956,
+      "startedJobs": 1529,
+      "completedAttempts": 1529,
+      "backlog": 0,
+      "storedJobs": 53253,
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 21,
+        "p95": 1134,
+        "p99": 1591,
+        "max": 1747
+      },
+      "partitionPeak": 1,
+      "tenantPeak": 2,
+      "runPeak": 2,
+      "rateWindowPeak": 5,
+      "workerResidentMiB": 382.109375,
+      "workerCpuSeconds": 1655.0355458
+    }
+  ]
+}

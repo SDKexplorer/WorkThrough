@@ -162,6 +162,16 @@ public sealed partial class SqlServerJobStore
                 revision BIGINT NOT NULL
             );
         IF NOT EXISTS(SELECT 1 FROM dj_registry WHERE id=1) INSERT INTO dj_registry(id,revision) VALUES (1,0);
+        IF OBJECT_ID(N'dj_compatibility',N'U') IS NULL
+            CREATE TABLE dj_compatibility (
+                id int PRIMARY KEY,
+                reader_minimum int NOT NULL,
+                protocol int NOT NULL
+            );
+        IF OBJECT_ID(N'dj_limit_locks',N'U') IS NULL
+            CREATE TABLE dj_limit_locks (
+                id int PRIMARY KEY
+            );
         IF OBJECT_ID(N'dj_processor_aliases',N'U') IS NULL
             CREATE TABLE dj_processor_aliases (
                 alias_key nvarchar(120) COLLATE Latin1_General_100_BIN2 NOT NULL,
@@ -382,5 +392,72 @@ public sealed partial class SqlServerJobStore
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ux_dj_jobs_step' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE UNIQUE INDEX ux_dj_jobs_step ON dj_jobs(workflow_run_id,step_id) WHERE workflow_run_id IS NOT NULL AND step_id IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_terminal' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_terminal ON dj_jobs(status,terminal_at,id);
         IF NOT EXISTS(SELECT 1 FROM dj_event_sequence WHERE id=1) INSERT INTO dj_event_sequence(id,value) SELECT 1,COALESCE(MAX(sequence),0) FROM dj_events;
+        """;
+
+    /// <summary>Schema 5 additions (ADR-018), applied by name to fresh and schema-4 stores.</summary>
+    private const string SqlServerAdmissionSchema = """
+        IF COL_LENGTH(N'dj_jobs',N'partition_key') IS NULL
+            ALTER TABLE dj_jobs ADD partition_key nvarchar(256) COLLATE Latin1_General_100_BIN2 NULL
+                CONSTRAINT ck_dj_jobs_partition_key CHECK(DATALENGTH(partition_key)=DATALENGTH(RTRIM(partition_key)));
+        IF COL_LENGTH(N'dj_jobs',N'tenant_id') IS NULL
+            ALTER TABLE dj_jobs ADD tenant_id nvarchar(256) COLLATE Latin1_General_100_BIN2 NULL
+                CONSTRAINT ck_dj_jobs_tenant_id CHECK(DATALENGTH(tenant_id)=DATALENGTH(RTRIM(tenant_id)));
+        IF COL_LENGTH(N'dj_jobs',N'trace_parent') IS NULL
+            ALTER TABLE dj_jobs ADD trace_parent nvarchar(64) NULL;
+        IF COL_LENGTH(N'dj_flows',N'max_parallel') IS NULL
+            ALTER TABLE dj_flows ADD max_parallel int NULL CONSTRAINT ck_dj_flows_max_parallel CHECK(max_parallel>0);
+        IF COL_LENGTH(N'dj_flows',N'forked_from_run_id') IS NULL
+            ALTER TABLE dj_flows ADD forked_from_run_id nvarchar(36) COLLATE Latin1_General_100_BIN2 NULL;
+        IF COL_LENGTH(N'dj_jobs',N'original_payload') IS NULL
+            ALTER TABLE dj_jobs ADD original_payload nvarchar(max) COLLATE Latin1_General_100_BIN2 NULL;
+        IF COL_LENGTH(N'dj_flows',N'parent_run_id') IS NULL
+            ALTER TABLE dj_flows ADD parent_run_id nvarchar(36) COLLATE Latin1_General_100_BIN2 NULL,
+                parent_job_id nvarchar(36) COLLATE Latin1_General_100_BIN2 NULL, depth int NULL;
+        IF COL_LENGTH(N'dj_queue_controls',N'weight') IS NULL
+            ALTER TABLE dj_queue_controls ADD weight int NOT NULL CONSTRAINT df_dj_queue_controls_weight DEFAULT 1;
+        IF OBJECT_ID(N'dj_queue_turns',N'U') IS NULL
+            CREATE TABLE dj_queue_turns (
+                queue nvarchar(512) COLLATE Latin1_General_100_BIN2 PRIMARY KEY NONCLUSTERED,
+                pass bigint NOT NULL,
+                CHECK(DATALENGTH(queue)=DATALENGTH(RTRIM(queue)))
+            );
+        IF OBJECT_ID(N'dj_queue_clock',N'U') IS NULL
+            CREATE TABLE dj_queue_clock (id int PRIMARY KEY, value bigint NOT NULL);
+        IF OBJECT_ID(N'dj_keyed_limits',N'U') IS NULL
+            CREATE TABLE dj_keyed_limits (
+                job_key nvarchar(120) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                key_scope int NOT NULL,
+                maximum int NOT NULL CHECK(maximum>=0),
+                PRIMARY KEY(job_key,key_scope),
+                CHECK(DATALENGTH(job_key)=DATALENGTH(RTRIM(job_key)))
+            );
+        IF OBJECT_ID(N'dj_rate_ledger',N'U') IS NULL
+            CREATE TABLE dj_rate_ledger (
+                job_key nvarchar(120) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                key_scope int NOT NULL,
+                rate_key nvarchar(256) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                started_at bigint NOT NULL,
+                job_id nvarchar(36) COLLATE Latin1_General_100_BIN2 NOT NULL
+            );
+        IF OBJECT_ID(N'dj_rate_limits',N'U') IS NULL
+            CREATE TABLE dj_rate_limits (
+                job_key nvarchar(120) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                key_scope int NOT NULL,
+                permits int NOT NULL CHECK(permits>0),
+                window_ms bigint NOT NULL CHECK(window_ms>0),
+                PRIMARY KEY(job_key,key_scope),
+                CHECK(DATALENGTH(job_key)=DATALENGTH(RTRIM(job_key)))
+            );
+        """;
+
+    // A separate batch: SQL Server compiles a batch before its ALTER TABLE adds the indexed columns.
+    private const string SqlServerAdmissionIndexes = """
+        IF NOT EXISTS(SELECT 1 FROM dj_queue_clock WHERE id=1) INSERT INTO dj_queue_clock(id,value) VALUES (1,0);
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_partition' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at) WHERE partition_key IS NOT NULL;
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_tenant' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_tenant ON dj_jobs(tenant_id,status,lease_expires_at) WHERE tenant_id IS NOT NULL;
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_flows_bounded' AND object_id=OBJECT_ID(N'dj_flows')) CREATE INDEX ix_dj_flows_bounded ON dj_flows(status) WHERE max_parallel IS NOT NULL;
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_flows_parent' AND object_id=OBJECT_ID(N'dj_flows')) CREATE INDEX ix_dj_flows_parent ON dj_flows(parent_run_id) WHERE parent_run_id IS NOT NULL;
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_rate_ledger' AND object_id=OBJECT_ID(N'dj_rate_ledger')) CREATE INDEX ix_dj_rate_ledger ON dj_rate_ledger(job_key,key_scope,rate_key,started_at);
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_rate_ledger_time' AND object_id=OBJECT_ID(N'dj_rate_ledger')) CREATE INDEX ix_dj_rate_ledger_time ON dj_rate_ledger(started_at);
         """;
 }

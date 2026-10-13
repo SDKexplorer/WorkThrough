@@ -78,7 +78,7 @@ public abstract partial class RelationalJobStore : IExecutionArchives
     private async Task ArchiveCandidateAsync(DbConnection connection, DbTransaction transaction, ArchiveCandidate candidate, CancellationToken ct)
     {
         await EnsureArchiveFitsAsync(connection, transaction, candidate, ct);
-        var jobs = await ReadJobsAsync(connection, transaction, $"SELECT * FROM dj_jobs WHERE {ArchivePredicate(candidate.Kind)} ORDER BY id", ct, ("id", candidate.Id.ToString()));
+        var jobs = await ReadStoredJobsAsync(connection, transaction, $"SELECT * FROM dj_jobs WHERE {ArchivePredicate(candidate.Kind)} ORDER BY id", ct, ("id", candidate.Id.ToString()));
         var evidence = new List<ArchivedJob>();
         foreach (var job in jobs)
         {

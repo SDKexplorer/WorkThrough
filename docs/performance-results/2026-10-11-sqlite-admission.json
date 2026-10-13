@@ -1,0 +1,118 @@
+{
+  "recordedAt": "2026-10-11T06:17:38.094552+00:00",
+  "gitRevision": "6255d8bfb428d71035cd41f59454871192d75f63",
+  "workingTree": "modified",
+  "runtime": ".NET 8.0.31",
+  "os": "Darwin 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:17:26 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T6041",
+  "architecture": "Arm64",
+  "logicalProcessors": 16,
+  "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
+  "workload": {
+    "workerProcesses": 3,
+    "localSlots": 4,
+    "pollMs": 10,
+    "producers": 4
+  },
+  "overhead": {
+    "jobs": 400,
+    "handlerDelayMs": 20,
+    "runs": [
+      {
+        "repetition": 1,
+        "policies": "none",
+        "jobsPerSecond": 129.59098331856265
+      },
+      {
+        "repetition": 1,
+        "policies": "non-binding",
+        "jobsPerSecond": 98.12322889105026
+      },
+      {
+        "repetition": 2,
+        "policies": "none",
+        "jobsPerSecond": 81.26151843932541
+      },
+      {
+        "repetition": 2,
+        "policies": "non-binding",
+        "jobsPerSecond": 86.57655418171791
+      }
+    ]
+  },
+  "keyed": {
+    "jobs": 400,
+    "partitionMaximum": 1,
+    "tenantMaximum": 3,
+    "partitionPeak": 1,
+    "tenantPeak": 3,
+    "fleetPeak": 9,
+    "quietTenantQueueWaitMs": {
+      "min": 35,
+      "p50": 594,
+      "p95": 1064,
+      "p99": 1358,
+      "max": 1358
+    },
+    "busyTenantQueueWaitMs": {
+      "min": 7,
+      "p50": 16688,
+      "p95": 32122,
+      "p99": 33639,
+      "max": 34083
+    },
+    "jobsPerSecond": 11.421437468198079
+  },
+  "rate": {
+    "jobs": 50,
+    "permits": 10,
+    "windowMs": 1000,
+    "busiestWindowStarts": 10,
+    "startsPerSecond": 10.539629005059023
+  },
+  "fanOut": {
+    "runs": 6,
+    "width": 16,
+    "maxParallelSteps": 3,
+    "runPeak": 3,
+    "fleetPeak": 12,
+    "jobsPerSecond": 45.84154621243297
+  },
+  "fairness": {
+    "weight": 3,
+    "expectedShare": 0.75,
+    "observedShare": 0.75,
+    "contendedStarts": 120,
+    "tolerance": 0.05
+  },
+  "memory": {
+    "unit": "MiB, sum of worker resident sets",
+    "start": 171.828125,
+    "end": 279.375,
+    "phases": [
+      {
+        "phase": "start",
+        "peak": 171.828125
+      },
+      {
+        "phase": "overhead",
+        "peak": 267.921875
+      },
+      {
+        "phase": "keyed",
+        "peak": 270.46875
+      },
+      {
+        "phase": "rate",
+        "peak": 271.015625
+      },
+      {
+        "phase": "fan-out",
+        "peak": 275.96875
+      },
+      {
+        "phase": "fairness",
+        "peak": 279.375
+      }
+    ]
+  }
+}

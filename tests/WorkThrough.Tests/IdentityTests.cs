@@ -10,16 +10,16 @@ public sealed class IdentityTests
     private static readonly JobDefinition<Input> Definition = new("orders.current", displayName: "Process order");
     private static readonly JobContractId Old = new("orders.legacy", 1);
     public sealed record Input(string OrderId);
-    private sealed class Processor : IProcessor<Input>
+    private sealed class Processor : IJob<Input>
     {
-        public Task<JobResult> ProcessAsync(Input input, JobExecutionContext context, CancellationToken ct) => Task.FromResult(JobResult.From(input.OrderId));
+        public Task<JobResult> ExecuteAsync(Input input, JobExecutionContext context, CancellationToken ct) => Task.FromResult(JobResult.From(input.OrderId));
     }
 
     [Fact]
     public async Task Typed_definition_binds_unattributed_code_and_checks_saved_payloads()
     {
         var catalog = new JobCatalog();
-        catalog.RegisterProcessor<Input, Processor>(Definition, Old);
+        catalog.Register<Input, Processor>(Definition, Old);
         var registration = catalog.Get(Old);
         Assert.Equal(Definition.Identity, registration.CanonicalIdentity);
         Assert.Equal("Process order", registration.DisplayName);
@@ -32,7 +32,7 @@ public sealed class IdentityTests
         Assert.Throws<InvalidOperationException>(() => catalog.ValidateRegistry(new(0, [])));
         catalog.ValidateRegistry(new(1, catalog.Aliases));
         catalog.Seal();
-        Assert.Throws<InvalidOperationException>(() => catalog.RegisterProcessor<Input, Processor>(Definition));
+        Assert.Throws<InvalidOperationException>(() => catalog.Register<Input, Processor>(Definition));
     }
 
     [Theory, MemberData(nameof(Providers))]

@@ -32,9 +32,18 @@ public static class ExecutionEventKinds
     public const string ScheduledOccurrence = "ScheduledOccurrence";
     public const string SignalReceived = "SignalReceived";
     public const string SignalExpired = "SignalExpired";
+    public const string ChildFlowSucceeded = "ChildFlowSucceeded";
+    public const string ChildFlowFailed = "ChildFlowFailed";
+    public const string ChildFlowStarted = "ChildFlowStarted";
+    public const string InputCorrected = "InputCorrected";
 }
 
-public sealed record ProcessorDescription(JobContractId Identity, JobContractId CanonicalIdentity, string? DisplayName);
+public sealed record ProcessorDescription(JobContractId Identity, JobContractId CanonicalIdentity, string? DisplayName)
+{
+    /// <summary>For an upcast address, the version whose job runs its stored work.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public JobContractId? UpcastTo { get; init; }
+}
 
 public sealed record WorkerHeartbeat(string WorkerId, DateTimeOffset SeenAt, IReadOnlyList<JobContractId> Processors,
     IReadOnlyList<string> Queues, int Capacity, int Running, IReadOnlyList<ProcessorDescription>? Descriptions = null)
@@ -43,6 +52,9 @@ public sealed record WorkerHeartbeat(string WorkerId, DateTimeOffset SeenAt, IRe
     public static TimeSpan Freshness { get; } = TimeSpan.FromSeconds(60);
 
     public WorkerAcquisition? Acquisition { get; init; }
+
+    /// <summary>The highest <see cref="EngineProtocol"/> level the worker understands. Heartbeats from releases before protocols report the baseline.</summary>
+    public int Protocol { get; init; } = EngineProtocol.Baseline;
 }
 
 /// <summary>Worker-reported acquisition observations. A successful empty poll also resets consecutive failures.</summary>

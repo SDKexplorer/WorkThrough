@@ -1,8 +1,8 @@
 # Typed processors and execution extensions
 
-Implemented in the local alpha. Use `IProcessor<TInput>` for normal application code; use `IProcessor<string>` when the application deliberately owns an opaque JSON/string contract. Processor identity is independent of either choice.
+Implemented in the local alpha. Use `IJob<TInput>` for normal application code; use `IJob<string>` when the application deliberately owns an opaque JSON/string contract. Processor identity is independent of either choice.
 
-The executable invoice example is split into `InvoiceJobs`, `GenerateInvoice`, `InvoiceSchedule`, and the host composition root. It uses a shared typed definition and typed settings. The order example uses named flow steps and `JsonField.Of<T, TValue>` selectors: only resolved JSON property names enter the saved graph, never expressions or delegates. Renaming a serialized property still changes its data contract; use `JsonPropertyName` or a new contract version when required.
+A job is either a class implementing `IJob<TInput>`, or a delegate bound to an explicit address with `AddJob(definition, job => ...)`; both run through the same pipeline, middleware and retry policy. The [Shop sample](../samples/README.md) shares typed definitions (`ShopJobs`) between producers and workers, and its checkout flow uses named steps and typed selectors: only resolved JSON property names enter the saved graph, never expressions or delegates. Renaming a serialized property still changes its data contract; use `JsonPropertyName` or a new contract version when required.
 
 ## State and extension points
 

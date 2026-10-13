@@ -18,6 +18,9 @@ public abstract partial class RelationalJobStore
     protected virtual string AttemptNumberSql => "number";
     protected virtual string DiagnosticExceptionSql => "COALESCE(f.exception_type,'Unspecified')";
 
+    /// <summary>Counts columns named @column in table @table of the store's schema.</summary>
+    protected virtual string ColumnExistsSql => "SELECT COUNT(*) FROM pragma_table_info(@table) WHERE name=@column";
+
     /// <summary>Composes a single-row upsert inside the provider's serialized write transaction.</summary>
     protected virtual string UpsertSql(string table, string columns, string values, string keys, string updates = "")
     {

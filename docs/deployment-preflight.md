@@ -18,7 +18,7 @@ The inventory includes queued (including future work), running, and waiting jobs
 
 The report includes outstanding and currently eligible job counts and the earliest eligible timestamp. Waiting dependencies, future-due jobs, and paused/incident runs are excluded from ready counts. Capacity limits do not change eligibility. Flow successor activation now records its eligibility time when dependencies resolve; historical rows created before this change may retain their original creation-based available_at timestamp. Time spent behind capacity limits or an intervening pause is included in wall-clock backlog age; this is not an execution-duration metric.
 
-SQLite reads under a deferred snapshot transaction; PostgreSQL uses Repeatable Read. Neither reader takes the admission advisory lock or changes jobs. Query output is bounded to 1,000 processor/queue groups and 1,000 enabled schedules. The report explicitly marks truncation and refuses complete-coverage confirmation. Grouped counts may still scan outstanding rows; measure store overhead before polling at high frequency.
+The inventory reads one snapshot (SQLite deferred, PostgreSQL and MySQL/MariaDB Repeatable Read, SQL Server Snapshot, Oracle Serializable). It takes no admission lock and changes no jobs. Query output is bounded to 1,000 processor/queue groups and 1,000 enabled schedules. The report explicitly marks truncation and refuses complete-coverage confirmation. Grouped counts may still scan outstanding rows; measure store overhead before polling at high frequency.
 
 The dashboard's **Workers & capacity → Processor coverage** view compares requirements with stored heartbeats seen within 60 seconds. That is an observation of the current fleet, not a declaration of the next deployment. It exposes metadata through `executions.read`, without payloads or implementation assemblies. Busy, paused-by-policy, and semantically incompatible workers can still advertise identity coverage: the report is not a throughput, code correctness, or transaction compatibility guarantee.
 
@@ -26,11 +26,11 @@ The dashboard's **Workers & capacity → Processor coverage** view compares requ
 
 ```sh
 # JSON describing the sample worker's registered processor identities and queues:
-dotnet run --project samples/Demo.Worker -- --describe-worker
+dotnet run --project samples/Shop.Worker -- --describe-worker
 
 # Read an existing initialized store and exit 0 for complete coverage, 2 otherwise:
-Jobs__ConnectionString='Data Source=/absolute/path/jobs.db' \
-  dotnet run --project samples/Demo.Worker -- --preflight
+Shop__Sqlite='Data Source=/absolute/path/shop.db' \
+  dotnet run --project samples/Shop.Worker -- --preflight
 ```
 
 These command modes build the composition root but do not start hosted workers, seed limits, initialize storage, or process jobs. The sample checks its own profile; use the SDK to combine profiles. Connection/schema failures remain errors, never a successful empty report.

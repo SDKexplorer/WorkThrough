@@ -73,7 +73,7 @@ public abstract partial class RelationalJobStore
         }
 
         await using (var command = Command(connection, transaction, """
-            SELECT f.flow_key,f.version,f.correlation_id,f.status,f.error,f.input,d.definition
+            SELECT f.flow_key,f.version,f.correlation_id,f.status,f.error,f.parent_run_id,f.parent_job_id,f.forked_from_run_id,f.input,d.definition
             FROM dj_flows f JOIN dj_definitions d ON f.flow_key=d.flow_key AND f.version=d.version WHERE f.id=@id
             """, ("id", runId.ToString())))
         {

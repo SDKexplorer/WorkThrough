@@ -66,14 +66,30 @@ public sealed partial class OracleJobStore : RelationalJobStore
 
     private async Task RequireReadyAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
     {
-        await using var command = Command(connection, transaction, "SELECT version,status,step,definition_hash FROM dj_schema");
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct) || reader.GetInt32(0) != SchemaVersion || reader.GetString(1) != MigrationReady ||
-            reader.GetInt32(2) != OracleSchema.Length || reader.GetString(3) != SchemaFingerprint || await reader.ReadAsync(ct))
+        int version;
+        await using (var command = Command(connection, transaction, "SELECT version,status,step,definition_hash FROM dj_schema"))
         {
-            throw new InvalidOperationException("The Oracle WorkThrough schema is incomplete or incompatible. Complete initialization before starting runtime hosts.");
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+            {
+                throw IncompleteSchema();
+            }
+
+            version = reader.GetInt32(0);
+            var current = version == SchemaVersion && reader.GetString(1) == MigrationReady && reader.GetInt32(2) == OracleSchemaSteps.Length
+                && reader.GetString(3) == SchemaFingerprint;
+            if (!current && version <= SchemaVersion || await reader.ReadAsync(ct))
+            {
+                throw IncompleteSchema();
+            }
         }
+
+        // A newer schema, installed or still installing, is usable while it declares this build a compatible reader.
+        await UsesNewerSchemaAsync(connection, transaction, version, ct);
     }
+
+    private static InvalidOperationException IncompleteSchema() =>
+        new("The Oracle WorkThrough schema is incomplete or incompatible. Complete initialization before starting runtime hosts.");
 
     // ORA-08177 can surface wrapped in ORA-00604 when recursive dictionary SQL meets concurrent DDL.
     private const int SerializationConflict = 8177;
@@ -84,6 +100,28 @@ public sealed partial class OracleJobStore : RelationalJobStore
 
     protected override async Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+
+    /// <summary>Owned-row writes do not lock the admission row; their lease token or worker ID fences them.</summary>
+    protected override async Task<DbTransaction> BeginOwnedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+    /// <summary>Settlements and unrestricted claims do not lock the admission row; flow and job row locks order them against other writers.</summary>
+    protected override async Task<DbTransaction> BeginRowLockedWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+        await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+    protected override string SeedLimitLocksSql => $"""
+        INSERT INTO dj_limit_locks(id) SELECT i FROM (SELECT LEVEL-1 AS i FROM dual CONNECT BY LEVEL<={LimitLockRows}) n
+        WHERE NOT EXISTS (SELECT 1 FROM dj_limit_locks l WHERE l.id=n.i)
+        """;
+
+    protected override string LockingSelectSql(string columns, string table, string predicate, bool skipLocked) =>
+        $"SELECT {columns} FROM {table} WHERE {predicate} FOR UPDATE{(skipLocked ? " SKIP LOCKED" : "")}";
+
+    /// <summary>
+    /// Oracle cannot lock a row-limited query, and an ordered FOR UPDATE locks every matching row when it opens. Claims therefore read
+    /// candidate IDs first and lock only as many as they still need.
+    /// </summary>
+    protected override bool LocksCandidatesByIdentity => true;
 
     protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken)
     {
@@ -122,6 +160,9 @@ public sealed partial class OracleJobStore : RelationalJobStore
     // Match only bind markers outside SQL string literals. Caller business SQL never passes through this method.
     private static readonly Regex BindTokens = new("'(?:''|[^'])*'|@[A-Za-z][A-Za-z0-9_]*", RegexOptions.Compiled);
 
+    /// <summary>Oracle commands carry one statement; an anonymous block runs several in one round trip.</summary>
+    protected override string BatchSql(IReadOnlyList<string> statements) => $"BEGIN\n{string.Join(";\n", statements)};\nEND;";
+
     protected override DbCommand Command(DbConnection connection, DbTransaction? transaction, string sql, params (string Name, object? Value)[] values)
     {
         var supplied = values.ToDictionary(value => value.Name, value => value.Value, StringComparer.Ordinal);
@@ -141,7 +182,7 @@ public sealed partial class OracleJobStore : RelationalJobStore
 
             if (value is string { Length: 0 })
             {
-                if (name is "error" or "description" or "message" or "stack" or "handler" or "type")
+                if (BaseParameterName(name) is "error" or "description" or "message" or "stack" or "handler" or "type")
                 {
                     return "EMPTY_CLOB()";
                 }
@@ -165,8 +206,8 @@ public sealed partial class OracleJobStore : RelationalJobStore
                 int => OracleDbType.Int32,
                 long => OracleDbType.Int64,
                 string text when text.Length > 2000 => OracleDbType.Clob,
-                null when name is "failure" or "expiry" or "deadline" or "timeout" or "next" => OracleDbType.Int64,
-                null when name is "output" or "error" or "description" or "stack" => OracleDbType.Clob,
+                null when BaseParameterName(name) is "failure" or "expiry" or "deadline" or "timeout" or "next" => OracleDbType.Int64,
+                null when BaseParameterName(name) is "output" or "error" or "description" or "stack" => OracleDbType.Clob,
                 _ => OracleDbType.Varchar2
             };
             command.Parameters.Add(new OracleParameter("wt_" + name, type) { Value = value ?? DBNull.Value });

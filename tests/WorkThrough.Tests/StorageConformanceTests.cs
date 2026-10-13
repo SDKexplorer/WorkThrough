@@ -1,4 +1,3 @@
-using System.Text.Json;
 using WorkThrough.Storage;
 using Xunit;
 
@@ -28,6 +27,32 @@ public sealed class StorageConformanceTests
         {
             yield return ["postgres"];
         }
+
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_MYSQL")))
+        {
+            yield return ["mysql"];
+        }
+
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_MARIADB")))
+        {
+            yield return ["mariadb"];
+        }
+    }
+
+    /// <summary>
+    /// Providers for tests of claims and settlements outside the admission lock. SQL Server takes that path only with
+    /// READ_COMMITTED_SNAPSHOT on, so it runs both ways.
+    /// </summary>
+    public static IEnumerable<object[]> RowLockProviders()
+    {
+        foreach (var provider in Providers())
+        {
+            yield return provider;
+            if ((string)provider[0] == "sqlserver")
+            {
+                yield return [StoreHarness.SqlServerVersionedReads];
+            }
+        }
     }
 
     private static ClaimRequest Claim(string worker = "worker", TimeSpan? lease = null) =>
@@ -35,6 +60,167 @@ public sealed class StorageConformanceTests
 
     /// <summary>Plain job reads ran outside a snapshot and were chosen as deadlock victims by SQL Server under settlement load.</summary>
     [Theory, MemberData(nameof(Providers))]
+    public async Task A_completion_batch_settles_each_attempt_under_its_own_lease(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var client = new JobClient(harness.Store);
+        for (var i = 0; i < 3; i++)
+        {
+            await client.EnqueueAsync(new Alpha($"batch-{i}"));
+        }
+
+        var claimed = await harness.Store.ClaimBatchAsync(new ClaimRequest("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1)) { MaximumJobs = 3 });
+        Assert.Equal(3, claimed.Count);
+        var settled = await harness.Store.CompleteBatchAsync([
+            new(claimed[0].Id, claimed[0].LeaseToken!.Value, JobResult.Done()),
+            new(claimed[1].Id, Guid.NewGuid(), JobResult.Done()),
+            new(claimed[2].Id, claimed[2].LeaseToken!.Value, JobResult.From("output"))
+        ]);
+
+        Assert.Equal([true, false, true], settled);
+        Assert.Equal(JobStatus.Succeeded, (await harness.Store.GetAsync(claimed[0].Id))!.Status);
+        Assert.Equal(JobStatus.Running, (await harness.Store.GetAsync(claimed[1].Id))!.Status);
+        Assert.Equal("output", (await harness.Store.GetAsync(claimed[2].Id))!.Output!.Value.GetString());
+    }
+
+    /// <summary>Server providers settle without the admission lock; the flow row lock must still let exactly one settlement see both branches done.</summary>
+    [Theory, MemberData(nameof(RowLockProviders))]
+    public async Task Concurrent_settlements_of_parallel_branches_activate_each_join_once(string provider)
+    {
+        const int runs = 40;
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var flow = new FlowBuilder("tests.parallel-join", 1)
+            .Step<Alpha>("left", new Alpha("l")).Step<Alpha>("right", new Alpha("r")).Step<Beta>("join", new Beta("j")).After("left", "right").Build();
+        var flows = new WorkflowClient(harness.Store);
+        var started = new List<Guid>();
+        for (var i = 0; i < runs; i++)
+        {
+            started.Add(await flows.StartAsync(flow, new { }));
+        }
+
+        var branches = await harness.Store.ClaimBatchAsync(new ClaimRequest("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1))
+        {
+            MaximumJobs = runs * 2
+        });
+        Assert.Equal(runs * 2, branches.Count);
+
+        // Batches mix branches of many flows in different orders, as completion batches from several workers would.
+        var batches = branches.OrderBy(_ => Random.Shared.Next()).Chunk(5).ToArray();
+        await Task.WhenAll(batches.Select(batch => Task.Run(async () =>
+        {
+            var settled = await harness.NewStore().CompleteBatchAsync(
+                batch.Select(job => new AttemptCompletion(job.Id, job.LeaseToken!.Value, JobResult.Done())).ToArray());
+            Assert.All(settled, Assert.True);
+        })));
+
+        var joins = await harness.Store.ClaimBatchAsync(new ClaimRequest("worker", [JobContractId.For<Beta>()], ["default"], TimeSpan.FromMinutes(1))
+        {
+            MaximumJobs = runs * 2
+        });
+        Assert.Equal(started.Order(), joins.Select(job => job.WorkflowRunId!.Value).Order());
+        await AssertJournalIsGapFreeAsync(harness.Store);
+    }
+
+    /// <summary>Without limits, claims run outside the admission lock; skipped row locks must still give every job to exactly one claim.</summary>
+    [Theory, MemberData(nameof(RowLockProviders))]
+    public async Task Concurrent_unrestricted_claims_lease_each_job_once(string provider)
+    {
+        const int jobs = 200;
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var client = new JobClient(harness.Store);
+        for (var i = 0; i < jobs; i++)
+        {
+            await client.EnqueueAsync(new Alpha($"job-{i}"));
+        }
+
+        var leased = new System.Collections.Concurrent.ConcurrentBag<JobRecord>();
+        await Task.WhenAll(Enumerable.Range(0, 6).Select(worker => Task.Run(async () =>
+        {
+            var store = harness.NewStore();
+            for (var round = 0; round < jobs; round++)
+            {
+                var batch = await store.ClaimBatchAsync(new ClaimRequest($"worker-{worker}", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1))
+                {
+                    MaximumJobs = 7
+                });
+                foreach (var job in batch)
+                {
+                    leased.Add(job);
+                }
+
+                if (batch.Count == 0 && (await store.StatisticsAsync()).Counts.GetValueOrDefault(JobStatus.Queued) == 0)
+                {
+                    return;
+                }
+            }
+        })));
+
+        Assert.Equal(jobs, leased.Count);
+        Assert.Equal(jobs, leased.Select(job => job.Id).Distinct().Count());
+        Assert.Equal(jobs, (await harness.Store.StatisticsAsync()).Counts[JobStatus.Running]);
+        await AssertJournalIsGapFreeAsync(harness.Store);
+    }
+
+    /// <summary>A failing step skips its queued siblings while claims run; every sibling ends either skipped or leased, never both.</summary>
+    [Theory, MemberData(nameof(RowLockProviders))]
+    public async Task A_failing_flow_and_concurrent_claims_agree_on_each_queued_sibling(string provider)
+    {
+        const int runs = 30;
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var flow = new FlowBuilder("tests.fail-race", 1).OnFailure(FlowFailurePolicy.Stop)
+            .Step<Alpha>("failing", new Alpha("f"), maxAttempts: 1).Step<Beta>("sibling", new Beta("s")).Build();
+        var flows = new WorkflowClient(harness.Store);
+        for (var i = 0; i < runs; i++)
+        {
+            await flows.StartAsync(flow, new { });
+        }
+
+        var failing = await harness.Store.ClaimBatchAsync(new ClaimRequest("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1))
+        {
+            MaximumJobs = runs
+        });
+        var leased = new System.Collections.Concurrent.ConcurrentBag<JobRecord>();
+        var claims = Enumerable.Range(0, 3).Select(worker => Task.Run(async () =>
+        {
+            var store = harness.NewStore();
+            for (var round = 0; round < runs; round++)
+            {
+                foreach (var job in await store.ClaimBatchAsync(new ClaimRequest($"claimer-{worker}", [JobContractId.For<Beta>()], ["default"], TimeSpan.FromMinutes(1))
+                {
+                    MaximumJobs = 2
+                }))
+                {
+                    leased.Add(job);
+                }
+            }
+        }));
+        var failures = failing.Select(job => Task.Run(async () =>
+            Assert.True(await harness.NewStore().FailAsync(job.Id, job.LeaseToken!.Value, "boom", TimeSpan.Zero))));
+        await Task.WhenAll(claims.Concat(failures));
+
+        var siblings = (await harness.Store.ListAsync(new(Limit: 500))).Where(job => job.StepId == "sibling").ToArray();
+        Assert.Equal(runs, siblings.Length);
+        Assert.All(siblings, sibling => Assert.Equal(leased.Any(job => job.Id == sibling.Id) ? JobStatus.Running : JobStatus.Skipped, sibling.Status));
+        foreach (var sibling in siblings.Where(job => job.Status == JobStatus.Skipped))
+        {
+            Assert.Empty(await harness.Store.AttemptsAsync(sibling.Id));
+        }
+
+        await AssertJournalIsGapFreeAsync(harness.Store);
+    }
+
+    private static async Task AssertJournalIsGapFreeAsync(RelationalJobStore store)
+    {
+        var sequences = new List<long>();
+        for (var page = await store.ReadEventsAsync(0, 500); page.Count > 0; page = await store.ReadEventsAsync(sequences[^1], 500))
+        {
+            sequences.AddRange(page.Select(item => item.Sequence));
+        }
+
+        Assert.Equal(Enumerable.Range(1, sequences.Count).Select(number => (long)number), sequences);
+    }
+
+    [Theory, MemberData(nameof(RowLockProviders))]
     public async Task Job_reads_do_not_fail_while_workers_settle_flows(string provider)
     {
         const int runs = 60;

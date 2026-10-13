@@ -14,6 +14,6 @@ public interface IJobModule
 
 public interface IJobRegistrar
 {
-    void Register<TJob, THandler>() where THandler : class, IJobHandler<TJob>;
-    void RegisterProcessor<TInput, TProcessor>() where TProcessor : class, IProcessor<TInput>;
+    /// <summary>Registers a job at the address its class or input type declares.</summary>
+    void Register<TInput, TJob>() where TJob : class, IJob<TInput>;
 }

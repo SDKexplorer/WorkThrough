@@ -1,7 +1,4 @@
 using System.Data.Common;
-using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Npgsql;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -23,9 +20,14 @@ public sealed class OperationsTests
         await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var query = connection.CreateCommand();
-        query.CommandText = provider == "oracle" ? "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit BEGIN raise_application_error(-20001, 'audit unavailable'); END;" : provider == "sqlserver" ? "CREATE TRIGGER reject_audit ON dj_audit AFTER INSERT AS THROW 51000,'audit unavailable',1;" : provider == "sqlite"
-            ? "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END"
-            : "CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$; CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit FOR EACH ROW EXECUTE FUNCTION reject_audit();";
+        query.CommandText = provider switch
+        {
+            "oracle" => "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit BEGIN raise_application_error(-20001, 'audit unavailable'); END;",
+            "sqlserver" => "CREATE TRIGGER reject_audit ON dj_audit AFTER INSERT AS THROW 51000,'audit unavailable',1;",
+            "sqlite" => "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END",
+            "mysql" or "mariadb" => "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='audit unavailable'",
+            _ => "CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$; CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit FOR EACH ROW EXECUTE FUNCTION reject_audit();"
+        };
         await query.ExecuteNonQueryAsync();
         var command = Command();
         await Assert.ThrowsAnyAsync<DbException>(() => store.RetryJobAsync(id, 1, command));

@@ -1,4 +1,3 @@
-using System.Data.Common;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
@@ -105,14 +104,21 @@ public sealed class RetentionTests
         var id = await CompletedAsync(harness, "rollback-receipt");
         await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command()).SucceedsAsync();
         var lease = await Lease(harness.Store);
-        await ExecuteAsync(harness, provider == "oracle" ? "CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN UPDATE dj_maintenance SET lease_expires_at=0; END;" : provider == "sqlserver" ? "CREATE TRIGGER expire_batch ON dj_archives AFTER INSERT AS UPDATE dj_maintenance SET lease_expires_at=0;" : provider == "sqlite" ? """
-            CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN
-              UPDATE dj_maintenance SET lease_expires_at=0; END
-            """ : """
-            CREATE FUNCTION expire_batch() RETURNS trigger AS $$ BEGIN
-              UPDATE dj_maintenance SET lease_expires_at=0; RETURN NEW; END; $$ LANGUAGE plpgsql;
-            CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives FOR EACH ROW EXECUTE FUNCTION expire_batch()
-            """);
+        await ExecuteAsync(harness, provider switch
+        {
+            "oracle" => "CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN UPDATE dj_maintenance SET lease_expires_at=0; END;",
+            "sqlserver" => "CREATE TRIGGER expire_batch ON dj_archives AFTER INSERT AS UPDATE dj_maintenance SET lease_expires_at=0;",
+            "sqlite" => """
+                CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN
+                  UPDATE dj_maintenance SET lease_expires_at=0; END
+                """,
+            "mysql" or "mariadb" => "CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives FOR EACH ROW UPDATE dj_maintenance SET lease_expires_at=0",
+            _ => """
+                CREATE FUNCTION expire_batch() RETURNS trigger AS $$ BEGIN
+                  UPDATE dj_maintenance SET lease_expires_at=0; RETURN NEW; END; $$ LANGUAGE plpgsql;
+                CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives FOR EACH ROW EXECUTE FUNCTION expire_batch()
+                """
+        });
         await Assert.ThrowsAsync<StateConflictException>(() => harness.Store.RunMaintenanceBatchAsync(lease));
         Assert.NotNull(await harness.Store.GetAsync(id));
         Assert.Empty(await harness.Store.ArchivesAsync());

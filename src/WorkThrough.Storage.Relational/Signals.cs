@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace WorkThrough.Storage;
 
@@ -21,6 +22,7 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
+            await RequireProtocolAsync(connection, transaction, ct);
             var receipt = await ScalarAsync(connection, transaction, "SELECT fingerprint FROM dj_signal_receipts WHERE run_id=@run AND idempotency_key=@key", ct, ("run", runId.ToString()), ("key", idempotencyKey));
             if (receipt is string prior)
             {
@@ -46,7 +48,7 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
 
             var now = await NowAsync(connection, transaction, ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_signals(run_id,name,payload,received_at) VALUES (@run,@name,@input,@now)", ct,
-                ("run", runId.ToString()), ("name", name), ("input", input.GetRawText()), ("now", now));
+                ("run", runId.ToString()), ("name", name), ("input", await StoredAsync(connection, transaction, input, ct)), ("now", now));
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_signal_receipts(run_id,idempotency_key,fingerprint) VALUES (@run,@key,@hash)", ct,
                 ("run", runId.ToString()), ("key", idempotencyKey), ("hash", hash));
             await AdvanceWorkflowAsync(connection, transaction, runId, ct);
@@ -82,19 +84,26 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             }
         }
 
+        var advanced = 0;
         foreach (var run in runs)
         {
-            await AdvanceWorkflowAsync(connection, transaction, run, ct);
+            // A flow that a settlement holds is advanced by that settlement or by a later sweep.
+            if (await LockFlowAsync(connection, transaction, run, skipLocked: true, ct))
+            {
+                await AdvanceWorkflowAsync(connection, transaction, run, ct);
+                advanced++;
+            }
         }
 
-        return runs.Count;
+        return advanced;
     }
 
-    private async Task<bool> ResolveRunSignalsAsync(DbConnection connection, DbTransaction transaction, Guid run, long now, CancellationToken ct)
+    private async Task<bool> ResolveRunSignalsAsync(DbConnection connection, DbTransaction transaction, Guid run, FlowDefinition definition, int depth, long now,
+        CancellationToken ct)
     {
-        var changes = new List<(Guid Job, string? Input)>();
+        var changes = new List<(Guid Job, string Name, string? Input)>();
         await using (var command = Command(connection, transaction, """
-            SELECT w.job_id,CASE WHEN s.received_at<=w.deadline THEN s.payload ELSE NULL END AS input
+            SELECT w.job_id,w.name,CASE WHEN s.received_at<=w.deadline THEN s.payload ELSE NULL END AS input
             FROM dj_signal_waits w JOIN dj_jobs j ON j.id=w.job_id LEFT JOIN dj_signals s ON s.run_id=w.run_id AND s.name=w.name
             WHERE w.run_id=@run AND j.status='AwaitingSignal' AND (s.received_at<=w.deadline OR w.deadline<=@now)
             """, ("run", run.ToString()), ("now", now)))
@@ -103,19 +112,52 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             {
                 while (await reader.ReadAsync(ct))
                 {
-                    changes.Add((Guid.Parse(reader.GetString(0)), reader.IsDBNull(1) ? null : reader.GetString(1)));
+                    changes.Add((Guid.Parse(reader.GetString(0)), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2)));
                 }
             }
         }
 
-        foreach (var (jobId, signalInput) in changes)
+        foreach (var (jobId, name, signalInput) in changes)
         {
             var job = (await ReadJobAsync(connection, transaction, jobId, ct))!;
-            var received = signalInput is not null;
-            await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status=@status,output=@input,error=@error WHERE id=@id", ct,
-                ("id", jobId.ToString()), ("status", (received ? JobStatus.Succeeded : JobStatus.Expired).ToString()), ("input", signalInput),
-                ("error", received ? null : SignalDeadlineError));
-            await JournalAsync(connection, transaction, job, now, received ? ExecutionEventKinds.SignalReceived : ExecutionEventKinds.SignalExpired, ct);
+            JobStatus status;
+            string? output = null;
+            string? error = null;
+            string kind;
+            if (signalInput is null)
+            {
+                (status, error, kind) = (JobStatus.Expired, SignalDeadlineError, ExecutionEventKinds.SignalExpired);
+            }
+            else if (!FlowChild.IsChildSignal(name))
+            {
+                (status, output, kind) = (JobStatus.Succeeded, signalInput, ExecutionEventKinds.SignalReceived);
+            }
+            else
+            {
+                var outcome = ReadChildOutcome(Required(Json(signalInput)));
+                var step = definition.Steps.Single(s => s.Id == FlowFanOut.BaseStepId(job.StepId!));
+                if (outcome.Succeeded && step.Loop is not null
+                    && await ContinueLoopAsync(connection, transaction, run, depth, job, step, outcome.Output, now, ct))
+                {
+                    continue;
+                }
+
+                if (outcome.Succeeded && step.Loop is { } loop
+                    && !JsonNode.DeepEquals(outcome.Output is null ? null : JsonNode.Parse(outcome.Output)?[loop.UntilStep]?[loop.UntilProperty],
+                        JsonNode.Parse(loop.Expected.GetRawText())))
+                {
+                    outcome = (false, null, $"The loop did not reach its condition in {loop.MaximumIterations} iterations.");
+                }
+
+                (output, error) = (outcome.Output is { } value ? await StoredAsync(connection, transaction, Json(value), ct) : null, outcome.Error);
+                (status, kind) = outcome.Succeeded
+                    ? (JobStatus.Succeeded, ExecutionEventKinds.ChildFlowSucceeded)
+                    : (JobStatus.Failed, ExecutionEventKinds.ChildFlowFailed);
+            }
+
+            await ExecuteAsync(connection, transaction, "UPDATE dj_jobs SET status=@status,output=@output,error=@error WHERE id=@id", ct,
+                ("id", jobId.ToString()), ("status", status.ToString()), ("output", output), ("error", error));
+            await JournalAsync(connection, transaction, job, now, kind, ct);
         }
 
         return changes.Count > 0;

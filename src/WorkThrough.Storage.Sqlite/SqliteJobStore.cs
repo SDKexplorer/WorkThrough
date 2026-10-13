@@ -4,7 +4,13 @@ using Microsoft.Data.Sqlite;
 namespace WorkThrough.Storage;
 
 /// <summary>File-backed SQLite provider. Admission writes serialize through an immediate transaction.</summary>
-public sealed record SqliteStorageOptions(bool UseWriteAheadLogging = true);
+public sealed record SqliteStorageOptions(bool UseWriteAheadLogging = true)
+{
+    /// <summary>
+    /// For tests: shifts the store's clock, which every delay, retry, deadline, schedule and lease reads. Leave unset in production.
+    /// </summary>
+    public Func<TimeSpan>? ClockOffset { get; init; }
+}
 
 public sealed class SqliteJobStore : RelationalJobStore
 {
@@ -27,6 +33,8 @@ public sealed class SqliteJobStore : RelationalJobStore
         $"json_extract(CASE WHEN LENGTH(a.actor)<=16384 THEN a.actor ELSE '{{}}' END,'$.{field}')";
     private readonly string connectionString;
     private readonly bool useWriteAheadLogging;
+    private readonly int busyTimeoutMilliseconds;
+    private readonly Func<TimeSpan>? clockOffset;
 
     public SqliteJobStore(string connectionString) : this(connectionString, new SqliteStorageOptions())
     {
@@ -36,12 +44,14 @@ public sealed class SqliteJobStore : RelationalJobStore
     {
         ArgumentNullException.ThrowIfNull(options);
         useWriteAheadLogging = options.UseWriteAheadLogging;
+        clockOffset = options.ClockOffset;
         var builder = new SqliteConnectionStringBuilder(connectionString);
         if (builder.Mode == SqliteOpenMode.Memory || builder.DataSource == ":memory:" || string.IsNullOrWhiteSpace(builder.DataSource))
         {
             throw new ArgumentException("Durable storage requires a file-backed SQLite database.", nameof(connectionString));
         }
 
+        busyTimeoutMilliseconds = checked(builder.DefaultTimeout * 1000);
         this.connectionString = builder.ToString();
     }
 
@@ -68,7 +78,9 @@ public sealed class SqliteJobStore : RelationalJobStore
         try
         {
             await using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA synchronous=FULL";
+            // SQLite's own busy handler waits in small steps for the single write lock; without it the driver retries a busy
+            // statement after long fixed sleeps, which collapses throughput as soon as processes contend.
+            command.CommandText = $"PRAGMA synchronous=FULL; PRAGMA busy_timeout={busyTimeoutMilliseconds}";
             await command.ExecuteNonQueryAsync(ct);
 
             return connection;
@@ -81,7 +93,9 @@ public sealed class SqliteJobStore : RelationalJobStore
     }
 
     protected override DbConnection CreateConnection() => new SqliteConnection(connectionString);
-    protected override string ClockSql => "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)";
+    protected override string ClockSql => clockOffset is null
+        ? "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)"
+        : $"SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER) + {(long)clockOffset().TotalMilliseconds}";
     protected override string FlowDependencySql => """
         SELECT DISTINCT predecessor_job.id,successor_job.id
         FROM dj_flows f JOIN dj_definitions d ON d.flow_key=f.flow_key AND d.version=f.version

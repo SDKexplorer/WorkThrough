@@ -1,0 +1,422 @@
+{
+  "recordedAt": "2026-10-11T12:25:43.816842+00:00",
+  "gitRevision": "5aa2a7ab28c02053f4bf5dc4b89e6baa53ff87f1",
+  "workingTree": "modified",
+  "runtime": ".NET 8.0.31",
+  "os": "Darwin 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:17:26 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T6041",
+  "architecture": "Arm64",
+  "logicalProcessors": 16,
+  "profile": "full",
+  "workload": {
+    "workerProcesses": 2,
+    "producers": 4,
+    "localSlots": 4,
+    "globalLimit": 6,
+    "limitedTypeLimit": 2,
+    "handlerDelayMs": 10,
+    "pollMs": 10,
+    "leaseSeconds": 30,
+    "load": "finite concurrent burst",
+    "latencyOrigin": "stored creation time; outbox uses the source commit observed by the harness clock",
+    "repetitions": 3,
+    "measuredOperations": 500
+  },
+  "runs": [
+    {
+      "scenario": "mixed",
+      "repetition": 1,
+      "databaseVersion": "PostgreSQL 17.11 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 161.986183874405,
+      "acceptedOperationsPerSecond": 368.60396555941475,
+      "acceptanceMs": {
+        "min": 1.6432,
+        "p50": 10.4847,
+        "p95": 16.0412,
+        "p99": 19.8184,
+        "max": 22.8056
+      },
+      "queueWaitMs": {
+        "min": 4,
+        "p50": 576,
+        "p95": 1595,
+        "p99": 1676,
+        "max": 1697
+      },
+      "endToEndMs": {
+        "min": 30,
+        "p50": 596,
+        "p95": 1611,
+        "p99": 1693,
+        "max": 1713
+      },
+      "attemptMs": {
+        "min": 14,
+        "p50": 21,
+        "p95": 35,
+        "p99": 39,
+        "max": 44
+      },
+      "wallSeconds": 3.086683,
+      "workerCpuMs": 6651.2126,
+      "harnessCpuMs": 1842.4874999999997,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 91.00864253687699,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "flows",
+      "repetition": 1,
+      "databaseVersion": "PostgreSQL 17.11 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "jobs": 1000,
+      "operations": 500,
+      "jobsPerSecond": 108.65795376927868,
+      "acceptedOperationsPerSecond": 127.76364910562124,
+      "acceptanceMs": {
+        "min": 17.4631,
+        "p50": 30.4555,
+        "p95": 36.7325,
+        "p99": 56.2975,
+        "max": 66.1341
+      },
+      "queueWaitMs": {
+        "min": 12,
+        "p50": 2229,
+        "p95": 5125,
+        "p99": 5243,
+        "max": 5278
+      },
+      "endToEndMs": {
+        "min": 60,
+        "p50": 2254,
+        "p95": 5141,
+        "p99": 5261,
+        "max": 5295
+      },
+      "attemptMs": {
+        "min": 15,
+        "p50": 23,
+        "p95": 68,
+        "p99": 72,
+        "max": 104
+      },
+      "wallSeconds": 9.2031919,
+      "workerCpuMs": 14823.3333,
+      "harnessCpuMs": 4643.3166,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 84.83001035325422,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "outbox",
+      "repetition": 1,
+      "databaseVersion": "PostgreSQL 17.11 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 108.63460660986395,
+      "acceptedOperationsPerSecond": 947.8660407464861,
+      "acceptanceMs": {
+        "min": 3.5544,
+        "p50": 3.9997,
+        "p95": 4.6932,
+        "p99": 6.1928,
+        "max": 19.5494
+      },
+      "queueWaitMs": {
+        "min": 62.094,
+        "p50": 2294.206,
+        "p95": 4055.843,
+        "p99": 4384.881,
+        "max": 4459.736
+      },
+      "endToEndMs": {
+        "min": 84.094,
+        "p50": 2312.206,
+        "p95": 4075.282,
+        "p99": 4401.881,
+        "max": 4475.736
+      },
+      "attemptMs": {
+        "min": 14,
+        "p50": 18,
+        "p95": 24,
+        "p99": 29,
+        "max": 31
+      },
+      "wallSeconds": 4.6025849,
+      "workerCpuMs": 7425.1751,
+      "harnessCpuMs": 4662.387500000001,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 94.63462627590388,
+      "maximumGlobalLeases": 5,
+      "maximumLimitedLeases": 0
+    },
+    {
+      "scenario": "mixed",
+      "repetition": 2,
+      "databaseVersion": "PostgreSQL 17.11 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 165.29027799279288,
+      "acceptedOperationsPerSecond": 398.6985522378431,
+      "acceptanceMs": {
+        "min": 1.3077,
+        "p50": 9.9371,
+        "p95": 14.733,
+        "p99": 16.1452,
+        "max": 17.8719
+      },
+      "queueWaitMs": {
+        "min": 7,
+        "p50": 591,
+        "p95": 1600,
+        "p99": 1695,
+        "max": 1714
+      },
+      "endToEndMs": {
+        "min": 33,
+        "p50": 616,
+        "p95": 1617,
+        "p99": 1712,
+        "max": 1734
+      },
+      "attemptMs": {
+        "min": 14,
+        "p50": 20,
+        "p95": 32,
+        "p99": 37,
+        "max": 39
+      },
+      "wallSeconds": 3.0249813,
+      "workerCpuMs": 6583.5708,
+      "harnessCpuMs": 1270.3832999999977,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 80.83964233847128,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "flows",
+      "repetition": 2,
+      "databaseVersion": "PostgreSQL 17.11 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "jobs": 1000,
+      "operations": 500,
+      "jobsPerSecond": 104.58661460763338,
+      "acceptedOperationsPerSecond": 126.8466976477041,
+      "acceptanceMs": {
+        "min": 7.9627,
+        "p50": 30.7196,
+        "p95": 37.1062,
+        "p99": 38.8182,
+        "max": 57.1824
+      },
+      "queueWaitMs": {
+        "min": 3,
+        "p50": 2343,
+        "p95": 5442,
+        "p99": 5550,
+        "max": 5569
+      },
+      "endToEndMs": {
+        "min": 53,
+        "p50": 2369,
+        "p95": 5458,
+        "p99": 5566,
+        "max": 5585
+      },
+      "attemptMs": {
+        "min": 14,
+        "p50": 25,
+        "p95": 67,
+        "p99": 74,
+        "max": 105
+      },
+      "wallSeconds": 9.561453,
+      "workerCpuMs": 14385.2251,
+      "harnessCpuMs": 4567.754200000003,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 99.67900012975443,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "outbox",
+      "repetition": 2,
+      "databaseVersion": "PostgreSQL 17.11 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 111.04521194699902,
+      "acceptedOperationsPerSecond": 981.4199537201606,
+      "acceptanceMs": {
+        "min": 1.7584,
+        "p50": 3.9821,
+        "p95": 4.7282,
+        "p99": 4.9715,
+        "max": 9.0034
+      },
+      "queueWaitMs": {
+        "min": 107.224,
+        "p50": 2256.198,
+        "p95": 4004.007,
+        "p99": 4170.516,
+        "max": 4359.334
+      },
+      "endToEndMs": {
+        "min": 127.224,
+        "p50": 2275.198,
+        "p95": 4021.007,
+        "p99": 4187.516,
+        "max": 4375.334
+      },
+      "attemptMs": {
+        "min": 14,
+        "p50": 18,
+        "p95": 24,
+        "p99": 29,
+        "max": 31
+      },
+      "wallSeconds": 4.5026705,
+      "workerCpuMs": 7349.466600000001,
+      "harnessCpuMs": 4493.316599999998,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 96.86558554130937,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 0
+    },
+    {
+      "scenario": "mixed",
+      "repetition": 3,
+      "databaseVersion": "PostgreSQL 17.11 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 159.60968409412885,
+      "acceptedOperationsPerSecond": 383.78826186671387,
+      "acceptanceMs": {
+        "min": 1.6573,
+        "p50": 10.3221,
+        "p95": 15.1672,
+        "p99": 16.6574,
+        "max": 23.6097
+      },
+      "queueWaitMs": {
+        "min": 2,
+        "p50": 532,
+        "p95": 1655,
+        "p99": 1746,
+        "max": 1771
+      },
+      "endToEndMs": {
+        "min": 27,
+        "p50": 551,
+        "p95": 1671,
+        "p99": 1763,
+        "max": 1787
+      },
+      "attemptMs": {
+        "min": 14,
+        "p50": 20,
+        "p95": 33,
+        "p99": 37,
+        "max": 40
+      },
+      "wallSeconds": 3.132642,
+      "workerCpuMs": 6762.5584,
+      "harnessCpuMs": 1304.3333999999995,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 78.88593194636748,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "flows",
+      "repetition": 3,
+      "databaseVersion": "PostgreSQL 17.11 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "jobs": 1000,
+      "operations": 500,
+      "jobsPerSecond": 110.74996654520386,
+      "acceptedOperationsPerSecond": 130.60255919894033,
+      "acceptanceMs": {
+        "min": 8.2086,
+        "p50": 30.0474,
+        "p95": 36.7575,
+        "p99": 48.4354,
+        "max": 70.202
+      },
+      "queueWaitMs": {
+        "min": 11,
+        "p50": 2284,
+        "p95": 5028,
+        "p99": 5137,
+        "max": 5168
+      },
+      "endToEndMs": {
+        "min": 49,
+        "p50": 2313,
+        "p95": 5044,
+        "p99": 5154,
+        "max": 5185
+      },
+      "attemptMs": {
+        "min": 14,
+        "p50": 25,
+        "p95": 67,
+        "p99": 74,
+        "max": 105
+      },
+      "wallSeconds": 9.0293481,
+      "workerCpuMs": 13695.312500000002,
+      "harnessCpuMs": 4279.366699999999,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 97.07328313872652,
+      "maximumGlobalLeases": 6,
+      "maximumLimitedLeases": 2
+    },
+    {
+      "scenario": "outbox",
+      "repetition": 3,
+      "databaseVersion": "PostgreSQL 17.11 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "jobs": 500,
+      "operations": 500,
+      "jobsPerSecond": 105.32644245616208,
+      "acceptedOperationsPerSecond": 966.0400222652904,
+      "acceptanceMs": {
+        "min": 1.7642,
+        "p50": 4.0114,
+        "p95": 4.6903,
+        "p99": 7.4695,
+        "max": 9.5402
+      },
+      "queueWaitMs": {
+        "min": 90.211,
+        "p50": 2370.644,
+        "p95": 4241.031,
+        "p99": 4431.482,
+        "max": 4556.382
+      },
+      "endToEndMs": {
+        "min": 110.211,
+        "p50": 2389.644,
+        "p95": 4260.357,
+        "p99": 4455.482,
+        "max": 4577.251
+      },
+      "attemptMs": {
+        "min": 14,
+        "p50": 18,
+        "p95": 24,
+        "p99": 29,
+        "max": 31
+      },
+      "wallSeconds": 4.747146,
+      "workerCpuMs": 7410.0208999999995,
+      "harnessCpuMs": 4681.570800000001,
+      "sumWorkerPeakRssBytes": null,
+      "idleWorkerCpuPercentOfOneCore": 101.09702648164117,
+      "maximumGlobalLeases": 5,
+      "maximumLimitedLeases": 0
+    }
+  ]
+}

@@ -1,7 +1,5 @@
 using System.Data.Common;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Npgsql;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -110,6 +108,16 @@ public sealed class DeploymentTests
             command.CommandText = """
                 INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,status,attempt,max_attempts,created_at,available_at)
                 SELECT TO_CHAR(LEVEL),'tests.group',LEVEL,'{}','default','Queued',0,3,0,0 FROM dual CONNECT BY LEVEL<=1001
+                """;
+        }
+
+        if (provider is "mysql" or "mariadb")
+        {
+            // MySQL puts the common table expression after INSERT. Both stop recursion at 1000 rows by default, under different names.
+            command.CommandText = (provider == "mysql" ? "SET SESSION cte_max_recursion_depth=2000;\n" : "SET SESSION max_recursive_iterations=2000;\n") + """
+                INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,status,attempt,max_attempts,created_at,available_at)
+                WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM numbers WHERE n<1001)
+                SELECT CAST(n AS CHAR),'tests.group',n,'{}','default','Queued',0,3,0,0 FROM numbers
                 """;
         }
 

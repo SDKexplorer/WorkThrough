@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -14,7 +13,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using ModelContextProtocol.Client;
-using ModelContextProtocol.Protocol;
 using WorkThrough.Storage;
 using Xunit;
 
@@ -278,7 +276,8 @@ public sealed partial class McpTests
         internal static async Task<McpTestHost> CreateAsync(StoreHarness harness, Guid? deniedId = null, int requestsPerMinute = 120,
             IExecutionQueries? queries = null, int concurrentRequests = 16, Guid? deniedRun = null,
             bool includeInspection = true, IMcpDiagnosticRedactor? redactor = null, ILoggerProvider? loggerProvider = null,
-            bool includeHistory = true, Guid? deniedArchive = null, bool includeRuntime = true, bool includeRetention = true)
+            bool includeHistory = true, Guid? deniedArchive = null, bool includeRuntime = true, bool includeRetention = true,
+            ITenantAccessResolver? tenants = null)
         {
             var key = RSA.Create(2048);
             var audit = new AccessRecorder();
@@ -292,6 +291,7 @@ public sealed partial class McpTests
             builder.WebHost.UseTestServer();
             await harness.ProvisionReadOnlySqlServerAsync();
             await harness.ProvisionReadOnlyOracleAsync();
+            await harness.ProvisionReadOnlyMySqlAsync();
             builder.Services.AddSingleton<IExecutionQueries>(queries ?? ReadOnlyQueries(harness));
             if (includeInspection)
             {
@@ -319,6 +319,11 @@ public sealed partial class McpTests
             }
 
             builder.Services.AddSingleton<IMcpAccessSink>(audit);
+            if (tenants is not null)
+            {
+                builder.Services.AddSingleton(tenants);
+            }
+
             builder.Services.AddAuthentication("DashboardTest").AddScheme<AuthenticationSchemeOptions, DashboardTests.TestAuthentication>("DashboardTest", _ =>
             {
             });
@@ -359,6 +364,11 @@ public sealed partial class McpTests
             if (harness.Store is SqlServerJobStore)
             {
                 return new SqlServerJobStore(harness.ReadOnlyConnectionString!);
+            }
+
+            if (harness.Store is MySqlJobStore)
+            {
+                return new MySqlJobStore(harness.ReadOnlyConnectionString!);
             }
 
             if (harness.Store is SqliteJobStore)

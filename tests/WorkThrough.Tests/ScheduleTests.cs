@@ -1,7 +1,7 @@
-using System.Data.Common;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Npgsql;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -33,6 +33,38 @@ public sealed class ScheduleTests
         Assert.Equal(schedule.Processor, job.Contract);
         Assert.Equal("MisfireDispatched", occurrence.Outcome);
         await store.SaveScheduleDraftAsync(schedule, 3, Command()).FailsAsync(ErrorType.Conflict);
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Seeded_schedules_are_created_once_across_hosts_and_never_override_operators(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var nightly = ScheduleDefinition.Create("tests.nightly", "0 2 * * *", new JobDefinition<Alpha>("tests.alpha"), new Alpha("report"));
+        var hosts = Enumerable.Range(0, 3).Select(_ => SeedingHost(harness, nightly)).ToArray();
+        await Task.WhenAll(hosts.Select(host => host.StartAsync()));
+        var seeded = Assert.Single(await harness.Store.SchedulesAsync());
+        Assert.Equal((DefinitionStatus.Published, true), (seeded.Status, seeded.Enabled));
+        Assert.Equal(3, (await harness.Store.AuditAsync()).Count);
+
+        await harness.Store.SetScheduleEnabledAsync(nightly.Key, 1, seeded.Revision, false, Command()).SucceedsAsync();
+        using var restarted = SeedingHost(harness, nightly);
+        await restarted.StartAsync();
+        Assert.False(Assert.Single(await harness.Store.SchedulesAsync()).Enabled);
+        foreach (var host in hosts.Append(restarted))
+        {
+            await host.StopAsync();
+            host.Dispose();
+        }
+    }
+
+    private static IHost SeedingHost(StoreHarness harness, ScheduleDefinition schedule)
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddSingleton<IJobStore>(harness.NewStore());
+        builder.Services.AddWorkThrough().SeedSchedules(schedule);
+
+        return builder.Build();
     }
 
     [Theory, MemberData(nameof(Providers))]

@@ -1,0 +1,118 @@
+{
+  "realm": "workthrough",
+  "enabled": true,
+  "sslRequired": "none",
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"unmanagedAttributePolicy\": \"ADMIN_EDIT\"}"
+          ]
+        }
+      }
+    ]
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "workthrough-viewer"
+      },
+      {
+        "name": "workthrough-operator"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "workthrough-dashboard",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dashboard-test-secret",
+      "redirectUris": [
+        "https://127.0.0.1:5297/*"
+      ],
+      "webOrigins": [
+        "https://127.0.0.1:5297"
+      ],
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "claim.name": "tenant",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "tenant"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "ada",
+      "enabled": true,
+      "email": "ada@example.test",
+      "emailVerified": true,
+      "firstName": "Ada",
+      "lastName": "Operator",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ada-test-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "workthrough-operator"
+      ]
+    },
+    {
+      "username": "grace",
+      "enabled": true,
+      "email": "grace@example.test",
+      "emailVerified": true,
+      "firstName": "Grace",
+      "lastName": "Viewer",
+      "attributes": {
+        "tenant": [
+          "tenant-a"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "grace-test-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "workthrough-viewer"
+      ]
+    }
+  ]
+}

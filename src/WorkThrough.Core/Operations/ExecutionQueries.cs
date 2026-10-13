@@ -36,7 +36,14 @@ public sealed record ExecutionQuery(
     DateTimeOffset? Until = null,
     ExecutionTimeBasis TimeBasis = ExecutionTimeBasis.Created,
     int Limit = OperationQueryLimits.DefaultPageSize,
-    string? Cursor = null);
+    string? Cursor = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? PartitionKey = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? TenantId = null)
+{
+    /// <summary>Matches any of these tenants; empty matches nothing. Tenant-scoped hosts set it from <see cref="TenantAccess"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? TenantIds { get; init; }
+}
 
 /// <summary>Metadata only: no payload, output, exception, implementation name, lease token or idempotency key.</summary>
 /// <remarks>Queue, correlation and step text are bounded to 512 characters; MetadataTruncated identifies clipping.</remarks>
@@ -44,7 +51,7 @@ public sealed record ExecutionMetadata(
     Guid Id, JobContractId Processor, string Queue, string? CorrelationId,
     JobStatus Status, int Attempt, int MaxAttempts, DateTimeOffset CreatedAt,
     DateTimeOffset AvailableAt, DateTimeOffset? TerminalAt, DateTimeOffset? ExpiresAt,
-    Guid? WorkflowRunId, string? StepId, Guid? CausationJobId, bool MetadataTruncated);
+    Guid? WorkflowRunId, string? StepId, Guid? CausationJobId, bool MetadataTruncated, string? PartitionKey = null, string? TenantId = null);
 
 /// <summary>A page of live execution metadata. It deliberately does not claim archive coverage or an exact total.</summary>
 public sealed record ExecutionPage(

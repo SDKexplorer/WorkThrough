@@ -52,6 +52,121 @@ public sealed class WorkerTests
     }
 
     [Fact]
+    public async Task A_transient_renewal_failure_does_not_abandon_a_healthy_attempt()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var probe = new Probe();
+        var store = new FlakyRenewalStore(harness.Store);
+        using var host = BuildHost(harness.ConnectionString, probe, maximum: 1, store);
+        var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("long"), new(MaxAttempts: 1));
+        await host.StartAsync();
+        try
+        {
+            // The 3 s lease renews each second: the first renewal fails, the second succeeds.
+            await EventuallyAsync(() => Task.FromResult(store.Renewals >= 2));
+            Assert.Equal(1, probe.Active);
+            probe.Gate.Release();
+            await EventuallyAsync(async () => (await harness.Store.GetAsync(id))!.Status == JobStatus.Succeeded);
+            Assert.Equal(AttemptStatus.Succeeded, (await harness.Store.AttemptsAsync(id)).Single().Status);
+        }
+        finally
+        {
+            probe.Gate.Release(10);
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Outbox_dispatch_drains_full_batches_within_one_tick()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var outbox = new FullBatchesOutbox(fullBatches: 3);
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddWorkThrough().UseSqlite(harness.ConnectionString).AddOutboxDispatcher(outbox);
+        using var host = builder.Build();
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        await host.StartAsync();
+        try
+        {
+            await EventuallyAsync(() => Task.FromResult(outbox.Calls >= 4));
+
+            // The dispatcher ticks once per second; one batch per tick would need four seconds.
+            Assert.True(started.Elapsed < TimeSpan.FromSeconds(1), $"Draining took {started.Elapsed}.");
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Event_subscribers_read_full_batches_without_waiting_for_the_next_interval()
+    {
+        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        var events = new BacklogEvents(available: 300);
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddSingleton(events);
+        builder.Services.AddWorkThrough().UseSqlite(harness.ConnectionString).AddEventSubscriber<CountingHandler>("tests.backlog");
+        builder.Services.AddSingleton<IExecutionEvents>(events);
+        using var host = builder.Build();
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        await host.StartAsync();
+        try
+        {
+            await EventuallyAsync(() => Task.FromResult(events.Handled == 300));
+            Assert.True(started.Elapsed < TimeSpan.FromSeconds(1), $"Catching up took {started.Elapsed}.");
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    private sealed class BacklogEvents(int available) : IExecutionEvents
+    {
+        private long acknowledged;
+        private int handled;
+        public int Handled => Volatile.Read(ref handled);
+        public void Handle() => Interlocked.Increment(ref handled);
+
+        public Task<EventPosition> EventPositionAsync(CancellationToken cancellationToken = default) => Task.FromResult(new EventPosition(available, 0));
+        public Task<long> SubscribeAsync(string subscriber, long startAfter = 0, CancellationToken cancellationToken = default) => Task.FromResult(Interlocked.Read(ref acknowledged));
+
+        public Task<IReadOnlyList<ExecutionEvent>> ReadEventsAsync(long after, int limit = 100, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ExecutionEvent>>(Enumerable.Range(1, (int)Math.Min(limit, available - after))
+                .Select(offset => new ExecutionEvent(after + offset, Guid.NewGuid(), null, DateTimeOffset.UtcNow, "Succeeded", 1)).ToArray());
+
+        public Task<bool> AcknowledgeAsync(string subscriber, long expectedSequence, long sequence, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Interlocked.CompareExchange(ref acknowledged, sequence, expectedSequence) == expectedSequence);
+
+        public Task<Result<int>> TrimEventsAsync(long through, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class CountingHandler(BacklogEvents events) : IExecutionEventHandler
+    {
+        public Task HandleAsync(ExecutionEvent entry, CancellationToken cancellationToken)
+        {
+            events.Handle();
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FullBatchesOutbox(int fullBatches) : IJobOutbox
+    {
+        private int calls;
+        public int Calls => Volatile.Read(ref calls);
+
+        public Task<int> DispatchOutboxAsync(IJobStore destination, int batchSize = 20, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Interlocked.Increment(ref calls) <= fullBatches ? batchSize : 0);
+
+        public Task<OutboxDelivery?> OutboxDeliveryAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<OutboxDelivery?>(null);
+    }
+
+    [Fact]
     public async Task Processor_registry_change_stops_acquisition_and_the_host()
     {
         await using var harness = await StoreHarness.CreateAsync("sqlite");
@@ -220,9 +335,9 @@ public sealed class WorkerTests
     {
         public Guid Id { get; } = Guid.NewGuid();
     }
-    public sealed class BlockingHandler(Probe probe, ScopeMarker marker) : IJobHandler<Alpha>
+    public sealed class BlockingHandler(Probe probe, ScopeMarker marker) : IJob<Alpha>
     {
-        public async Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken)
+        public async Task<JobResult> ExecuteAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken)
         {
             probe.Enter(marker.Id);
             try
@@ -238,9 +353,18 @@ public sealed class WorkerTests
         }
     }
     public interface IMissingDependency;
-    public sealed class NeedsDependency(IMissingDependency dependency) : IJobHandler<Alpha>
+    public sealed class NeedsDependency(IMissingDependency dependency) : IJob<Alpha>
     {
-        public Task<JobResult> HandleAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(dependency.ToString()));
+        public Task<JobResult> ExecuteAsync(Alpha job, JobExecutionContext context, CancellationToken cancellationToken) => Task.FromResult(JobResult.From(dependency.ToString()));
+    }
+
+    private sealed class FlakyRenewalStore(IJobStore inner) : DelegatingJobStore(inner)
+    {
+        private int renewals;
+        public int Renewals => Volatile.Read(ref renewals);
+
+        public override Task<bool> RenewAsync(Guid id, Guid token, TimeSpan duration, CancellationToken ct = default) =>
+            Interlocked.Increment(ref renewals) == 1 ? throw new TimeoutException("Simulated storage outage") : base.RenewAsync(id, token, duration, ct);
     }
 
     private sealed class SetupGateStore(IJobStore inner) : IJobStore
