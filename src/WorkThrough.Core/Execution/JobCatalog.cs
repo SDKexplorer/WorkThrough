@@ -32,6 +32,23 @@ public sealed class JobCatalog : IJobRegistrar
             (job, input, context, ct) => job.ExecuteAsync(input, context, ct));
     }
 
+    /// <summary>
+    /// Binds an address to a delegate, for jobs too small to deserve a class. The address is explicit, so stored work never depends on
+    /// the delegate's compiled name.
+    /// </summary>
+    public void Register<TInput>(JobDefinition<TInput> definition, Func<JobCall<TInput>, Task<JobResult>> execute)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(execute);
+        if (registrations.ContainsKey(definition.Identity))
+        {
+            throw new InvalidOperationException($"{definition.Identity} already has a job.");
+        }
+
+        Add<TInput, DelegateJobHandler>(definition.Identity, definition.DisplayName, [],
+            (handler, input, context, ct) => execute(new(input, context, handler.Services, ct)));
+    }
+
     private void Add<TJob, THandler>(JobContractId identity, string? displayName, JobContractId[] aliases,
         Func<THandler, TJob, JobExecutionContext, CancellationToken, Task<JobResult>> invoke)
     {

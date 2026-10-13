@@ -80,6 +80,33 @@ public sealed class WorkThroughBuilder
     public WorkThroughBuilder AddJob<TInput, TJob>(JobContractId identity, params JobContractId[] aliases)
         where TJob : class, IJob<TInput> => AddJob<TInput, TJob>(new JobDefinition<TInput>(identity), aliases);
 
+    /// <summary>Runs <paramref name="execute"/> for work at the definition's address; the job succeeds when it completes.</summary>
+    /// <example><c>.AddJob(Emails.Welcome, job =&gt; job.Service&lt;IMailer&gt;().SendAsync(job.Input.Address, job.CancellationToken))</c></example>
+    public WorkThroughBuilder AddJob<TInput>(JobDefinition<TInput> definition, Func<JobCall<TInput>, Task> execute)
+    {
+        ArgumentNullException.ThrowIfNull(execute);
+
+        return AddJob(definition, async job =>
+        {
+            await execute(job).ConfigureAwait(false);
+
+            return JobResult.Done();
+        });
+    }
+
+    /// <summary>Runs <paramref name="execute"/> for work at the definition's address; its result can carry an output or reject the work.</summary>
+    public WorkThroughBuilder AddJob<TInput>(JobDefinition<TInput> definition, Func<JobCall<TInput>, Task<JobResult>> execute)
+    {
+        Catalog.Register(definition, execute);
+        Services.TryAddScoped<DelegateJobHandler>();
+
+        return this;
+    }
+
+    /// <summary>Runs <paramref name="execute"/> for work at the address of <typeparamref name="TInput"/>'s [JobContract].</summary>
+    public WorkThroughBuilder AddJob<TInput>(Func<JobCall<TInput>, Task> execute) =>
+        AddJob(new JobDefinition<TInput>(JobContractId.For<TInput>()), execute);
+
     /// <summary>
     /// Registers every job class in the assembly at the address its [Job] attribute, or its input's [JobContract], declares. It
     /// follows the source generator's rules at startup instead of build time. Classes marked [ManualJobRegistration] are left to AddJob.

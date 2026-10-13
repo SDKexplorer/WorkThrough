@@ -43,6 +43,33 @@ public async Task A_small_order_completes_its_checkout()
 
 This test runs in [`samples/Shop.Tests`](../samples/Shop.Tests/CheckoutTests.cs).
 
+### Flow logic: stub the jobs
+
+To test what a flow does — which steps run, in which order, with which inputs, and what happens when one fails — replace its jobs with stubs. The engine, store and worker stay real; no payment or shipping code runs.
+
+```csharp
+[Fact]
+public async Task A_declined_charge_apologises_instead_of_shipping()
+{
+    await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough
+        .Reject(OrderJobs.Charge, "card declined")
+        .Stub(OrderJobs.Ship)
+        .Stub(OrderJobs.Apologise));
+
+    var flow = (await host.RunFlowAsync(OrderFlow.Definition, new PlaceOrder("order-2", 40m))).AssertSucceeded();
+
+    Assert.Equal(JobStatus.Skipped, flow.Step("ship").Status);
+    Assert.Equal("order-2", flow.Step("apologise").Input<Apologise>().OrderId);
+}
+```
+
+- `Stub(definition, input => output)` succeeds with an output computed from the input; `Stub(definition)` succeeds without one.
+- `Reject(definition, reason)` rejects without retries, so the flow's failure policy or failure branch runs at once.
+- `Stub(address, output)` and `Reject(address, reason)` take a `JobContractId` for steps declared by address.
+- `RunFlowAsync` starts a run and waits for it. For a flow that waits for a signal, start it with `host.Flows`, wait with `WaitUntilIdleAsync`, send the signal, then `WaitForFlowAsync`.
+
+`dotnet new workthrough-tests` creates a project with this test and a sample flow. [`CheckoutFlowLogicTests`](../samples/Shop.Tests/CheckoutFlowLogicTests.cs) tests the Shop checkout this way, including its manual-review signal.
+
 - **Queues:** the worker serves the default queue unless you pass `queues`. A wait that times out names any queue with work the host does not serve.
 - **Dependencies:** jobs are resolved from DI as in production. Replace their dependencies, such as a payment client, with test doubles in the second callback.
 - **Time:**

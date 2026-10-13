@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs the packed templates into a private hive, creates every template/storage combination against the local packages,
-# builds each, and runs the SQLite worker and web projects until their first job succeeds.
+# builds each, runs the tests template, and runs the SQLite worker and web projects until their first job succeeds.
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 runtime="${WORKTHROUGH_DOTNET8:-dotnet}"
@@ -19,6 +19,13 @@ for template in worker web; do
   done
 done
 echo 'PASS: both templates build with every storage provider.'
+
+tests="$work_dir/tests"
+dotnet new workthrough-tests -n Demo.Tests -o "$tests" --debug:custom-hive "$hive" > /dev/null
+{ dotnet restore "$tests" --configfile "$work_dir/NuGet.Config" -p:RestorePackagesPath="$work_dir/packages" -nr:false -v:q \
+  && dotnet test "$tests" -c Release --no-restore -p:RestorePackagesPath="$work_dir/packages" -p:UseSharedCompilation=false -nr:false --nologo -v:q; } > "$tests/test.log" \
+  || { cat "$tests/test.log"; exit 1; }
+echo 'PASS: the tests template runs its flow tests with stubbed jobs.'
 
 wait_for_log() {
   for _ in $(seq 1 120); do

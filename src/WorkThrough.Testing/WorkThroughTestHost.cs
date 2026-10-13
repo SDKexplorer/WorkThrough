@@ -123,6 +123,11 @@ public sealed class WorkThroughTestHost : IAsyncDisposable
         return result!;
     }
 
+    /// <summary>Starts a run of <paramref name="definition"/> and waits until it succeeds, fails or needs an operator.</summary>
+    public async Task<FlowResult> RunFlowAsync<TInput>(FlowDefinition definition, TInput input, TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default) =>
+        await WaitForFlowAsync(await Flows.StartAsync(definition, input, cancellationToken: cancellationToken), timeout, cancellationToken);
+
     /// <summary>The run and its steps now, without waiting.</summary>
     public async Task<FlowResult> FlowResultAsync(Guid runId, CancellationToken cancellationToken = default)
     {

@@ -356,3 +356,16 @@ Checkpoint forks, bounded loops and a network partition (2026-10-13):
   Two runs passed.
 - **Suites:** SQLite + PostgreSQL 369 passed, 3 skipped. CI covers SQL Server and Oracle while the two-hour soaks hold those containers.
 
+Payload protection, failure branches and MySQL/MariaDB (2026-10-13):
+
+- **Payload protection (ADR-027):** on SQLite, PostgreSQL, MySQL and MariaDB, raw rows hold envelopes, not plain JSON, for job inputs and outputs, flow inputs, signal payloads and the signal-wait output; handlers and queries see the original values. Idempotent enqueue still deduplicates. A rotated key writes new work while old work stays readable. Nothing is encrypted below protocol 7. A worker without the key retries the job instead of running or rejecting it. A relabelled envelope fails authentication.
+- **Failure branches (ADR-028):** a branch runs when its step is rejected or its signal wait expires; the failed step's successors are skipped and a join after both paths runs. A succeeding step skips its branch. A failing branch applies the failure policy. Branch definitions wait for protocol 8.
+- **MySQL 8.4.11 and MariaDB 11.4.13 (ADR-029)**, MySqlConnector 2.6.2, local arm64 containers:
+  - every MySQL and MariaDB test passed, in one run of 698 tests with SQLite and PostgreSQL; its only failure was the SQLite case under **Open**;
+  - provider tests: concurrent and interrupted initialization keep the store identity; a missing admission row refuses writes; SELECT-only and DML-only credentials work and cannot exceed their grants;
+  - process-kill recovery, published relocation, the performance smoke and the MCP investigation smoke (20 investigators, 0 request failures) passed on both;
+  - package consumers on .NET 10 ran a hosted worker and metadata queries from the packed packages.
+
+  Found and fixed while qualifying: concurrent claims under a shared limit admitted 2 of 3 jobs, because InnoDB locked more candidate rows than a claim leased. Claims now lock candidates by identity. The trigger-based fault tests needed MySQL trigger syntax, and MySQL reserves `generated`, which a fixture used as an alias.
+- **SQL Server two-hour soak:** stopped at minute 56 with an unhandled deadlock. The victim was the soak's own per-minute measurement query, a large scan that takes shared locks without READ_COMMITTED_SNAPSHOT; the producer and workers were unaffected. The harness now retries a measurement read chosen as a deadlock victim, as the store does for its own reads.
+- **Open:** one SQLite test failed once with "SQL logic error" when beginning a read, during a run with four providers in parallel. It passed in isolation and in three further SQLite runs; the cause is not yet known.

@@ -45,6 +45,16 @@ builder.Services.AddWorkThrough()
     .AddWorker(options => options.MaxConcurrentJobs = 8);
 ```
 
+A small job can be a delegate instead of a class. Its address is still explicit:
+
+```csharp
+builder.Services.AddWorkThrough()
+    .UseSqlite("Data Source=jobs.db")
+    .AddJob(new JobDefinition<WelcomeEmail>("emails.welcome"),
+        job => job.Service<IMailer>().SendAsync(job.Input.Address, job.CancellationToken))
+    .AddWorker();
+```
+
 Enqueue from anywhere that can reach the store:
 
 ```csharp
@@ -59,6 +69,7 @@ Or start from a template. Packages are not published yet, so install it from a l
 ```bash
 dotnet new install artifacts/packages/WorkThrough.Templates.0.1.0-alpha.1.nupkg
 dotnet new workthrough-web -n MyApp --storage postgresql    # API + worker + console; or workthrough-worker
+dotnet new workthrough-tests -n MyApp.Tests                  # xUnit tests of a flow with stubbed jobs
 ```
 
 `--storage` takes `sqlite` (default), `postgresql`, `sqlserver`, `oracle` or `mysql` (MySQL and MariaDB).
