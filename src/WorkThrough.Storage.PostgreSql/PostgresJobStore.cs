@@ -80,7 +80,7 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
             // One short write boundary per database. Handlers never run while this lock is held.
             // Admission statements touch few rows, but their correlated policy checks have high estimated costs. JIT compilation
             // then costs hundreds of milliseconds per claim for no benefit, so it is disabled for this transaction only.
-            await ExecuteAsync(connection, transaction, "SELECT pg_advisory_xact_lock(@key); SET LOCAL jit = off", cancellationToken, ("key", AdmissionLockKey));
+            await LockAdmissionAsync(connection, transaction, cancellationToken);
 
             return transaction;
         }
@@ -90,4 +90,7 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
             throw;
         }
     }
+
+    protected override Task LockAdmissionAsync(DbConnection connection, DbTransaction transaction, CancellationToken cancellationToken) =>
+        ExecuteAsync(connection, transaction, "SELECT pg_advisory_xact_lock(@key); SET LOCAL jit = off", cancellationToken, ("key", AdmissionLockKey));
 }

@@ -12,12 +12,18 @@
     <ProjectReference Include="../../src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Dashboard/WorkThrough.Dashboard.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.EntityFrameworkCore/WorkThrough.EntityFrameworkCore.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Migration.Hangfire/WorkThrough.Migration.Hangfire.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Migration.Quartz/WorkThrough.Migration.Quartz.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Testing/WorkThrough.Testing.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="Hangfire.InMemory" Version="1.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.31" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.31" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    <PackageReference Include="Oracle.EntityFrameworkCore" Version="8.23.26301" />
+    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="8.0.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="8.0.31" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.0" Condition="'$(TargetFramework)' == 'net10.0'" />

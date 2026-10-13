@@ -113,13 +113,7 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
         var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
         try
         {
-            await ExecuteAsync(connection, transaction, """
-                SET XACT_ABORT ON;
-                DECLARE @result int;
-                EXEC @result=sys.sp_getapplock @Resource=N'WorkThrough:admission',@LockMode='Exclusive',
-                  @LockOwner='Transaction',@LockTimeout=5000;
-                IF @result<0 THROW 51000,'WorkThrough admission lock was not acquired.',1;
-                """, cancellationToken);
+            await LockAdmissionAsync(connection, transaction, cancellationToken);
 
             return transaction;
         }
@@ -128,6 +122,17 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
             await transaction.DisposeAsync();
             throw;
         }
+    }
+
+    protected override async Task LockAdmissionAsync(DbConnection connection, DbTransaction transaction, CancellationToken cancellationToken)
+    {
+        await ExecuteAsync(connection, transaction, """
+            SET XACT_ABORT ON;
+            DECLARE @result int;
+            EXEC @result=sys.sp_getapplock @Resource=N'WorkThrough:admission',@LockMode='Exclusive',
+              @LockOwner='Transaction',@LockTimeout=5000;
+            IF @result<0 THROW 51000,'WorkThrough admission lock was not acquired.',1;
+            """, cancellationToken);
     }
 
     public override Task InitializeAsync(CancellationToken cancellationToken = default) => WriteAsync(async (connection, transaction, ct) =>

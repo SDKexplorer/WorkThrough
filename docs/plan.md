@@ -123,7 +123,7 @@ Positioning: relocation alone does not win adoption. Hangfire has compatibility 
 4. **Consumer testing tools (high):** done. `WorkThrough.Testing` runs the real store and worker on a temporary SQLite file, with a movable clock, waits and flow assertions. Dependencies are replaced through DI.
 5. **Recovery and composition (medium):** child flows (ADR-023), audited input correction, compensation (ADR-025), checkpoint forks, bounded loops (ADR-026) and failure branches (ADR-028) are done. Bounded fan-out, retry and pause/resume exist.
 6. **Operational breadth (medium):** the console shows engine protocol rollout, worker levels, upcast routing and parent/child runs. Wider fleet investigation continues; MCP actions remain phase two.
-7. **Adoption (high):** done for the first round: a Hangfire importer and guide, a Quartz.NET comparison, delegate jobs, flow tests with stubbed jobs and a tests template. Next candidates: enqueueing inside an EF Core `DbContext` transaction, and thin bridges to message brokers.
+7. **Adoption (high):** a Hangfire importer and guide, a Quartz.NET importer and guide, delegate jobs, flow tests with stubbed jobs, a tests template, and EF Core integration (`db.Enqueue` with `SaveChangesAsync`) are done. Next: thin bridges to message brokers, and AOT support.
 
 ## Exit criteria for the initial repository
 

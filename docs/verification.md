@@ -394,3 +394,5 @@ Oracle two-hour soak (2026-10-13): 205,494 jobs succeeded exactly once, none ret
 
 SQL Server, Oracle and MySQL/MariaDB throughput (2026-10-13): the full suite passed on SQL Server (both read modes) and Oracle, 553 tests with SQLite; the one failure was the SQLite case above. With a preloaded backlog of 5,000 jobs, three 16-slot workers and 1 ms handlers on the local arm64 host, MySQL 8.4 drained 463 jobs/s (362 with 50 tenant quotas) and MariaDB 11.4 558 (442).
 
+EF Core integration (2026-10-13): `db.Enqueue` with `SaveChangesAsync` committed an entity and its job together, returned the existing job for a repeated idempotency key, and left neither after a failed save (duplicate key) or a rolled-back transaction, with EF Core 8 on SQLite, PostgreSQL, SQL Server, Oracle, MySQL and MariaDB. Found while qualifying: EF Core 8's Npgsql provider cannot load against Npgsql 10, which the PostgreSQL package required; its minimum is now Npgsql 8.0.9, and the full suite passed on it (730 tests on SQLite, PostgreSQL, MySQL and MariaDB).
+

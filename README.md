@@ -161,7 +161,7 @@ Execution is at least once. Handlers receive `context.IdempotencyKey`, which sta
 
 - **Results:** `JobResult.Reject` stops without retrying invalid input. `Defer` reschedules without spending the retry budget. Retries use a configurable policy.
 - **Deadlines:** progress reporting and execution deadlines separate a live lease from useful work. Non-cooperative handlers are reported as suspected-stalled.
-- **Transactions:** `InTransactionAsync` commits jobs with business rows in the same database. `SendAsync` plus an outbox dispatcher delivers to a separate job store.
+- **Transactions:** with EF Core, `db.Enqueue(...)` and `SaveChangesAsync` commit entities and jobs together ([EF Core](docs/entity-framework.md)). Without EF, `InTransactionAsync` does the same for ADO.NET. `Send` plus an outbox dispatcher delivers to a separate job store.
 - **Failures:** exception details are kept behind a separate permission. Redact them before storage with `DescribeFailure`.
 - **Input correction:** operators can fix the input of failed or rejected work and run it again, audited, with the original input kept.
 - **Checkpoint forks:** operators can start a new run from any step of a finished or failed flow, keeping earlier outcomes and leaving the original run untouched.
@@ -241,6 +241,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 | Queries and MCP | [Execution queries](docs/execution-queries.md), [MCP](docs/mcp.md) |
 | Operations and retention | [Operations and retention](docs/operations-and-retention.md) |
 | Testing jobs and flows, `WorkThrough.Testing` | [Testing](docs/testing.md) |
+| Committing jobs with EF Core | [EF Core](docs/entity-framework.md) |
 | Evidence | [Verification](docs/verification.md), [performance](docs/performance.md) |
 | Roadmap | [Plan](docs/plan.md) |
 

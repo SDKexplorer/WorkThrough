@@ -15,6 +15,7 @@
   <Folder Name="/src/">
     <Project Path="src/WorkThrough.Core/WorkThrough.Core.csproj" />
     <Project Path="src/WorkThrough.Dashboard/WorkThrough.Dashboard.csproj" />
+    <Project Path="src/WorkThrough.EntityFrameworkCore/WorkThrough.EntityFrameworkCore.csproj" />
     <Project Path="src/WorkThrough.Generators/WorkThrough.Generators.csproj" />
     <Project Path="src/WorkThrough.Hosting/WorkThrough.Hosting.csproj" />
     <Project Path="src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />

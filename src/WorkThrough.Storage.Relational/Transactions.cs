@@ -37,6 +37,43 @@ public abstract partial class RelationalJobStore : IJobOutbox
     private static readonly TimeSpan OutboxDeliveryLease = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan OutboxReleaseTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Takes the lock that serializes writes which admit work, inside a transaction already open on <paramref name="connection"/>. The
+    /// default takes none: SQLite's immediate transactions already exclude other writers.
+    /// </summary>
+    protected virtual Task LockAdmissionAsync(DbConnection connection, DbTransaction transaction, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>
+    /// Accepts jobs and outbox requests inside a transaction the caller opened on this store's database, such as an EF Core
+    /// <c>DbContext</c>'s. Nothing is visible until the caller commits, and nothing remains if it rolls back. Commit soon: until then the
+    /// transaction holds the store's admission lock.
+    /// </summary>
+    /// <returns>Each accepted job's ID, or its existing job's ID when its idempotency key was already used; outbox receipt IDs for outbox requests.</returns>
+    public async Task<IReadOnlyList<Guid>> EnqueueInTransactionAsync(DbConnection connection, DbTransaction transaction,
+        IReadOnlyList<(JobRecord Job, bool Outbox)> work, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(work);
+        if (connection.GetType() != CreateConnection().GetType())
+        {
+            throw new ArgumentException($"This store uses {CreateConnection().GetType().Name} connections, not {connection.GetType().Name}.", nameof(connection));
+        }
+
+        await LockAdmissionAsync(connection, transaction, cancellationToken);
+        var accepted = new List<Guid>(work.Count);
+        foreach (var (job, outbox) in work)
+        {
+            accepted.Add(outbox
+                ? await AcceptOutboxAsync(connection, transaction, job, cancellationToken)
+                : await AcceptJobAsync(connection, transaction, job, cancellationToken));
+        }
+
+        await FlushJournalAsync(connection, transaction, cancellationToken);
+
+        return accepted;
+    }
+
     /// <summary>Commits business SQL and accepted jobs/outbox requests atomically in this database.</summary>
     /// <remarks>Keep callbacks short and DML-only. Await every command; do not run DDL, autonomous transactions, external calls, or commit/dispose the supplied transaction.</remarks>
     public Task<T> InTransactionAsync<T>(Func<DbConnection, DbTransaction, TransactionalJobs, CancellationToken, Task<T>> action, CancellationToken cancellationToken = default)
