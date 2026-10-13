@@ -34,5 +34,6 @@ Each record states a decision, why it was made and what it costs. Records are no
 | [027](0027-payload-protection.md) | Payload encryption at rest; protocol 7 | Implemented |
 | [028](0028-failure-branches.md) | Failure branches; protocol 8 | Implemented |
 | [029](0029-mysql-storage.md) | MySQL and MariaDB storage | Implemented |
+| [030](0030-richer-schedules-and-quartz-import.md) | Seconds, intervals, bounds and excluded dates; Quartz.NET import; protocol 9 | Implemented |
 
 Two records share the number 010; both are kept as written because other documents link to them.

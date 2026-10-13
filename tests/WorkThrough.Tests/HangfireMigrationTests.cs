@@ -63,13 +63,13 @@ public sealed class HangfireMigrationTests
         var migration = Migration(storage);
         var plan = migration.Plan();
         Assert.Equal(0, plan.RunningServers);
-        Assert.Equal(new[] { "Daily Report", later, now }.Order(StringComparer.Ordinal), plan.Ready.Select(item => item.HangfireId).Order(StringComparer.Ordinal));
-        Assert.Equal(2, plan.Problems.Count());
-        Assert.Contains(plan.Problems, item => item.Problem!.Contains("No mapping", StringComparison.Ordinal));
-        Assert.Contains(plan.Problems, item => item.Problem!.Contains("minute precision", StringComparison.Ordinal));
+        Assert.Equal(new[] { "Daily Report", "every-5-seconds", later, now }.Order(StringComparer.Ordinal),
+            plan.Ready.Select(item => item.HangfireId).Order(StringComparer.Ordinal));
+        Assert.Contains("No mapping", Assert.Single(plan.Problems).Problem);
+        Assert.Equal("*/5 * * * * *", plan.Ready.Single(item => item.HangfireId == "every-5-seconds").Cron);
 
         var result = await migration.ImportAsync(plan, host.Store, host.Store);
-        Assert.Equal(3, result.Imported.Count);
+        Assert.Equal(4, result.Imported.Count);
         var again = await migration.ImportAsync(migration.Plan(), host.Store, host.Store);
         Assert.Equal(result.Imported.Where(i => i.JobId is not null).Select(i => i.JobId), again.Imported.Where(i => i.JobId is not null).Select(i => i.JobId));
 
@@ -77,13 +77,14 @@ public sealed class HangfireMigrationTests
         await host.AdvanceAsync(TimeSpan.FromHours(2));
         await host.WaitForJobAsync(result.Imported.Single(i => i.Item.HangfireId == later).JobId!.Value);
         Assert.Equal(["ada@example.com", "grace@example.com"], sent.Order());
-        var schedule = Assert.Single(await host.Store.SchedulesAsync());
-        Assert.Equal(("hangfire.daily-report", "0 6 * * *", true), (schedule.Definition.Key, schedule.Definition.Cron, schedule.Enabled));
+        var schedules = (await host.Store.SchedulesAsync()).ToDictionary(schedule => schedule.Definition.Key);
+        Assert.Equal(("0 6 * * *", true), (schedules["hangfire.daily-report"].Definition.Cron, schedules["hangfire.daily-report"].Enabled));
+        Assert.Equal("*/5 * * * * *", schedules["hangfire.every-5-seconds"].Definition.Cron);
 
         migration.Retire(result);
         using var connection = storage.GetConnection();
         Assert.Equal(DeletedState.StateName, connection.GetJobData(now)!.State);
-        Assert.Equal(["every-5-seconds"], connection.GetRecurringJobs().Select(job => job.Id));
+        Assert.Empty(connection.GetRecurringJobs());
     }
 
     [Fact]

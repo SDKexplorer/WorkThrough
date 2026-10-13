@@ -65,7 +65,6 @@ foreach (var problem in plan.Problems)
 - a method without a mapping;
 - a type that no longer loads;
 - a converter that failed;
-- a cron expression with seconds;
 - two recurring jobs whose names collide.
 
 It also reports running Hangfire servers, and counts processing and failed jobs, which are not imported.
@@ -79,7 +78,7 @@ var result = await migration.ImportAsync(migration.Plan(), store, store);
 ```
 
 - Enqueued and scheduled jobs keep their queue and due time. Each uses the idempotency key `hangfire:<job id>`, so running the import again changes nothing.
-- Recurring jobs become published, enabled schedules named `hangfire.<id>` (lowercased, other characters replaced by `-`), in their original time zone. A six-field cron that fires on second 0 drops the seconds field. `NameSchedules(id => ...)` picks other names.
+- Recurring jobs become published, enabled schedules named `hangfire.<id>` (lowercased, other characters replaced by `-`), in their original time zone. Six-field crons keep their seconds, and need engine protocol 9; a seconds field of 0 is dropped. `NameSchedules(id => ...)` picks other names.
 - Failed, processing, succeeded and deleted jobs stay in Hangfire.
 
 ## 4. Retire the imported jobs in Hangfire

@@ -6,7 +6,18 @@ For recurrence, add `.AddScheduler()` to any host using the store; it does not r
 
 `IJobSchedules` supports editable drafts with revision checks, validated publication, and independently audited enable/pause commands. Only one version of a schedule key can be enabled at a time; old deployments cannot silently overwrite a published definition. Pause the active version before enabling its replacement. Jobs already created continue when a schedule is paused.
 
-The initial trigger format is five-field cron with an explicit installed time zone. [Cronos](https://github.com/HangfireIO/Cronos) supplies calendar/DST calculations; daily non-interval triggers are not repeated during fall-back, while its documented interval behavior is retained. Use the same time-zone database across scheduler hosts. UTC is simplest when wall-clock business timing is unnecessary.
+A schedule fires on a cron expression or a fixed interval, in an explicit installed time zone. Cron has five fields, or six with seconds first; an interval counts from the schedule's start, or from the Unix epoch. `Starting`, `Ending` and `Excluding(dates)` bound a schedule and skip dates such as holidays ([ADR-030](adr/0030-richer-schedules-and-quartz-import.md)):
+
+```csharp
+.Job(Reports.Daily, job => job
+    .RunWith<DailyReportJob>()
+    .Every("0 0 9 * * MON-FRI", new DailyReport(1), "Europe/Bucharest", schedule: s => s.Excluding(Holidays.Romania2026)))
+.Job(Health.Probe, job => job
+    .RunWith<ProbeJob>()
+    .Every(TimeSpan.FromSeconds(30), new Probe("api")))
+```
+
+Schedules with seconds, intervals, bounds or excluded dates need engine protocol 9; schedulers from earlier releases would fire them at the wrong times. [Cronos](https://github.com/HangfireIO/Cronos) supplies calendar/DST calculations; daily non-interval triggers are not repeated during fall-back, while its documented interval behavior is retained. Use the same time-zone database across scheduler hosts. UTC is simplest when wall-clock business timing is unnecessary.
 
 Overlap policies:
 
@@ -32,12 +43,13 @@ A seeded schedule that does not exist yet is drafted, published and enabled thro
 
 ## Not supported
 
-- **Seconds:** cron has five fields, so the finest schedule is once a minute. For more frequent work, have a job defer itself with `JobResult.Defer`.
-- **Calendars and intervals:** there are no holiday calendars or interval triggers; skip dates inside the job. Quartz.NET is the better fit when these matter ([comparison](comparison.md#compared-with-quartznet-in-detail)).
+- **Shared calendars:** excluded dates belong to each schedule; there is no calendar shared by name. Repeat the dates, or keep them in one constant.
+- **Wall-clock intervals:** an interval is a fixed period, so a 1-day interval shifts by an hour across a daylight-saving change. Use a cron expression for "every day at 09:00".
+- **Daily time windows:** there is no "every 10 minutes between 09:00 and 17:00" trigger; use cron (`0 */10 9-16 * * *`).
 - **Recurring flow starts:** a schedule creates a job. To start a flow on a schedule, schedule a job that starts it with a flow idempotency key derived from its occurrence.
 - **Encryption:** schedule inputs are stored as plain JSON even with payload protection ([ADR-027](adr/0027-payload-protection.md)).
 
-Hangfire recurring jobs import as schedules, including their time zone; a six-field cron that fires on second 0 drops the seconds field ([migrating from Hangfire](migrating-from-hangfire.md)).
+Hangfire recurring jobs import as schedules, including their time zone and seconds ([migrating from Hangfire](migrating-from-hangfire.md)). Quartz.NET triggers import as cron or interval schedules with their bounds and holiday calendars ([migrating from Quartz.NET](migrating-from-quartz.md)).
 
 ## Testing schedules
 

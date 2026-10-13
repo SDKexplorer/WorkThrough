@@ -21,6 +21,43 @@ public sealed record ScheduleDefinition(string Key, int Version, string Cron, st
 {
     public const string DefaultTimeZone = "UTC";
 
+    /// <summary>
+    /// Fires every interval, counted from <see cref="StartsAt"/> (or the Unix epoch), instead of on <see cref="Cron"/>, which is then empty.
+    /// At least one second.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public TimeSpan? Interval { get; init; }
+
+    /// <summary>No occurrence before this instant.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? StartsAt { get; init; }
+
+    /// <summary>No occurrence after this instant; the schedule then has no next occurrence.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? EndsAt { get; init; }
+
+    /// <summary>Dates, in the schedule's time zone, on which occurrences are skipped: a holiday calendar.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<DateOnly>? ExcludedDates { get; init; }
+
+    /// <summary>This schedule, skipping occurrences on <paramref name="dates"/>.</summary>
+    public ScheduleDefinition Excluding(params DateOnly[] dates) => this with { ExcludedDates = [.. ExcludedDates ?? [], .. dates] };
+
+    /// <summary>This schedule, with no occurrence before <paramref name="instant"/>; an interval counts from it.</summary>
+    public ScheduleDefinition Starting(DateTimeOffset instant) => this with { StartsAt = instant };
+
+    /// <summary>This schedule, with no occurrence after <paramref name="instant"/>.</summary>
+    public ScheduleDefinition Ending(DateTimeOffset instant) => this with { EndsAt = instant };
+
+    /// <summary>The engine protocol every host must understand before this schedule may be saved.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int RequiredProtocol => Interval is not null || StartsAt is not null || EndsAt is not null || ExcludedDates is { Count: > 0 }
+        || ScheduleClock.HasSeconds(Cron) ? EngineProtocol.RichSchedules : EngineProtocol.Baseline;
+
+    /// <summary>A schedule that invokes a typed processor definition every <paramref name="interval"/> with fixed input.</summary>
+    public static ScheduleDefinition Every<TInput>(string key, TimeSpan interval, JobDefinition<TInput> processor, TInput input, int version = 1) =>
+        Create(key, "", processor, input, DefaultTimeZone, version) with { Interval = interval };
+
     /// <summary>A schedule that invokes a typed processor definition with fixed input, in the definition's queue and attempt budget.</summary>
     public static ScheduleDefinition Create<TInput>(string key, string cron, JobDefinition<TInput> processor, TInput input,
         string timeZone = DefaultTimeZone, int version = 1)
@@ -48,9 +85,23 @@ public static class ScheduleOccurrenceOutcomes
     public const string SkippedMisfire = "SkippedMisfire";
 }
 
-/// <summary>Five-field cron expressions in an explicit time zone. Persist UTC occurrence instants.</summary>
+/// <summary>
+/// Cron expressions (five fields, or six with seconds) or fixed intervals, in an explicit time zone, within optional bounds and
+/// excluded dates. Persist UTC occurrence instants.
+/// </summary>
 public static class ScheduleClock
 {
+    /// <summary>The shortest interval: the scheduler dispatches once a second.</summary>
+    public static TimeSpan MinimumInterval { get; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>Excluded occurrences skipped in a row before a schedule is treated as having no next occurrence.</summary>
+    private const int MaximumSkippedOccurrences = 10_000;
+
+    private const int CronFieldsWithSeconds = 6;
+
+    /// <summary>True for a six-field cron expression, whose first field is seconds.</summary>
+    public static bool HasSeconds(string cron) => cron.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length == CronFieldsWithSeconds;
+
     /// <summary>An occurrence dispatched later than this after its due time is a misfire.</summary>
     public static TimeSpan MisfireThreshold { get; } = TimeSpan.FromSeconds(30);
 
@@ -69,14 +120,64 @@ public static class ScheduleClock
 
     public static DateTimeOffset? Next(ScheduleDefinition definition, DateTimeOffset after)
     {
+        TimeZoneInfo zone;
+        CronExpression? cron = null;
         try
         {
-            return CronExpression.Parse(definition.Cron).GetNextOccurrence(after, TimeZoneInfo.FindSystemTimeZoneById(definition.TimeZone));
+            zone = TimeZoneInfo.FindSystemTimeZoneById(definition.TimeZone);
+            if (definition.Interval is null)
+            {
+                cron = CronExpression.Parse(definition.Cron, HasSeconds(definition.Cron) ? CronFormat.IncludeSeconds : CronFormat.Standard);
+            }
         }
         catch (Exception exception) when (exception is CronFormatException or TimeZoneNotFoundException or InvalidTimeZoneException)
         {
-            throw new ArgumentException("The schedule requires a valid five-field cron expression and installed time zone.", exception);
+            throw new ArgumentException("The schedule requires a valid cron expression (five fields, or six with seconds) and an installed time zone.", exception);
         }
+
+        if (definition.Interval is { } interval && (interval < MinimumInterval || !string.IsNullOrEmpty(definition.Cron)))
+        {
+            throw new ArgumentException($"An interval schedule needs an interval of at least {MinimumInterval.TotalSeconds:0} second and no cron expression.");
+        }
+
+        if (definition.EndsAt <= definition.StartsAt)
+        {
+            throw new ArgumentException("A schedule must end after it starts.");
+        }
+
+        var excluded = definition.ExcludedDates is { Count: > 0 } dates ? dates.ToHashSet() : null;
+        var from = definition.StartsAt is { } start && start > after ? start.AddTicks(-1) : after;
+        for (var skipped = 0; skipped < MaximumSkippedOccurrences; skipped++)
+        {
+            var next = cron is null ? NextInterval(definition.Interval!.Value, definition.StartsAt ?? DateTimeOffset.UnixEpoch, from)
+                : cron.GetNextOccurrence(from, zone);
+            if (next is null || next > definition.EndsAt)
+            {
+                return null;
+            }
+
+            if (excluded is null || !excluded.Contains(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(next.Value, zone).DateTime)))
+            {
+                return next;
+            }
+
+            from = next.Value;
+        }
+
+        return null;
+    }
+
+    /// <summary>The first instant anchor + k × interval after <paramref name="after"/>.</summary>
+    private static DateTimeOffset NextInterval(TimeSpan interval, DateTimeOffset anchor, DateTimeOffset after)
+    {
+        if (after < anchor)
+        {
+            return anchor;
+        }
+
+        var periods = (after - anchor).Ticks / interval.Ticks + 1;
+
+        return anchor + TimeSpan.FromTicks(checked(periods * interval.Ticks));
     }
 }
 

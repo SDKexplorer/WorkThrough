@@ -112,6 +112,16 @@ public abstract partial class RelationalJobStore : IEngineProtocol
         }
     }
 
+    private async Task RequireScheduleProtocolAsync(DbConnection connection, DbTransaction transaction, ScheduleDefinition definition, CancellationToken ct)
+    {
+        var active = await ActiveProtocolAsync(connection, transaction, ct);
+        if (definition.RequiredProtocol > active)
+        {
+            throw new StateConflictException($"Schedule {definition.Key} v{definition.Version} needs engine protocol {definition.RequiredProtocol} for seconds, " +
+                $"intervals, bounds or excluded dates, but the store is at {active}. Upgrade every worker and scheduler first.");
+        }
+    }
+
     private async Task<int> ActiveProtocolAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct) =>
         Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT protocol FROM dj_compatibility WHERE id=1", ct));
 

@@ -15,7 +15,7 @@ Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite
 - **Flows:** persisted graphs with bindings, conditions, joins, fan-out, child flows, loops, failure branches, compensation, durable signals, idempotent starts, incident recovery and immutable, versioned definitions.
 - **Admission control:** fleet and per-type limits, per-key concurrency (serialize a customer), tenant quotas, sliding-window rate limits, bounded flow fan-out and weighted fair queues. All are exact across hosts.
 - **Operations:** an embedded Angular console with audited commands, tenant-scoped access, retention with holds, deployment preflight, payload encryption at rest, a read-only MCP endpoint for AI assistants, and OpenTelemetry traces and metrics.
-- **Testable and easy to adopt:** a test host runs flows on the real engine with stubbed jobs, `dotnet new` templates start a worker, a web app or a test project, and an importer moves existing Hangfire jobs ([migrating from Hangfire](docs/migrating-from-hangfire.md)).
+- **Testable and easy to adopt:** a test host runs flows on the real engine with stubbed jobs, `dotnet new` templates start a worker, a web app or a test project, and importers move existing Hangfire and Quartz.NET jobs and schedules ([Hangfire](docs/migrating-from-hangfire.md), [Quartz.NET](docs/migrating-from-quartz.md)).
 
 ## Quick start
 
@@ -87,6 +87,7 @@ Compared with Hangfire:
 | Enqueue | `BackgroundJob.Enqueue<IMailer>(m => m.Send("ada"))` | `await jobs.Enqueue(Emails.Welcome, new WelcomeEmail("ada"))` |
 | Delay | `BackgroundJob.Schedule<IMailer>(m => m.Send("ada"), TimeSpan.FromMinutes(5))` | `.After(TimeSpan.FromMinutes(5))` |
 | Recurring | `RecurringJob.AddOrUpdate<Reports>("daily", r => r.Run(1), Cron.Daily)` | `.Job(Reports.Daily, job => job.RunWith<DailyReportJob>().Every("0 0 * * *", new DailyReport(1)))` |
+| Every 30 seconds | `"*/30 * * * * *"` | `.Every(TimeSpan.FromSeconds(30), input)` or `.Every("*/30 * * * * *", input)` |
 | What is stored | The method and its arguments | An address and an input record |
 | After a rename | Queued jobs fail | Queued jobs run on the moved class |
 
@@ -108,6 +109,7 @@ Samples ([samples](samples/README.md)):
 - [`QuickStart.Web`](samples/QuickStart.Web/Program.cs): an API that enqueues jobs, with the worker and console in the same process.
 - [Shop](samples/README.md#shop-sample): a complete system with an intake API, workers, an approval flow, tenants, limits, a standalone OIDC console, MCP, and tests of its checkout flow with stubbed jobs.
 - [`HangfireMigration`](samples/HangfireMigration/Program.cs): moves a Hangfire application's queued, delayed and recurring jobs into WorkThrough.
+- [`QuartzMigration`](samples/QuartzMigration/Program.cs): moves Quartz.NET jobs and triggers into WorkThrough schedules.
 
 ### Testing a flow
 
@@ -229,7 +231,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 | Topic | Where |
 |---|---|
 | How it compares with Hangfire, Quartz.NET, Wolverine, MassTransit, Temporal | [Comparison](docs/comparison.md) |
-| Moving from Hangfire: concepts and the job importer | [Migrating from Hangfire](docs/migrating-from-hangfire.md) |
+| Moving from Hangfire or Quartz.NET: concepts and the importers | [Migrating from Hangfire](docs/migrating-from-hangfire.md), [migrating from Quartz.NET](docs/migrating-from-quartz.md) |
 | Design and invariants | [Architecture](docs/architecture.md), [decision records](docs/adr/README.md), [requirements](specs/durable-jobs.spec.md) |
 | Storage providers and schema upgrades | [Providers](docs/providers.md) |
 | Rolling upgrades, payload encryption | [ADR-021](docs/adr/0021-rolling-upgrades.md), [ADR-027](docs/adr/0027-payload-protection.md) |

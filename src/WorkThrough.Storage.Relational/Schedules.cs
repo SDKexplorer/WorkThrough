@@ -12,6 +12,7 @@ public abstract partial class RelationalJobStore
     public Task<Result<int>> SaveScheduleDraftAsync(ScheduleDefinition definition, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
         AdminAsync(command, AuditActions.EditSchedule, VersionTarget(definition.Key, definition.Version), new { definition, expectedRevision }, async (connection, transaction, ct) =>
         {
+            await RequireScheduleProtocolAsync(connection, transaction, definition, ct);
             var existing = (await ReadSchedulesAsync(connection, transaction, "WHERE schedule_key=@key AND version=@version", ct,
                 ("key", definition.Key), ("version", definition.Version))).SingleOrDefault();
             if (existing is null ? expectedRevision != 0 : existing.Status != DefinitionStatus.Draft || existing.Revision != expectedRevision)
@@ -46,6 +47,7 @@ public abstract partial class RelationalJobStore
             }
 
             ScheduleClock.Validate(schedule.Definition);
+            await RequireScheduleProtocolAsync(connection, transaction, schedule.Definition, ct);
             var now = DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct));
             var next = ScheduleClock.Next(schedule.Definition, now);
             await ExecuteAsync(connection, transaction, "UPDATE dj_schedules SET status=@status,revision=revision+1,next_due=@next WHERE schedule_key=@key AND version=@version", ct,
@@ -117,6 +119,8 @@ public abstract partial class RelationalJobStore
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
+            // A newer scheduler may have saved schedules this build would misread.
+            await RequireProtocolAsync(connection, transaction, ct);
             var now = DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct));
             var schedules = await ReadSchedulesAsync(connection, transaction,
                 $"WHERE status='Published' AND enabled=1 AND next_due<=@now ORDER BY checked_at,next_due,schedule_key,version {PageSql("@limit")}", ct,

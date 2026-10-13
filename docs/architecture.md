@@ -117,6 +117,7 @@ Hosts of different releases share a store while the schema's reader range admits
 | 6 | Bounded loops (ADR-026) |
 | 7 | Encrypted payloads may be written (ADR-027) |
 | 8 | Failure branches (ADR-028) |
+| 9 | Schedules with seconds, intervals, bounds or excluded dates (ADR-030) |
 
 A definition that needs a higher level than the store's active one is refused at start; a host below the active level refuses to claim.
 

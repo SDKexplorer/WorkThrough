@@ -13,6 +13,7 @@
     <ProjectReference Include="../../src/WorkThrough.Dashboard/WorkThrough.Dashboard.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Migration.Hangfire/WorkThrough.Migration.Hangfire.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Migration.Quartz/WorkThrough.Migration.Quartz.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Testing/WorkThrough.Testing.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageReference Include="xunit" Version="2.9.3" />

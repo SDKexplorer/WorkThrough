@@ -18,7 +18,7 @@ The core engine and processor relocation guarantee are implemented. Completing a
 
 Branch protection remains blocked by GitHub's current private-repository plan. Changing account plan or repository visibility is a maintainer decision. Public visibility, package publication and a project license are not authorized by completing implementation. Advanced architecture items remain design-and-implementation work, not hidden completed features.
 
-Recovery enhancements (validated input correction, checkpoint forks, compensation, child flows, loops, failure branches and contract upcasters) are implemented. Hangfire's recurring, enqueued and scheduled jobs import through explicit method mappings ([migrating from Hangfire](migrating-from-hangfire.md)); continuations, batches and filters do not, because their semantics differ. Importers for other engines are not planned.
+Recovery enhancements (validated input correction, checkpoint forks, compensation, child flows, loops, failure branches and contract upcasters) are implemented. Hangfire's recurring, enqueued and scheduled jobs import through explicit method mappings ([migrating from Hangfire](migrating-from-hangfire.md)), and Quartz.NET jobs and triggers through job-class mappings ([migrating from Quartz.NET](migrating-from-quartz.md)). Continuations, batches, filters and listeners do not, because their semantics differ.
 
 ## P0 — identity and durable execution
 
@@ -68,7 +68,8 @@ Recovery enhancements (validated input correction, checkpoint forks, compensatio
 - [x] Define named schedule lifecycle, update ownership, pause/resume, and atomic/idempotent occurrence creation. Reuse one processor across immediate jobs, one-time schedules, recurring schedules, and flow steps.
 - [x] Deliver the executable sample in `samples/README.md`: one Shop system (shared definitions, processors, intake API, headless worker, OIDC console, MCP) smoke-tested by `verify.sh`. Relocation fixtures live in `tests/Relocation`.
 - [x] Seed recurring schedules from code (`SeedSchedules`), through the audited lifecycle and without overriding operators.
-- [x] Import from Hangfire with explicit method-to-address mappings, a plan that reports what cannot move, idempotent import and retirement in Hangfire (`WorkThrough.Migration.Hangfire`). Other engines are not planned.
+- [x] Import from Hangfire with explicit method-to-address mappings, a plan that reports what cannot move, idempotent import and retirement in Hangfire (`WorkThrough.Migration.Hangfire`).
+- [x] Schedules with seconds, fixed intervals, start and end bounds and excluded dates under engine protocol 9, and a Quartz.NET importer for cron, simple and calendar-interval triggers and holiday calendars (ADR-030, `WorkThrough.Migration.Quartz`).
 - [x] Add contract upcasters (ADR-024) and rolling-deployment capability checks (ADR-021, preflight). Pending old versions stay runnable through upcasts.
 - [ ] Evaluate automatic canonical flow revisions with optional human labels; pin executions to the chosen revision and make activation/migration explicit. Mandatory integer versions remain the current API.
 - [x] Add partition-key concurrency and rate limits. Correlation must remain independent from lock identity (ADR-018, schema 5).

@@ -34,6 +34,9 @@ echo 'PASS: the one-file quick start registered its job by reflection and ran it
 (cd "$sample_dir" && "$runtime8" "$repo_dir/samples/HangfireMigration/bin/Release/net8.0/HangfireMigration.dll" > hangfire-migration.log)
 grep -q "Imported 3, skipped 0" "$sample_dir/hangfire-migration.log"
 echo 'PASS: the Hangfire migration sample imported, retired and ran its jobs.'
+(cd "$sample_dir" && "$runtime8" "$repo_dir/samples/QuartzMigration/bin/Release/net8.0/QuartzMigration.dll" > quartz-migration.log)
+grep -q "Imported 2, skipped 0" "$sample_dir/quartz-migration.log"
+echo 'PASS: the Quartz.NET migration sample imported its triggers as schedules and retired them.'
 
 # Independent process termination and a bounded performance/correctness smoke campaign.
 WORKTHROUGH_DOTNET8="$runtime8" ./scripts/performance.sh --smoke

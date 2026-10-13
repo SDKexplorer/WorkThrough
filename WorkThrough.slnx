@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/HangfireMigration/HangfireMigration.csproj" />
+    <Project Path="samples/QuartzMigration/QuartzMigration.csproj" />
     <Project Path="samples/QuickStart/QuickStart.csproj" />
     <Project Path="samples/QuickStart.Web/QuickStart.Web.csproj" />
     <Project Path="samples/Shop.Shared/Shop.Shared.csproj" />
@@ -18,6 +19,7 @@
     <Project Path="src/WorkThrough.Hosting/WorkThrough.Hosting.csproj" />
     <Project Path="src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />
     <Project Path="src/WorkThrough.Migration.Hangfire/WorkThrough.Migration.Hangfire.csproj" />
+    <Project Path="src/WorkThrough.Migration.Quartz/WorkThrough.Migration.Quartz.csproj" />
     <Project Path="src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
     <Project Path="src/WorkThrough.Storage.Relational/WorkThrough.Storage.Relational.csproj" />
     <Project Path="src/WorkThrough.Storage.MySql/WorkThrough.Storage.MySql.csproj" />

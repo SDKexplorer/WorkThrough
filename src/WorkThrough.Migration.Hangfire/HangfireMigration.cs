@@ -1,7 +1,5 @@
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Hangfire;
@@ -20,7 +18,6 @@ public sealed partial class HangfireMigration(JobStorage storage)
     private const int PageSize = 500;
     private const string IdempotencyPrefix = "hangfire:";
     private const string SchedulePrefix = "hangfire.";
-    private const int CronFields = 5;
     private static readonly OperationActor Actor = new("workthrough", "hangfire-migration", "Hangfire migration");
 
     private readonly List<Mapping> mappings = [];
@@ -114,17 +111,13 @@ public sealed partial class HangfireMigration(JobStorage storage)
             return item;
         }
 
+        // A seconds field of 0 adds nothing, and five fields need no newer engine protocol.
         var fields = (cron ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (fields.Length == CronFields + 1 && fields[0] != "0")
-        {
-            return item with { Problem = $"Cron '{cron}' runs more than once a minute; WorkThrough schedules have minute precision." };
-        }
-
         var key = scheduleKey(id);
         var schedule = item with
         {
             ScheduleKey = key,
-            Cron = fields.Length == CronFields + 1 ? string.Join(' ', fields.Skip(1)) : cron,
+            Cron = fields is ["0", _, _, _, _, _] ? string.Join(' ', fields.Skip(1)) : cron,
             TimeZone = string.IsNullOrEmpty(timeZone) ? ScheduleDefinition.DefaultTimeZone : timeZone
         };
         try
@@ -244,24 +237,14 @@ public sealed partial class HangfireMigration(JobStorage storage)
         return new(imported, skipped);
     }
 
-    /// <summary>Saves, publishes and enables a schedule; returns why it failed, or null. Command IDs derive from the job, so retries deduplicate.</summary>
+    /// <summary>Publishes and enables a schedule; returns why it failed, or null. Retries deduplicate on the job's ID.</summary>
     private static async Task<string?> PublishAsync(IJobSchedules schedules, HangfireMigrationItem item, CancellationToken ct)
     {
-        var definition = Definition(item);
-        var draft = await schedules.SaveScheduleDraftAsync(definition, 0, Command(item, "draft"), ct);
-        var published = draft.IsSuccess
-            ? await schedules.PublishScheduleAsync(definition.Key, definition.Version, draft.Value, Command(item, "publish"), ct)
-            : draft;
-        var enabled = published.IsSuccess
-            ? await schedules.SetScheduleEnabledAsync(definition.Key, definition.Version, published.Value, true, Command(item, "enable"), ct)
-            : published;
+        var created = await schedules.CreatePublishedAsync(Definition(item), enable: true, Actor, IdempotencyPrefix + item.HangfireId,
+            $"Imported from Hangfire recurring job {item.HangfireId}", ct);
 
-        return enabled.IsSuccess ? null : enabled.Error!.Message;
+        return created.IsSuccess ? null : created.Error!.Message;
     }
-
-    private static AdministrativeCommand Command(HangfireMigrationItem item, string step) =>
-        new(new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"{IdempotencyPrefix}{item.HangfireId}:{step}"))[..16]), Actor,
-            $"Imported from Hangfire recurring job {item.HangfireId}");
 
     /// <summary>
     /// Deletes the imported jobs in Hangfire and removes its imported recurring jobs, so restarting Hangfire cannot run them again.

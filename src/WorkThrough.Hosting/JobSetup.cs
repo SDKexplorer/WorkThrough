@@ -29,9 +29,24 @@ public sealed class JobSetup<TInput>
     /// Enqueues <paramref name="input"/> on the five-field <paramref name="cron"/> expression, in <paramref name="timeZone"/>. The schedule is
     /// named after the job unless <paramref name="key"/> names it; give each further schedule of the job its own key.
     /// </summary>
-    public JobSetup<TInput> Every(string cron, TInput input, string timeZone = ScheduleDefinition.DefaultTimeZone, string? key = null)
+    /// <remarks>
+    /// A six-field expression starts with seconds. <paramref name="schedule"/> refines the schedule, for example
+    /// <c>s =&gt; s.Excluding(holidays).Ending(contractEnd)</c>.
+    /// </remarks>
+    public JobSetup<TInput> Every(string cron, TInput input, string timeZone = ScheduleDefinition.DefaultTimeZone, string? key = null,
+        Func<ScheduleDefinition, ScheduleDefinition>? schedule = null) =>
+        Seed(ScheduleDefinition.Create(key ?? definition.Identity.Key, cron, definition, input, timeZone), schedule);
+
+    /// <summary>
+    /// Enqueues <paramref name="input"/> every <paramref name="interval"/>, counted from the schedule's start (by default the Unix epoch,
+    /// so hosts agree on the instants).
+    /// </summary>
+    public JobSetup<TInput> Every(TimeSpan interval, TInput input, string? key = null, Func<ScheduleDefinition, ScheduleDefinition>? schedule = null) =>
+        Seed(ScheduleDefinition.Every(key ?? definition.Identity.Key, interval, definition, input), schedule);
+
+    private JobSetup<TInput> Seed(ScheduleDefinition seeded, Func<ScheduleDefinition, ScheduleDefinition>? refine)
     {
-        builder.SeedSchedules(ScheduleDefinition.Create(key ?? definition.Identity.Key, cron, definition, input, timeZone));
+        builder.SeedSchedules(refine is null ? seeded : refine(seeded));
 
         return this;
     }
