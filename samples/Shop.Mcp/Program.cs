@@ -7,7 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 var settings = builder.Configuration.GetSection("Mcp").Get<McpSettings>()
     ?? throw new InvalidOperationException("Configure Mcp:Authority, Mcp:Resource and Mcp:Environment before starting.");
 builder.Services.AddWorkThrough().UseShopStorage(ShopSetup.Settings(builder.Configuration)).InitializeStorageOnStart(false);
-builder.Services.AddSingleton<ITenantAccessResolver, TenantClaimResolver>();
+builder.Services.AddSingleton<ITenantAccessResolver>(new TenantClaimResolver(settings.TenantClaim));
 builder.Services.AddWorkThroughMcp(new()
 {
     Authority = settings.Authority,
@@ -48,6 +48,9 @@ internal sealed class McpSettings
 
     /// <summary>The token claim whose values <see cref="RolePermissions"/> maps: "roles" for Entra ID, "permissions" for Auth0.</summary>
     public string RoleClaim { get; init; } = "roles";
+
+    /// <summary>The token claim holding the caller's tenants; Auth0 needs a namespaced claim.</summary>
+    public string TenantClaim { get; init; } = TenantClaimResolver.DefaultClaimType;
 
     public Dictionary<string, string[]> RolePermissions { get; init; } = [];
 }

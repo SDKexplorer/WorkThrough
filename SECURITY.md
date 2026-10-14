@@ -9,6 +9,6 @@ This alpha has not undergone an independent security assessment and is not produ
 - The deployment boundary is one configured store/environment. Correlation IDs never grant access. Hosts sharing a store between tenants register an `ITenantAccessResolver` (ADR-019): tenant-scoped principals see only their tenants' executions through the dashboard and MCP, and store-wide surfaces are denied to them. This scoping does not cover direct database access or archives.
 - Shared limits govern valid leases. Retries and process pauses require idempotency and, where applicable, resource-level fencing for external side effects.
 - NuGet audit warnings are build errors. Do not silence vulnerability warnings to make CI pass.
-- The OIDC sample signs in against a local Keycloak in `scripts/check-oidc.py`; hosted identity providers such as Entra ID or Auth0 are not yet verified. See [dashboard security](docs/dashboard-security.md) and [ADR-007](docs/adr/0007-dashboard-access-and-audit.md).
+- The OIDC sample signs in against a local Keycloak in `scripts/check-oidc.py`; hosted identity providers such as Entra ID or Auth0 are not yet verified. See [sign-in and permissions](docs/sign-in.md), [console security](docs/dashboard-security.md) and [ADR-007](docs/adr/0007-dashboard-access-and-audit.md).
 
 There is no hosted disclosure contact yet. Before public release, maintainers must establish a private reporting channel, license, and supported-version policy.

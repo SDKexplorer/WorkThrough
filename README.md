@@ -231,7 +231,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 
 ### Operations and security
 
-- **Console:** the [dashboard](docs/dashboard-security.md) reuses the host's ASP.NET Core authentication.
+- **Console:** people sign in through your identity provider (Entra ID, Auth0, Keycloak…); WorkThrough keeps no user accounts ([sign-in and permissions](docs/sign-in.md), [console security](docs/dashboard-security.md)).
   - Permissions are separate for metadata, payloads, recovery, publication, schedules, limits and audit.
   - Every command is CSRF-protected, attributed to a trusted actor, deduplicated, and committed together with its audit record.
 - **Payload protection:** `ProtectPayloads("2026-10", keys)` encrypts job inputs and outputs, flow inputs and signals at rest with AES-256-GCM and a rotating key ring. Handlers and the console see plain JSON; database readers, backups and archives see ciphertext. Schedule inputs, failure text and fingerprints are not encrypted ([ADR-027](docs/adr/0027-payload-protection.md)).
@@ -252,8 +252,8 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 | Storage providers and schema upgrades | [Providers](docs/providers.md) |
 | Rolling upgrades, payload encryption | [ADR-021](docs/adr/0021-rolling-upgrades.md), [ADR-027](docs/adr/0027-payload-protection.md) |
 | Scheduling | [Scheduling](docs/scheduling.md) |
-| Address changes and aliases | [Identity evolution](docs/identity-evolution.md), [deployment preflight](docs/deployment-preflight.md) |
-| Console, permissions, tenants | [Dashboard security](docs/dashboard-security.md) |
+| Job address changes and aliases | [Job addresses](docs/identity-evolution.md), [deployment preflight](docs/deployment-preflight.md) |
+| Sign-in, permissions, tenants, the console | [Sign-in and permissions](docs/sign-in.md), [console security](docs/dashboard-security.md) |
 | Queries and MCP | [Execution queries](docs/execution-queries.md), [MCP](docs/mcp.md) |
 | Operations and retention | [Operations and retention](docs/operations-and-retention.md) |
 | Testing jobs and flows, `WorkThrough.Testing` | [Testing](docs/testing.md) |
@@ -287,7 +287,7 @@ Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVE
 
 - Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation runs only the undo jobs an application declares.
 - Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
-- OIDC sign-in, role permissions and tenant scoping are verified against a local Keycloak 26.4 (`scripts/check-oidc.py`), not yet against a hosted provider such as Entra ID or Auth0. `scripts/check-hosted-idp.py` checks MCP bearer authorization against a hosted provider once one is configured, and `scripts/check-managed-db.sh` qualifies a managed database server.
+- Sign-in, role permissions and tenant scoping are verified against a local Keycloak 26.4 (`scripts/check-oidc.py`), not yet against Entra ID or Auth0 ([what is verified](docs/sign-in.md#what-has-been-verified)). `scripts/check-hosted-idp.py` checks MCP bearer authorization against a hosted provider once one is configured, and `scripts/check-managed-db.sh` qualifies a managed database server.
 - Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits; MySQL reached 460/s and MariaDB 560/s. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.
 - There is no production certification. Native AOT runs with PostgreSQL storage, explicit job registration and a source-generated JSON context for job data ([samples/NativeAot](samples/NativeAot/Program.cs)); the dashboard, MCP, EF Core and the SQL Server, Oracle and MySQL providers are not AOT-compatible. Performance figures describe the documented test host.
 - Package publication and the project license are pending maintainer decisions.

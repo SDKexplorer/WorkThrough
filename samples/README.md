@@ -69,7 +69,7 @@ Shop__PostgreSql="Host=...;Database=shop" dotnet run --project samples/Shop.Work
   - one payment at a time per customer;
   - 120 payment starts per tenant per minute;
   - a daily report at 06:00 UTC.
-- **Tenants:** orders carry their tenant; partition keys are namespaced with it. Users whose identity token has `tenant` claims see only those tenants in `Shop.Dashboard` and `Shop.Mcp` (`TenantClaimResolver`).
+- **Tenants:** orders carry their tenant; partition keys are namespaced with it. Users whose token has `tenant` claims see only those tenants in `Shop.Dashboard` and `Shop.Mcp`; roles mapped to `tenants.all` see the whole store; anyone else sees nothing (`TenantClaimResolver`).
 - **Effects:** jobs receive `context.IdempotencyKey`, stable across retries; pass it to payment and shipping providers. Delivery is at least once.
 
 ## Configuration
@@ -81,7 +81,7 @@ Settings bind from the `Shop` section, with environment variables as `Shop__Name
 - **Rate:** `PaymentsPerTenantPerMinute`.
 - **Report schedule:** `DailyReportCron`, `DailyReportTimeZone`.
 
-`Shop.Dashboard` reads `Identity:Authority`, `ClientId` and `ClientSecret` from host configuration or a secret store; without an authority it runs anonymously only in Development. Its role-to-permission map is in `appsettings.json`; see [dashboard security](../docs/dashboard-security.md). `Shop.Mcp` needs `Mcp:Authority`, `Mcp:Resource` and `Mcp:Environment` and has no anonymous mode; see [MCP](../docs/mcp.md). Both use an already initialized store.
+`Shop.Dashboard` reads `Identity:Authority`, `ClientId`, `ClientSecret`, `RoleClaim`, `TenantClaim` and `RolePermissions` from host configuration or a secret store; without an authority it runs anonymously only in Development. Its role map is in `appsettings.json`; see [sign-in and permissions](../docs/sign-in.md). `Shop.Mcp` needs `Mcp:Authority`, `Mcp:Resource` and `Mcp:Environment` and has no anonymous mode; see [MCP](../docs/mcp.md). Both use an already initialized store.
 
 SQL Server, Oracle, MySQL and MariaDB work the same way through `UseSqlServer`, `UseOracle` and `UseMySql`; see [providers](../docs/providers.md). The sample keeps to PostgreSQL so that its order table DDL stays simple.
 
