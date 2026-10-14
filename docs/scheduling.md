@@ -31,7 +31,19 @@ builder.Services.AddWorkThrough()
         .EveryCalendar(1, CalendarUnit.Month, new DateTimeOffset(2026, 1, 31, 7, 0, 0, TimeSpan.Zero), new Invoice(), "Europe/Bucharest"));
 ```
 
-Schedules that use seconds, intervals, calendar intervals, windows, bounds or calendars need engine protocol 9; schedulers from earlier releases would fire them at the wrong times. [Cronos](https://github.com/HangfireIO/Cronos) supplies calendar/DST calculations; daily non-interval triggers are not repeated during fall-back, while its documented interval behavior is retained. Use the same time-zone database across scheduler hosts. UTC is simplest when wall-clock business timing is unnecessary.
+### Named calendars
+
+A calendar copied into a schedule with `Excluding` is fixed with that schedule version. For holidays that operators maintain, store a named calendar and let schedules name it:
+
+```csharp
+await calendars.SaveCalendarAsync("holidays", new ScheduleCalendar().ExcludingEveryYear(12, 25), expectedRevision: 0, command);
+
+ScheduleDefinition.Create("reports.daily", "0 9 * * *", Reports.Daily, new DailyReport(1)).ExcludingCalendar("holidays");
+```
+
+`IScheduleCalendars` saves and deletes calendars as audited commands, guarded by a revision; the console edits them under Schedules with `schedules.manage`. Saving a calendar moves the next occurrence of every published schedule that names it, in the same transaction. An occurrence already due is checked again, so a newly excluded date stops it, and a removed exclusion brings an earlier occurrence back. A schedule's own calendar and every calendar it names combine. Publishing or enabling a schedule fails while a calendar it names is missing. A calendar cannot be deleted while a draft or an enabled schedule names it ([ADR-032](adr/0032-named-calendars.md)).
+
+Schedules that use seconds, intervals, calendar intervals, windows, bounds or calendars need engine protocol 9, and those naming calendars need protocol 10; schedulers from earlier releases would fire them at the wrong times. [Cronos](https://github.com/HangfireIO/Cronos) supplies calendar/DST calculations; daily non-interval triggers are not repeated during fall-back, while its documented interval behavior is retained. Use the same time-zone database across scheduler hosts. UTC is simplest when wall-clock business timing is unnecessary.
 
 Overlap policies:
 
@@ -57,7 +69,6 @@ A seeded schedule that does not exist yet is drafted, published and enabled thro
 
 ## Not supported
 
-- **Run-time calendars:** a calendar is copied into each schedule that uses it. Changing it means saving new schedule versions; there is no named calendar operators edit in place.
 - **Fixed intervals and daylight saving:** a 1-day `Every(TimeSpan)` shifts by an hour across a change; use `EveryCalendar` or cron for "every day at 09:00".
 - **Recurring flow starts:** a schedule creates a job. To start a flow on a schedule, schedule a job that starts it with a flow idempotency key derived from its occurrence.
 - **Encryption:** schedule inputs are stored as plain JSON even with payload protection ([ADR-027](adr/0027-payload-protection.md)).

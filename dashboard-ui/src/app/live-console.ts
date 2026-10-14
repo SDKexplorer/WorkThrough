@@ -95,6 +95,12 @@ interface Schedule {
     nextOccurrence: string | null;
     overlap: string;
     misfire: string;
+    calendars: string[] | null;
+}
+interface NamedCalendar {
+    name: string;
+    calendar: object;
+    revision: number;
 }
 interface EngineProtocolState {
     active: number;
@@ -322,6 +328,11 @@ export class LiveConsoleComponent {
     readonly draftEditor = signal(false);
     readonly draftJson = signal(EmptyFlowDraft);
     readonly draftRevision = signal(0);
+    readonly calendars = signal<NamedCalendar[]>([]);
+    readonly calendarEditor = signal(false);
+    readonly calendarName = signal('holidays');
+    readonly calendarJson = signal('');
+    readonly calendarRevision = signal(0);
     readonly commandError = signal('');
     readonly reason = signal('');
     readonly submitting = signal(false);
@@ -409,6 +420,7 @@ export class LiveConsoleComponent {
                     controls,
                     archives,
                     admission,
+                    calendars,
                 ] = await Promise.all([
                     this.request<Job[]>('/api/jobs?' + filter),
                     this.request<Statistics>('/api/stats'),
@@ -419,7 +431,9 @@ export class LiveConsoleComponent {
                     this.request<Controls>('/api/controls'),
                     this.request<Archive[]>('/api/archives?' + filter),
                     this.request<AdmissionPolicies>('/api/admission'),
+                    this.request<NamedCalendar[]>('/api/calendars'),
                 ]);
+                this.calendars.set(calendars);
                 this.controls.set(controls);
                 this.archives.set(archives);
                 this.admission.set(admission);
@@ -720,6 +734,38 @@ export class LiveConsoleComponent {
             ),
         );
     }
+    editCalendar(calendar?: NamedCalendar) {
+        this.calendarEditor.set(true);
+        this.calendarName.set(calendar?.name ?? 'holidays');
+        this.calendarRevision.set(calendar?.revision ?? 0);
+        this.calendarJson.set(
+            JSON.stringify(
+                calendar?.calendar ?? { dates: ['2026-12-25'], weekdays: [0, 6] },
+                null,
+                2,
+            ),
+        );
+    }
+    saveCalendar() {
+        try {
+            this.ask({
+                title: `Save calendar ${this.calendarName()}`,
+                path: '/api/calendars',
+                wrapper: 'command',
+                value: { name: this.calendarName(), calendar: JSON.parse(this.calendarJson()) },
+                expectedRevision: this.calendarRevision(),
+            });
+        } catch {
+            this.error.set('The calendar must be valid JSON.');
+        }
+    }
+    deleteCalendar(calendar: NamedCalendar) {
+        this.ask({
+            title: `Delete calendar ${calendar.name}`,
+            path: `/api/calendars/${encodeURIComponent(calendar.name)}/delete`,
+            expectedRevision: calendar.revision,
+        });
+    }
     openFlowEditor() {
         this.draftEditor.set(!this.draftEditor());
         if (this.draftKind === 'flows') return;
@@ -781,6 +827,7 @@ export class LiveConsoleComponent {
             );
             if (pending.path.endsWith('/draft') && typeof result === 'number')
                 this.draftRevision.set(result);
+            if (pending.path === '/api/calendars') this.calendarEditor.set(false);
             this.confirmation()?.nativeElement.close();
             this.archiveCandidates.set(null);
             await this.refresh();

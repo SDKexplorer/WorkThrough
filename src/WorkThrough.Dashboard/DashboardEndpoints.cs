@@ -262,12 +262,28 @@ public static partial class DashboardEndpoints
                 s.Definition.Processor,
                 s.Definition.Overlap,
                 s.Definition.Misfire,
+                s.Definition.Calendars,
                 s.Status,
                 s.Revision,
                 s.Enabled,
                 s.NextOccurrence
             }), JsonOptions))
             .WithPermission(options, OperationPermissions.ReadExecutions);
+        group.MapGet("/api/calendars", async (HttpContext context, CancellationToken ct) =>
+            Calendars(context) is { } calendars
+                ? Results.Json(await calendars.CalendarsAsync(ct), JsonOptions)
+                : Results.Json(Array.Empty<NamedCalendar>(), JsonOptions))
+            .WithPermission(options, OperationPermissions.ReadExecutions);
+        group.MapPost("/api/calendars", async (CalendarCommand save, HttpContext context, CancellationToken ct) =>
+            Calendars(context) is { } calendars
+                ? ToHttp(await calendars.SaveCalendarAsync(save.Name, save.Calendar, save.Command.ExpectedRevision, Command(context, options, save.Command), ct))
+                : Results.StatusCode(StatusCodes.Status501NotImplemented))
+            .Mutation(options, OperationPermissions.ManageSchedules);
+        group.MapPost("/api/calendars/{name}/delete", async (string name, DashboardCommand command, HttpContext context, CancellationToken ct) =>
+            Calendars(context) is { } calendars
+                ? ToHttp(await calendars.DeleteCalendarAsync(name, command.ExpectedRevision, Command(context, options, command), ct))
+                : Results.StatusCode(StatusCodes.Status501NotImplemented))
+            .Mutation(options, OperationPermissions.ManageSchedules);
         group.MapGet("/api/schedules/{key}/occurrences", async (string key, IJobSchedules schedules, CancellationToken ct) => Results.Json(await schedules.OccurrencesAsync(key, ct), JsonOptions))
             .WithPermission(options, OperationPermissions.ReadExecutions);
         group.MapPost("/api/schedules/draft", async (ScheduleDraftCommand draft, HttpContext context, IJobSchedules schedules, CancellationToken ct) =>
@@ -283,6 +299,10 @@ public static partial class DashboardEndpoints
                 .Mutation(options, OperationPermissions.ManageSchedules);
         }
     }
+
+    /// <summary>The store's named calendars, when its provider has them.</summary>
+    private static IScheduleCalendars? Calendars(HttpContext context) =>
+        context.RequestServices.GetService<IScheduleCalendars>() ?? context.RequestServices.GetService<IJobSchedules>() as IScheduleCalendars;
 
     /// <summary>Audited job, flow, definition and limit commands, plus the audit trail.</summary>
     private static void MapAdministration(RouteGroupBuilder group, JobDashboardOptions options)

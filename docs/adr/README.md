@@ -36,5 +36,6 @@ Each record states a decision, why it was made and what it costs. Records are no
 | [029](0029-mysql-storage.md) | MySQL and MariaDB storage | Implemented |
 | [030](0030-richer-schedules-and-quartz-import.md) | Seconds, intervals, bounds and excluded dates; Quartz.NET import; protocol 9 | Implemented |
 | [031](0031-mcp-controlled-actions.md) | MCP controlled actions: prepare, person approves, execute | Implemented |
+| [032](0032-named-calendars.md) | Named calendars edited at runtime; schema 11, protocol 10 | Implemented |
 
 Two records share the number 010; both are kept as written because other documents link to them.

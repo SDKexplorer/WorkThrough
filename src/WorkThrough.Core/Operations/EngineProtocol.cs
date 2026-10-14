@@ -42,8 +42,11 @@ public static class EngineProtocol
     /// </summary>
     public const int RichSchedules = 9;
 
+    /// <summary>Schedules that skip the times of named, runtime-editable calendars. Older schedulers would ignore the names.</summary>
+    public const int NamedCalendars = 10;
+
     /// <summary>The highest level this build understands.</summary>
-    public const int Supported = RichSchedules;
+    public const int Supported = NamedCalendars;
 }
 
 /// <summary>A store's active protocol and, while a higher level waits, the workers that block it.</summary>

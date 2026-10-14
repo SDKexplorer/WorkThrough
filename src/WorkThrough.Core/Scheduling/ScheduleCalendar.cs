@@ -70,7 +70,8 @@ public sealed record ScheduleCalendar
     private static IReadOnlyList<T>? Union<T>(IReadOnlyList<T>? first, IReadOnlyList<T>? second) =>
         first is null && second is null ? null : [.. (first ?? []).Concat(second ?? []).Distinct()];
 
-    internal void Validate()
+    /// <summary>Throws <see cref="ArgumentException"/> for an impossible yearly date, day of the month, daily range or cron expression.</summary>
+    public void Validate()
     {
         if (AnnualDates?.Any(date => date.Month is < 1 or > 12 || date.Day < 1 || date.Day > DateTime.DaysInMonth(2024, date.Month)) == true
             || DaysOfMonth?.Any(day => day is < 1 or > 31) == true || DailyFrom is null != DailyUntil is null || DailyFrom == DailyUntil && DailyFrom is not null)

@@ -55,6 +55,11 @@ public sealed class WorkThroughBuilder
             Services.AddSingleton(port, provider => provider.GetRequiredService<TStore>());
         }
 
+        if (store is IScheduleCalendars)
+        {
+            Services.AddSingleton(provider => (IScheduleCalendars)provider.GetRequiredService<TStore>());
+        }
+
         return this;
     }
 

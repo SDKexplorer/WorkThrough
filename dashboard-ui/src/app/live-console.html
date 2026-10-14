@@ -521,7 +521,11 @@
                                 <code>{{ schedule.cron }}</code
                                 ><small class="muted"
                                     >{{ schedule.timeZone }} · {{ schedule.overlap }}</small
+                                >@if (schedule.calendars?.length) {
+                                <small class="muted"
+                                    >Skips {{ schedule.calendars!.join(', ') }}</small
                                 >
+                                }
                             </td>
                             <td>
                                 <span class="badge" [attr.data-status]="schedule.status"
@@ -556,6 +560,81 @@
                             <td colspan="5" class="live-empty">
                                 No schedules saved. Immediate and delayed jobs can still be
                                 enqueued.
+                            </td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Calendars</h2>
+                    <p class="muted">
+                        Times that schedules naming a calendar skip. Saving one moves those
+                        schedules' next occurrences at once.
+                    </p>
+                </div>
+                @if (can(permission.ManageSchedules)) {
+                <button
+                    class="primary"
+                    (click)="calendarEditor() ? calendarEditor.set(false) : editCalendar()"
+                >
+                    {{ calendarEditor() ? 'Close editor' : 'New calendar' }}
+                </button>
+                }
+            </div>
+            @if (calendarEditor()) {
+            <div class="live-editor">
+                <label
+                    >Name<input
+                        [value]="calendarName()"
+                        [readonly]="calendarRevision() > 0"
+                        (input)="calendarName.set($any($event.target).value)" /></label
+                ><label for="calendar-json">Calendar JSON</label
+                ><textarea
+                    id="calendar-json"
+                    rows="10"
+                    [value]="calendarJson()"
+                    (input)="calendarJson.set($any($event.target).value)"
+                ></textarea
+                ><button class="primary" (click)="saveCalendar()">Save calendar</button>
+            </div>
+            }
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Calendar</th>
+                            <th>Skips</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (calendar of calendars(); track calendar.name) {
+                        <tr>
+                            <td>
+                                <strong>{{ calendar.name }}</strong
+                                ><small class="muted">Revision {{ calendar.revision }}</small>
+                            </td>
+                            <td><code>{{ calendar.calendar | json }}</code></td>
+                            <td>
+                                @if (can(permission.ManageSchedules)) {
+                                <button class="outline" (click)="editCalendar(calendar)">
+                                    Edit
+                                </button>
+                                <button class="outline" (click)="deleteCalendar(calendar)">
+                                    Delete
+                                </button>
+                                }
+                            </td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="3" class="live-empty">
+                                No calendars. A schedule names one with
+                                <code>ExcludingCalendar("holidays")</code>.
                             </td>
                         </tr>
                         }

@@ -40,6 +40,19 @@ public sealed class MySqlProviderTests
     }
 
     [MySqlTheory, MemberData(nameof(Databases))]
+    public async Task A_schema_10_store_upgrades_in_place_to_named_calendars(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var job = await new JobClient(harness.Store).EnqueueAsync(new JobDefinition<string>("mysql.upgrade"), "saved");
+        await SchemaUpgrade.RewindAsync(harness, typeof(MySqlJobStore), "MySqlBaseSchema");
+
+        await harness.NewStore().InitializeAsync();
+
+        Assert.Equal("saved", (await harness.Store.GetAsync(job))!.Payload.GetString());
+        await harness.Store.SaveCalendarAsync("holidays", new ScheduleCalendar(), 0, SchemaUpgrade.Command()).SucceedsAsync();
+    }
+
+    [MySqlTheory, MemberData(nameof(Databases))]
     public async Task A_select_only_credential_reads_but_cannot_mutate(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);

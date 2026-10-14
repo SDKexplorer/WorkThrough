@@ -118,7 +118,7 @@ public abstract partial class RelationalJobStore : IEngineProtocol
         if (definition.RequiredProtocol > active)
         {
             throw new StateConflictException($"Schedule {definition.Key} v{definition.Version} needs engine protocol {definition.RequiredProtocol} for seconds, " +
-                $"intervals, bounds or excluded dates, but the store is at {active}. Upgrade every worker and scheduler first.");
+                $"intervals, bounds, excluded dates or named calendars, but the store is at {active}. Upgrade every worker and scheduler first.");
         }
     }
 

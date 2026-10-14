@@ -106,6 +106,7 @@ ALTER DATABASE [WorkThrough] SET READ_COMMITTED_SNAPSHOT ON; -- recommended; see
 | 8 | Parent links and depth for child flows ([ADR-023](adr/0023-child-flows.md)) |
 | 9 | The original input of a corrected job |
 | 10 | The source run of a forked run |
+| 11 | Named calendars ([ADR-032](adr/0032-named-calendars.md)) |
 
 Every upgrade is additive: queued work and live leases survive. Upgrading from schema 5 or earlier requires stopping older writers once, because those releases cannot read the compatibility record. From schema 6, a host accepts a newer schema whose `reader_minimum` still includes its own version, so later migrations roll out while older workers run. New shared semantics wait for an [engine protocol level](architecture.md#engine-protocol-and-payload-protection) that every live worker supports, and older hosts refuse to claim from a store above their level. MySQL and MariaDB start at schema 10.
 

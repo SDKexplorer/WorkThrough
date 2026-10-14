@@ -40,6 +40,13 @@ public sealed record ScheduleDefinition(string Key, int Version, string Cron, st
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public ScheduleCalendar? Calendar { get; init; }
 
+    /// <summary>
+    /// Named calendars whose times this schedule also skips. They are read when the schedule is published and each time it advances, so
+    /// editing a calendar changes every schedule that names it without a new schedule version.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Calendars { get; init; }
+
     /// <summary>For an interval schedule, the daily time range, and optionally weekdays, its occurrences fall in.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public DailyWindow? Window { get; init; }
@@ -57,6 +64,9 @@ public sealed record ScheduleDefinition(string Key, int Version, string Cron, st
     /// <summary>This schedule, also skipping everything <paramref name="calendar"/> skips.</summary>
     public ScheduleDefinition Excluding(ScheduleCalendar calendar) => this with { Calendar = Calendar?.Combine(calendar) ?? calendar };
 
+    /// <summary>This schedule, also skipping everything the named calendar <paramref name="name"/> skips when it fires.</summary>
+    public ScheduleDefinition ExcludingCalendar(string name) => this with { Calendars = [.. (Calendars ?? []).Append(name).Distinct(StringComparer.Ordinal)] };
+
     /// <summary>This interval schedule, firing only from <paramref name="from"/> to <paramref name="until"/> each day, on <paramref name="days"/> if given.</summary>
     public ScheduleDefinition Within(TimeOnly from, TimeOnly until, params DayOfWeek[] days) =>
         this with { Window = new(from, until, days.Length == 0 ? null : days) };
@@ -69,8 +79,9 @@ public sealed record ScheduleDefinition(string Key, int Version, string Cron, st
 
     /// <summary>The engine protocol every host must understand before this schedule may be saved.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public int RequiredProtocol => Interval is not null || CalendarInterval is not null || StartsAt is not null || EndsAt is not null
-        || Calendar is not null || Window is not null || ScheduleClock.HasSeconds(Cron) ? EngineProtocol.RichSchedules : EngineProtocol.Baseline;
+    public int RequiredProtocol => Calendars is { Count: > 0 } ? EngineProtocol.NamedCalendars
+        : Interval is not null || CalendarInterval is not null || StartsAt is not null || EndsAt is not null || Calendar is not null || Window is not null
+            || ScheduleClock.HasSeconds(Cron) ? EngineProtocol.RichSchedules : EngineProtocol.Baseline;
 
     /// <summary>A schedule that invokes a typed processor definition every <paramref name="interval"/> with fixed input.</summary>
     public static ScheduleDefinition Every<TInput>(string key, TimeSpan interval, JobDefinition<TInput> processor, TInput input, int version = 1) =>
@@ -156,7 +167,31 @@ public static class ScheduleClock
             throw new ArgumentException("Invalid schedule input, queue, retry count, or policy.");
         }
 
+        foreach (var name in definition.Calendars ?? [])
+        {
+            NamedCalendar.ValidateName(name);
+        }
+
         _ = Next(definition, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// <paramref name="definition"/> with the named calendars it references folded into its own calendar, so <see cref="Next"/> skips
+    /// their times. Every referenced name must be present in <paramref name="calendars"/>.
+    /// </summary>
+    public static ScheduleDefinition WithCalendars(ScheduleDefinition definition, IReadOnlyDictionary<string, ScheduleCalendar> calendars)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(calendars);
+        var calendar = definition.Calendar;
+        foreach (var name in definition.Calendars ?? [])
+        {
+            var named = calendars.TryGetValue(name, out var found) ? found
+                : throw new InvalidOperationException($"Schedule {definition.Key} names calendar '{name}', which does not exist.");
+            calendar = calendar?.Combine(named) ?? named;
+        }
+
+        return definition with { Calendar = calendar, Calendars = null };
     }
 
     public static DateTimeOffset? Next(ScheduleDefinition definition, DateTimeOffset after)
@@ -329,6 +364,35 @@ public static class ScheduleClock
 }
 
 /// <summary>Lifecycle changes return the new revision.</summary>
+/// <summary>A calendar stored under a name that schedules reference; <see cref="Revision"/> guards concurrent edits.</summary>
+public sealed record NamedCalendar(string Name, ScheduleCalendar Calendar, int Revision)
+{
+    public const int MaximumNameLength = 120;
+
+    public static void ValidateName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > MaximumNameLength || name != name.Trim())
+        {
+            throw new ArgumentException($"A calendar name needs 1 to {MaximumNameLength} characters without surrounding spaces.", nameof(name));
+        }
+    }
+}
+
+/// <summary>
+/// Named calendars, edited at runtime. Saving one moves the next occurrence of every published schedule that names it in the same
+/// transaction; a calendar a schedule still names cannot be deleted.
+/// </summary>
+public interface IScheduleCalendars
+{
+    Task<IReadOnlyList<NamedCalendar>> CalendarsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Creates the calendar when <paramref name="expectedRevision"/> is 0, otherwise replaces that revision. Returns the new revision.</summary>
+    Task<Result<int>> SaveCalendarAsync(string name, ScheduleCalendar calendar, int expectedRevision, AdministrativeCommand command,
+        CancellationToken cancellationToken = default);
+
+    Task<Result> DeleteCalendarAsync(string name, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default);
+}
+
 public interface IJobSchedules
 {
     Task<Result<int>> SaveScheduleDraftAsync(ScheduleDefinition definition, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default);

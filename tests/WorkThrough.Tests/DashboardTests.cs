@@ -157,6 +157,8 @@ public sealed class DashboardTests
         Assert.Equal(JobStatus.Failed, (await harness.Store.GetAsync(id))!.Status);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/replay", new DashboardCommand(Guid.NewGuid(), "unauthorized"))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/jobs/api/queues", new QueueControlCommand("default", true, new(Guid.NewGuid(), "unauthorized")))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/jobs/api/calendars",
+            new CalendarCommand("holidays", new ScheduleCalendar(), new(Guid.NewGuid(), "unauthorized")))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/jobs/api/archives/{id}/export")).StatusCode);
         Assert.Empty(await harness.Store.AuditAsync());
         client.DefaultRequestHeaders.Remove("X-Test-User");
@@ -166,6 +168,11 @@ public sealed class DashboardTests
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/jobs/api/retention/policy", retentionCommand)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/jobs/api/retention/policy", retentionCommand with { Command = new(Guid.NewGuid(), "Stale revision") })).StatusCode);
         Assert.Contains("\"enabled\":false", await client.GetStringAsync("/jobs/api/retention"));
+        var holidays = new CalendarCommand("holidays", new ScheduleCalendar().ExcludingEveryYear(12, 25), new(Guid.NewGuid(), "Company holidays"));
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/jobs/api/calendars", holidays)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/jobs/api/calendars", holidays with { Command = new(Guid.NewGuid(), "Stale revision") })).StatusCode);
+        Assert.Contains("\"name\":\"holidays\"", await client.GetStringAsync("/jobs/api/calendars"));
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/jobs/api/calendars/holidays/delete", new DashboardCommand(Guid.NewGuid(), "No longer used", ExpectedRevision: 1))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync($"/jobs/api/jobs/{Guid.NewGuid()}/retry",
             new DashboardCommand(Guid.NewGuid(), "Retry an execution that was never accepted"))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/jobs/api/limits",
@@ -186,7 +193,8 @@ public sealed class DashboardTests
         client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", unidentifiedToken.RootElement.GetProperty("token").GetString());
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/retry", new DashboardCommand(Guid.NewGuid(), "No subject", 1))).StatusCode);
         var audit = await harness.Store.AuditAsync();
-        Assert.Equal([AuditActions.SetKeyedLimit, AuditActions.ConfigureRetention], audit.Select(entry => entry.Action).Order(StringComparer.Ordinal));
+        Assert.Equal([AuditActions.DeleteCalendar, AuditActions.SaveCalendar, AuditActions.SetKeyedLimit, AuditActions.ConfigureRetention],
+            audit.Select(entry => entry.Action).Order(StringComparer.Ordinal));
         Assert.All(audit, entry => Assert.Equal("operator", entry.Actor.Subject));
     }
 

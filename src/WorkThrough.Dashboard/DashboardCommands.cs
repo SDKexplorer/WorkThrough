@@ -12,6 +12,8 @@ public sealed record LimitCommand(ConcurrencyLimit Limit, DashboardCommand Comma
 
 public sealed record ScheduleDraftCommand(ScheduleDefinition Definition, DashboardCommand Command);
 
+public sealed record CalendarCommand(string Name, ScheduleCalendar Calendar, DashboardCommand Command);
+
 public sealed record QueueControlCommand(string Queue, bool Paused, DashboardCommand Command);
 
 public sealed record WorkerControlCommand(string WorkerId, bool Draining, DashboardCommand Command);

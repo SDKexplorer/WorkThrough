@@ -49,7 +49,7 @@ public abstract partial class RelationalJobStore
             ScheduleClock.Validate(schedule.Definition);
             await RequireScheduleProtocolAsync(connection, transaction, schedule.Definition, ct);
             var now = DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct));
-            var next = ScheduleClock.Next(schedule.Definition, now);
+            var next = ScheduleClock.Next(await ResolveCalendarsAsync(connection, transaction, schedule.Definition, ct), now);
             await ExecuteAsync(connection, transaction, "UPDATE dj_schedules SET status=@status,revision=revision+1,next_due=@next WHERE schedule_key=@key AND version=@version", ct,
                 ("status", nameof(DefinitionStatus.Published)), ("next", next?.ToUnixTimeMilliseconds()), ("key", key), ("version", version));
 
@@ -69,6 +69,11 @@ public abstract partial class RelationalJobStore
                 "SELECT COUNT(*) FROM dj_schedules WHERE schedule_key=@key AND version<>@version AND enabled=1", ct, ("key", key), ("version", version))) != 0)
             {
                 throw new StateConflictException("Pause the active schedule version before enabling its replacement.");
+            }
+
+            if (enabled)
+            {
+                _ = await ResolveCalendarsAsync(connection, transaction, schedule.Definition, ct);
             }
 
             await ExecuteAsync(connection, transaction, "UPDATE dj_schedules SET enabled=@enabled,revision=revision+1 WHERE schedule_key=@key AND version=@version", ct,
@@ -181,7 +186,7 @@ public abstract partial class RelationalJobStore
             INSERT INTO dj_schedule_occurrences(schedule_key,version,due,outcome,job_id) VALUES (@key,@version,@due,@outcome,@job)
             """, ct, ("key", definition.Key), ("version", definition.Version), ("due", due.ToUnixTimeMilliseconds()), ("outcome", outcome), ("job", job?.Id.ToString()));
         var catchUp = definition.Misfire == ScheduleMisfire.CatchUp && definition.Overlap != ScheduleOverlap.Coalesce;
-        var next = ScheduleClock.Next(definition, catchUp ? due : now);
+        var next = ScheduleClock.Next(await ResolveCalendarsAsync(connection, transaction, definition, ct), catchUp ? due : now);
         await ExecuteAsync(connection, transaction, "UPDATE dj_schedules SET next_due=@next WHERE schedule_key=@key AND version=@version", ct,
             ("next", next?.ToUnixTimeMilliseconds()), ("key", definition.Key), ("version", definition.Version));
 
