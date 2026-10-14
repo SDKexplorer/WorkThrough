@@ -63,7 +63,7 @@ The converter receives the trigger's job data, merged with the job's as Quartz d
 - failed conversions;
 - year-restricted crons;
 - daily-time-interval triggers with a repeat count;
-- custom calendars, and calendars in another time zone than their trigger.
+- custom calendars, and calendars in another time zone than their trigger. A calendar without an explicit time zone uses the local zone of the machine running the import, as Quartz uses its host's; run the import where Quartz ran, or set the zone.
 
 ## 3. Stop Quartz and import
 

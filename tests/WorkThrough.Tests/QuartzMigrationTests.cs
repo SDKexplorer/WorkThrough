@@ -54,7 +54,7 @@ public sealed class QuartzMigrationTests
             ["quartz.scheduler.instanceName"] = "migration-" + Guid.NewGuid().ToString("N"),
             ["quartz.jobStore.type"] = "Quartz.Simpl.RAMJobStore, Quartz"
         }).GetScheduler();
-        var holidays = new HolidayCalendar();
+        var holidays = new HolidayCalendar { TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Bucharest") };
         holidays.AddExcludedDate(new DateTime(2026, 12, 25));
         await scheduler.AddCalendar("holidays", holidays, false, false);
 
