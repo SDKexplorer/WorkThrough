@@ -121,7 +121,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
             Payload = await ProtectedAsync(connection, transaction, job.Payload, ct)
         };
         await ExecuteAsync(connection, transaction, "INSERT INTO dj_outbox(id,request,status,idempotency_key,fingerprint) VALUES (@id,@request,@status,@key,@hash)", ct,
-            ("id", job.Id.ToString()), ("request", JsonSerializer.Serialize(envelope, JobJson.Options)), ("status", OutboxStatuses.Pending),
+            ("id", job.Id.ToString()), ("request", JobJson.Serialize(envelope)), ("status", OutboxStatuses.Pending),
             ("key", job.IdempotencyKey), ("hash", fingerprint));
 
         return job.Id;
@@ -176,7 +176,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
             return null;
         }
 
-        var request = JsonSerializer.Deserialize<JobRecord>(payload, JobJson.Options)!;
+        var request = JobJson.Deserialize<JobRecord>(payload)!;
         var claim = new OutboxClaim(request with { Payload = Required(request.Payload) }, Guid.NewGuid());
         await ExecuteAsync(connection, transaction, "UPDATE dj_outbox SET status=@status,lease_token=@token,lease_expires_at=@expiry WHERE id=@id", ct,
             ("status", OutboxStatuses.Delivering), ("token", claim.Token.ToString()),

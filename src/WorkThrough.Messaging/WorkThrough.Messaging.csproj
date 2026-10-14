@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Durable publishing to message brokers through WorkThrough jobs, and consuming broker messages into jobs.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../WorkThrough.Hosting/WorkThrough.Hosting.csproj" />

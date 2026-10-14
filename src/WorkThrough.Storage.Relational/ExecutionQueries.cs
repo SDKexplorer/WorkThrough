@@ -32,7 +32,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
     public async Task<ExecutionPage> SearchExecutionsAsync(ExecutionQuery query, CancellationToken cancellationToken = default)
     {
         ValidateExecutionQuery(query);
-        var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(query with { Cursor = null })));
+        var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(query with { Cursor = null }, CursorJsonContext.Default.ExecutionQuery)));
         var cursor = query.Cursor is null ? null : ReadExecutionCursor(query.Cursor);
 
         return await ReadOperationAsync<ExecutionPage>(async (connection, transaction, ct) =>
@@ -251,7 +251,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
     {
         try
         {
-            var cursor = JsonSerializer.Deserialize<ExecutionCursor>(Convert.FromBase64String(value));
+            var cursor = JsonSerializer.Deserialize(Convert.FromBase64String(value), CursorJsonContext.Default.ExecutionCursor);
             if (cursor is null || cursor.Version != CursorVersion || cursor.StoreId is null || cursor.Fingerprint is null)
             {
                 throw new ArgumentException("Invalid continuation cursor.");
@@ -268,7 +268,7 @@ public abstract partial class RelationalJobStore : IExecutionQueries
         }
     }
 
-    private static string EncodeCursor(ExecutionCursor cursor) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(cursor));
+    private static string EncodeCursor(ExecutionCursor cursor) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(cursor, CursorJsonContext.Default.ExecutionCursor));
 
     /// <summary>A snapshot read bounded by the operations query deadline, including any retries.</summary>
     private async Task<T> ReadOperationAsync<T>(Func<DbConnection, DbTransaction, CancellationToken, Task<T>> read, CancellationToken cancellationToken)
@@ -296,6 +296,6 @@ public abstract partial class RelationalJobStore : IExecutionQueries
 
     /// <summary>Keyset position shared by execution, audit and archive pages. Position is the row timestamp in milliseconds.</summary>
     /// <remarks>Position keeps its original wire name so cursors stay valid across mixed host versions.</remarks>
-    private sealed record ExecutionCursor(int Version, string StoreId, string Fingerprint, long From, long Until,
+    internal sealed record ExecutionCursor(int Version, string StoreId, string Fingerprint, long From, long Until,
         [property: JsonPropertyName("CreatedAt")] long Position, Guid Id);
 }

@@ -1,5 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -12,7 +14,7 @@ public sealed record PublishMessage(string Destination, JsonElement Body, string
 {
     /// <summary>A message whose body is <paramref name="message"/> as JSON.</summary>
     public static PublishMessage Of<T>(string destination, T message, string? key = null, IReadOnlyDictionary<string, string>? headers = null) =>
-        new(destination, JsonSerializer.SerializeToElement(message, JobJson.Options), key, headers);
+        new(destination, JobJson.ToElement(message), key, headers);
 }
 
 /// <summary>Sends a message to a broker and returns once the broker has accepted it.</summary>
@@ -24,6 +26,8 @@ public interface IMessagePublisher
 
 public static class Messaging
 {
+    static Messaging() => JobJson.AddContext(MessagingJsonContext.Default);
+
     /// <summary>The job that publishes a message. Enqueue it, or use <see cref="Publish{T}"/>, to publish durably.</summary>
     public static JobDefinition<PublishMessage> PublishJob { get; } = new("workthrough.messaging.publish", displayName: "Publish message");
 
@@ -39,7 +43,7 @@ public static class Messaging
     }
 
     /// <summary>Runs <see cref="PublishJob"/> with <typeparamref name="TPublisher"/>, registered as a singleton.</summary>
-    public static WorkThroughBuilder AddMessagePublisher<TPublisher>(this WorkThroughBuilder builder) where TPublisher : class, IMessagePublisher
+    public static WorkThroughBuilder AddMessagePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPublisher>(this WorkThroughBuilder builder) where TPublisher : class, IMessagePublisher
     {
         ArgumentNullException.ThrowIfNull(builder);
         builder.Services.TryAddSingleton<IMessagePublisher, TPublisher>();
@@ -83,10 +87,14 @@ public sealed class MessageIntake(JobClient jobs)
         }
         catch (JsonException)
         {
-            return JsonSerializer.SerializeToElement(Encoding.UTF8.GetString(body.Span));
+            return JobJson.ToElement(Encoding.UTF8.GetString(body.Span));
         }
     }
 
     /// <summary>Registers the intake; broker packages call this.</summary>
     public static void Register(IServiceCollection services) => services.TryAddSingleton<MessageIntake>();
 }
+
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+[JsonSerializable(typeof(PublishMessage))]
+internal sealed partial class MessagingJsonContext : JsonSerializerContext;

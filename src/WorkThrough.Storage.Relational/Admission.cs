@@ -346,13 +346,13 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
     }
 
     public Task<Result> SetKeyedLimitAsync(KeyedLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.SetKeyedLimit, PolicyTarget(limit.JobKey, limit.Scope), limit, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.SetKeyedLimit, PolicyTarget(limit.JobKey, limit.Scope), Arguments(limit), async (connection, transaction, ct) =>
         {
             await SaveKeyedLimitAsync(connection, transaction, limit, replace: true, ct);
         }, cancellationToken, validate: limit.Validate);
 
     public Task<Result> RemoveKeyedLimitAsync(KeyScope scope, string? jobKey, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.RemoveKeyedLimit, PolicyTarget(jobKey, scope), new { scope, jobKey }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.RemoveKeyedLimit, PolicyTarget(jobKey, scope), Args(("scope", scope), ("jobKey", jobKey)), async (connection, transaction, ct) =>
         {
             if (await ExecuteAsync(connection, transaction, "DELETE FROM dj_keyed_limits WHERE job_key=@key AND key_scope=@scope", ct,
                 ("key", jobKey ?? AllJobsLimitKey), ("scope", (int)scope)) == 0)
@@ -362,13 +362,13 @@ public abstract partial class RelationalJobStore : IAdmissionPolicies
         }, cancellationToken, validate: () => ValidatePolicyScope(scope, jobKey));
 
     public Task<Result> SetRateLimitAsync(RateLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.SetRateLimit, PolicyTarget(limit.JobKey, limit.PerKey), limit, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.SetRateLimit, PolicyTarget(limit.JobKey, limit.PerKey), Arguments(limit), async (connection, transaction, ct) =>
         {
             await SaveRateLimitAsync(connection, transaction, limit, replace: true, ct);
         }, cancellationToken, validate: limit.Validate);
 
     public Task<Result> RemoveRateLimitAsync(string? jobKey, KeyScope? perKey, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.RemoveRateLimit, PolicyTarget(jobKey, perKey), new { jobKey, perKey }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.RemoveRateLimit, PolicyTarget(jobKey, perKey), Args(("jobKey", jobKey), ("perKey", perKey)), async (connection, transaction, ct) =>
         {
             if (await ExecuteAsync(connection, transaction, "DELETE FROM dj_rate_limits WHERE job_key=@key AND key_scope=@scope", ct,
                 ("key", jobKey ?? AllJobsLimitKey), ("scope", StoredScope(perKey))) == 0)

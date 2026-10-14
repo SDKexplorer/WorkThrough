@@ -17,7 +17,7 @@ public abstract partial class RelationalJobStore
     private static readonly HashSet<string> DraftActions = [AuditActions.EditDefinition, AuditActions.EditSchedule];
 
     /// <summary>Runs an audited command and reports expected failures as results. Nothing is committed for a failure.</summary>
-    private async Task<Result<T>> AdminAsync<T>(AdministrativeCommand command, string action, string target, object arguments,
+    private async Task<Result<T>> AdminAsync<T>(AdministrativeCommand command, string action, string target, Fields arguments,
         Func<DbConnection, DbTransaction, CancellationToken, Task<T>> change, CancellationToken ct, Action? validate = null)
     {
         try
@@ -40,7 +40,7 @@ public abstract partial class RelationalJobStore
         }
     }
 
-    private async Task<Result> AdminAsync(AdministrativeCommand command, string action, string target, object arguments,
+    private async Task<Result> AdminAsync(AdministrativeCommand command, string action, string target, Fields arguments,
         Func<DbConnection, DbTransaction, CancellationToken, Task> change, CancellationToken ct, Action? validate = null)
     {
         // Receipts store true for value-less commands, as earlier releases did.
@@ -55,18 +55,11 @@ public abstract partial class RelationalJobStore
     }
 
     /// <summary>Commits the change, its deduplication receipt and audit entry together. A repeated command replays its receipt.</summary>
-    private Task<T> AuditedAsync<T>(AdministrativeCommand command, string action, string target, object arguments,
+    private Task<T> AuditedAsync<T>(AdministrativeCommand command, string action, string target, Fields arguments,
         Func<DbConnection, DbTransaction, CancellationToken, Task<T>> change, CancellationToken cancellationToken)
     {
         ValidateCommand(command);
-        var fingerprint = Fingerprint(new
-        {
-            command.Actor,
-            command.Reason,
-            action,
-            target,
-            arguments
-        });
+        var fingerprint = Fingerprint(Args(("actor", command.Actor), ("reason", command.Reason), ("action", action), ("target", target), ("arguments", arguments)));
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
@@ -76,7 +69,7 @@ public abstract partial class RelationalJobStore
                 if (await reader.ReadAsync(ct))
                 {
                     return reader.GetString(0) == fingerprint
-                        ? JsonSerializer.Deserialize<T>(reader.GetString(1), JobJson.Options)!
+                        ? JobJson.Deserialize<T>(reader.GetString(1))!
                         : throw new StateConflictException("Command ID was already used for a different operation or actor.");
                 }
             }
@@ -84,11 +77,11 @@ public abstract partial class RelationalJobStore
             await RequireProtocolAsync(connection, transaction, ct);
             var result = await change(connection, transaction, ct);
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_commands(id,fingerprint,result) VALUES (@id,@fingerprint,@result)", ct,
-                ("id", command.Id.ToString()), ("fingerprint", fingerprint), ("result", JsonSerializer.Serialize(result, JobJson.Options)));
+                ("id", command.Id.ToString()), ("fingerprint", fingerprint), ("result", JobJson.Serialize(result)));
             await ExecuteAsync(connection, transaction, """
                 INSERT INTO dj_audit(command_id,at,actor,action,target,reason,outcome) VALUES (@id,@at,@actor,@action,@target,@reason,@outcome)
                 """, ct, ("id", command.Id.ToString()), ("at", await NowAsync(connection, transaction, ct)),
-                ("actor", JsonSerializer.Serialize(command.Actor, JobJson.Options)), ("action", action), ("target", target),
+                ("actor", JobJson.Serialize(command.Actor)), ("action", action), ("target", target),
                 ("reason", command.Reason), ("outcome", AuditOutcomes.Applied));
             await ExecuteAsync(connection, transaction, "INSERT INTO dj_audit_changes(command_id,changes) VALUES (@id,@changes)", ct,
                 ("id", command.Id.ToString()), ("changes", AuditChanges(action, target, arguments, result)));
@@ -107,12 +100,12 @@ public abstract partial class RelationalJobStore
         }
     }
 
-    private static string AuditChanges<T>(string action, string target, object arguments, T result) => DraftActions.Contains(action)
-        ? JsonSerializer.Serialize(new { definition = target, draftRevision = result }, JobJson.Options)
-        : JsonSerializer.Serialize(new { arguments, result }, JobJson.Options);
+    private static string AuditChanges<T>(string action, string target, Fields arguments, T result) => DraftActions.Contains(action)
+        ? JobJson.Serialize(Args(("definition", target), ("draftRevision", JobJson.ToElement(result))))
+        : JobJson.Serialize(Args(("arguments", arguments), ("result", JobJson.ToElement(result))));
 
     public Task<Result> RetryJobAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.RetryJob, id.ToString(), new { expectedAttempt }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.RetryJob, id.ToString(), Args(("expectedAttempt", expectedAttempt)), async (connection, transaction, ct) =>
         {
             var job = await ExpectedJobAsync(connection, transaction, id, expectedAttempt, ct);
             if (!await RetryJobCoreAsync(connection, transaction, id, ct))
@@ -124,7 +117,7 @@ public abstract partial class RelationalJobStore
         }, cancellationToken);
 
     public Task<Result> CancelJobAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.CancelJob, id.ToString(), new { expectedAttempt }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.CancelJob, id.ToString(), Args(("expectedAttempt", expectedAttempt)), async (connection, transaction, ct) =>
         {
             await ExpectedJobAsync(connection, transaction, id, expectedAttempt, ct);
             if (!await CancelJobCoreAsync(connection, transaction, id, ct))
@@ -134,7 +127,7 @@ public abstract partial class RelationalJobStore
         }, cancellationToken);
 
     public Task<Result> RecoverStepAsync(Guid id, int expectedAttempt, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.RecoverStep, id.ToString(), new { expectedAttempt }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.RecoverStep, id.ToString(), Args(("expectedAttempt", expectedAttempt)), async (connection, transaction, ct) =>
         {
             await LockFlowsOfAsync(connection, transaction, [id], ct);
             var job = await ExpectedJobAsync(connection, transaction, id, expectedAttempt, ct);
@@ -152,7 +145,7 @@ public abstract partial class RelationalJobStore
         // The audit keeps a digest, not the input: payloads stay behind their own permission.
         var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input.GetRawText())));
 
-        return AdminAsync(command, AuditActions.CorrectInput, id.ToString(), new { expectedAttempt, input = digest }, async (connection, transaction, ct) =>
+        return AdminAsync(command, AuditActions.CorrectInput, id.ToString(), Args(("expectedAttempt", expectedAttempt), ("input", digest)), async (connection, transaction, ct) =>
         {
             await LockFlowsOfAsync(connection, transaction, [id], ct);
             var job = await ExpectedJobAsync(connection, transaction, id, expectedAttempt, ct);
@@ -209,7 +202,7 @@ public abstract partial class RelationalJobStore
     {
         var (expected, next) = paused ? (FlowStatus.Running, FlowStatus.Paused) : (FlowStatus.Paused, FlowStatus.Running);
 
-        return AdminAsync(command, paused ? AuditActions.PauseFlow : AuditActions.ResumeFlow, id.ToString(), new { paused }, async (connection, transaction, ct) =>
+        return AdminAsync(command, paused ? AuditActions.PauseFlow : AuditActions.ResumeFlow, id.ToString(), Args(("paused", paused)), async (connection, transaction, ct) =>
         {
             if (await ExecuteAsync(connection, transaction, "UPDATE dj_flows SET status=@status WHERE id=@id AND status=@expected", ct,
                 ("status", next.ToString()), ("id", id.ToString()), ("expected", expected.ToString())) != 1)
@@ -225,7 +218,7 @@ public abstract partial class RelationalJobStore
     }
 
     public Task<Result> ChangeLimitAsync(ConcurrencyLimit limit, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.ChangeLimit, limit.JobKey ?? AllJobsLimitKey, limit, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.ChangeLimit, limit.JobKey ?? AllJobsLimitKey, Arguments(limit), async (connection, transaction, ct) =>
         {
             await SaveLimitAsync(connection, transaction, limit, replace: true, ct);
         }, cancellationToken, validate: () => Validate(limit));
@@ -259,7 +252,7 @@ public abstract partial class RelationalJobStore
             var entries = new List<AuditEntry>();
             while (await reader.ReadAsync(ct))
             {
-                var actor = JsonSerializer.Deserialize<OperationActor>(reader.GetString(2), JobJson.Options)!;
+                var actor = JobJson.Deserialize<OperationActor>(reader.GetString(2))!;
                 entries.Add(new(Guid.Parse(reader.GetString(0)), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)), actor,
                     reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.GetString(6), Text(reader, "changes")));
             }

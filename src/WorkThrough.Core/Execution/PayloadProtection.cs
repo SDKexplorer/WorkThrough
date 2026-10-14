@@ -84,7 +84,7 @@ public sealed class AesGcmPayloadProtector : IPayloadProtector
             aes.Encrypt(nonce, plaintext, data.AsSpan(0, plaintext.Length), data.AsSpan(plaintext.Length), Encoding.UTF8.GetBytes(current));
         }
 
-        return JsonSerializer.SerializeToElement(new JsonObject
+        return JobJson.ToElement(new JsonObject
         {
             [PayloadEnvelope.MarkerProperty] = PayloadEnvelope.Algorithm,
             [PayloadEnvelope.KeyProperty] = current,

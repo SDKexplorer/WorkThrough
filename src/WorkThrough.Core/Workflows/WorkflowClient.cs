@@ -34,7 +34,7 @@ public sealed class WorkflowClient(IJobStore store)
             throw new NotSupportedException("This provider does not support durable signals.");
         }
 
-        return signals.SignalAsync(runId, signal.Name, JsonSerializer.SerializeToElement(input, JobJson.Options), idempotencyKey, cancellationToken);
+        return signals.SignalAsync(runId, signal.Name, JobJson.ToElement(input), idempotencyKey, cancellationToken);
     }
 
     /// <summary>Starts a new run. Correlation groups observations and does not deduplicate requests.</summary>
@@ -42,7 +42,7 @@ public sealed class WorkflowClient(IJobStore store)
     {
         FlowValidator.Validate(definition);
 
-        return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), correlationId, cancellationToken);
+        return store.StartWorkflowAsync(definition, JobJson.ToElement(input), correlationId, cancellationToken);
     }
 
     /// <summary>Returns the same logical run when an identical request is repeated with the same store-scoped key.</summary>
@@ -52,7 +52,7 @@ public sealed class WorkflowClient(IJobStore store)
         FlowValidator.Validate(definition);
         ValidateIdempotencyKey(idempotencyKey);
 
-        return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), correlationId, idempotencyKey, cancellationToken);
+        return store.StartWorkflowAsync(definition, JobJson.ToElement(input), correlationId, idempotencyKey, cancellationToken);
     }
 
     /// <summary>Starts a run with explicit start options, such as an admission partition shared by all steps.</summary>
@@ -62,7 +62,7 @@ public sealed class WorkflowClient(IJobStore store)
         FlowValidator.Validate(definition);
         start.Validate();
 
-        return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), start, cancellationToken);
+        return store.StartWorkflowAsync(definition, JobJson.ToElement(input), start, cancellationToken);
     }
 
     public const int MaximumIdempotencyKeyLength = 256;

@@ -10,11 +10,11 @@ public enum JobOutcome
 /// <summary>JSON output retained independently of handler assemblies.</summary>
 public sealed record JobResult(JsonElement Output, JobOutcome Outcome = JobOutcome.Succeeded, string? Reason = null, TimeSpan? RetryAfter = null)
 {
-    private static JsonElement NoOutput => JsonSerializer.SerializeToElement<object?>(null);
+    private static JsonElement NoOutput { get; } = JsonDocument.Parse("null").RootElement.Clone();
 
-    public static JobResult From<T>(T output) => new(JsonSerializer.SerializeToElement(output, JobJson.Options));
+    public static JobResult From<T>(T output) => new(JobJson.ToElement(output));
 
-    public static JobResult Done() => From<object?>(null);
+    public static JobResult Done() => new(NoOutput);
 
     /// <summary>Rejects invalid work without automatic retries; flow failure policy still applies.</summary>
     public static JobResult Reject(string reason) => new(NoOutput, JobOutcome.Rejected, reason);
@@ -61,12 +61,3 @@ public interface IJobProgress
     Task<bool> ReportAsync(string? description, CancellationToken cancellationToken = default);
 }
 
-/// <summary>Serializer settings for plain contract data; CLR type metadata is never persisted.</summary>
-public static class JobJson
-{
-    public static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web)
-    {
-        RespectNullableAnnotations = true,
-        RespectRequiredConstructorParameters = true
-    };
-}

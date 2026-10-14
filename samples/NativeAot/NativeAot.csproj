@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/WorkThrough.Hosting/WorkThrough.Hosting.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
+  </ItemGroup>
+</Project>

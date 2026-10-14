@@ -10,7 +10,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
     private static readonly TimeSpan MinimumMaintenanceLease = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan MaximumMaintenanceLease = TimeSpan.FromMinutes(5);
 
-    private sealed record MaintenanceBatch(Guid Id, OperationActor Actor, int PolicyRevision, ArchivePolicy ArchivePolicy,
+    internal sealed record MaintenanceBatch(Guid Id, OperationActor Actor, int PolicyRevision, ArchivePolicy ArchivePolicy,
         string? Destination, DateTimeOffset? PurgeBefore, DateTimeOffset? EventsBefore);
 
     public Task<MaintenanceLease?> AcquireMaintenanceAsync(string owner, OperationActor actor, TimeSpan leaseDuration, CancellationToken cancellationToken = default)
@@ -60,7 +60,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
                     policy.ExportDestination, policy.PurgeAfter is { } purge ? observed - purge : null,
                     policy.EventsAfter is { } events ? observed - events : null);
                 await ExecuteAsync(connection, transaction, "INSERT INTO dj_maintenance_batches(id,descriptor) VALUES (@id,@descriptor)", ct,
-                    ("id", batch.Id.ToString()), ("descriptor", JsonSerializer.Serialize(batch, JobJson.Options)));
+                    ("id", batch.Id.ToString()), ("descriptor", JobJson.Serialize(batch)));
             }
 
             var token = Guid.NewGuid();
@@ -81,7 +81,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
         var command = new AdministrativeCommand(batch.Id, batch.Actor, "Apply the persisted retention policy in one bounded maintenance batch.");
 
         // The token is deliberately excluded from the command fingerprint: a replacement host reconciles the same batch.
-        return await AuditedAsync(command, AuditActions.RunRetentionBatch, batch.Id.ToString(), batch, async (connection, transaction, ct) =>
+        return await AuditedAsync(command, AuditActions.RunRetentionBatch, batch.Id.ToString(), Arguments(batch), async (connection, transaction, ct) =>
         {
             await RequireMaintenanceLeaseAsync(connection, transaction, lease, ct);
             var current = await ReadRetentionPolicyAsync(connection, transaction, ct);
@@ -119,7 +119,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
             var result = new MaintenanceResult(batch.Id, applicable ? MaintenanceOutcomes.Completed : MaintenanceOutcomes.PolicySuperseded,
                 DateTimeOffset.FromUnixTimeMilliseconds(await NowAsync(connection, transaction, ct)), archived, purged, blocked, trimmed);
             await ExecuteAsync(connection, transaction, "UPDATE dj_maintenance_batches SET result=@result WHERE id=@id", ct,
-                ("result", JsonSerializer.Serialize(result, JobJson.Options)), ("id", batch.Id.ToString()));
+                ("result", JobJson.Serialize(result)), ("id", batch.Id.ToString()));
             await ExecuteAsync(connection, transaction, """
                 UPDATE dj_maintenance SET batch_id=NULL,token=NULL,owner=NULL,lease_expires_at=NULL,last_batch_id=@id,failure_code=NULL,failed_at=NULL WHERE id=1
                 """, ct, ("id", batch.Id.ToString()));
@@ -143,7 +143,7 @@ public abstract partial class RelationalJobStore : IRetentionMaintenance
         var json = await ScalarAsync(connection, transaction, "SELECT descriptor FROM dj_maintenance_batches WHERE id=@id", ct, ("id", id.ToString())) as string;
 
         return json is null ? throw new StateConflictException("This maintenance batch does not exist.")
-            : JsonSerializer.Deserialize<MaintenanceBatch>(json, JobJson.Options)!;
+            : JobJson.Deserialize<MaintenanceBatch>(json)!;
     }
 
     private async Task RequireMaintenanceLeaseAsync(DbConnection connection, DbTransaction transaction, MaintenanceLease lease, CancellationToken ct)

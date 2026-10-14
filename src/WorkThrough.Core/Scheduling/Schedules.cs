@@ -90,13 +90,13 @@ public sealed record ScheduleDefinition(string Key, int Version, string Cron, st
     {
         ArgumentNullException.ThrowIfNull(processor);
 
-        return new(key, version, cron, timeZone, processor.Identity, JsonSerializer.SerializeToElement(input, JobJson.Options), processor.Queue,
+        return new(key, version, cron, timeZone, processor.Identity, JobJson.ToElement(input), processor.Queue,
             processor.MaxAttempts);
     }
 
     /// <summary>A schedule that enqueues fixed input at the address its type's [JobContract] declares.</summary>
     public static ScheduleDefinition Create<TInput>(string key, string cron, TInput input, string timeZone = DefaultTimeZone, int version = 1) =>
-        new(key, version, cron, timeZone, JobContractId.For<TInput>(), JsonSerializer.SerializeToElement(input, JobJson.Options));
+        new(key, version, cron, timeZone, JobContractId.For<TInput>(), JobJson.ToElement(input));
 }
 public sealed record StoredSchedule(ScheduleDefinition Definition, DefinitionStatus Status, int Revision, bool Enabled, DateTimeOffset? NextOccurrence);
 

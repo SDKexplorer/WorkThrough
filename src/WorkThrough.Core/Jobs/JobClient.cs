@@ -71,7 +71,7 @@ public sealed class JobClient(IJobStore store)
         // Immediate work has no not-before boundary. Storage replaces these provisional times
         // on acceptance; explicit NotBefore values retain their requested precision.
         var available = options.NotBefore ?? DateTimeOffset.FromUnixTimeMilliseconds(now.ToUnixTimeMilliseconds());
-        var payload = JsonSerializer.SerializeToElement(job, JobJson.Options);
+        var payload = JobJson.ToElement(job);
         if (JobLimits.ExceedsInlineSize(payload))
         {
             throw new ArgumentException("Inline input exceeds 1 MiB. Store large documents externally and enqueue a reference.", nameof(job));

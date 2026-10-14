@@ -45,6 +45,6 @@ public sealed record JobDefinition<TInput>
     public EnqueueOptions DefaultOptions => new(Queue: Queue, MaxAttempts: MaxAttempts);
 
     /// <summary>Deserializes a saved compatibility fixture using the same wire settings as execution.</summary>
-    public TInput ReadInput(JsonElement payload) => payload.Deserialize<TInput>(JobJson.Options)
+    public TInput ReadInput(JsonElement payload) => JobJson.Deserialize<TInput>(payload)
         ?? throw new JsonException($"Null input is invalid for {Identity}.");
 }

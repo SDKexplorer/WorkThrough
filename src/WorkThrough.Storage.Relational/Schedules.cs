@@ -10,7 +10,7 @@ public abstract partial class RelationalJobStore
     private const int MaximumOccurrences = 100;
 
     public Task<Result<int>> SaveScheduleDraftAsync(ScheduleDefinition definition, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.EditSchedule, VersionTarget(definition.Key, definition.Version), new { definition, expectedRevision }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.EditSchedule, VersionTarget(definition.Key, definition.Version), Args(("definition", definition), ("expectedRevision", expectedRevision)), async (connection, transaction, ct) =>
         {
             await RequireScheduleProtocolAsync(connection, transaction, definition, ct);
             var existing = (await ReadSchedulesAsync(connection, transaction, "WHERE schedule_key=@key AND version=@version", ct,
@@ -24,7 +24,7 @@ public abstract partial class RelationalJobStore
             var upsert = UpsertSql("dj_schedules", "schedule_key,version,definition,status,revision,enabled",
                 "@key,@version,@definition,@status,@revision,0", "schedule_key,version", "definition,revision");
             await ExecuteAsync(connection, transaction, upsert, ct, ("key", definition.Key), ("version", definition.Version),
-                ("definition", JsonSerializer.Serialize(definition, JobJson.Options)), ("status", nameof(DefinitionStatus.Draft)), ("revision", revision));
+                ("definition", JobJson.Serialize(definition)), ("status", nameof(DefinitionStatus.Draft)), ("revision", revision));
 
             return revision;
         }, cancellationToken, validate: () => ValidateScheduleDraft(definition, expectedRevision));
@@ -38,7 +38,7 @@ public abstract partial class RelationalJobStore
     }
 
     public Task<Result<int>> PublishScheduleAsync(string key, int version, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.PublishSchedule, VersionTarget(key, version), new { expectedRevision }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.PublishSchedule, VersionTarget(key, version), Args(("expectedRevision", expectedRevision)), async (connection, transaction, ct) =>
         {
             var schedule = await ExpectedScheduleAsync(connection, transaction, key, version, expectedRevision, ct);
             if (schedule.Status != DefinitionStatus.Draft)
@@ -57,7 +57,7 @@ public abstract partial class RelationalJobStore
         }, cancellationToken);
 
     public Task<Result<int>> SetScheduleEnabledAsync(string key, int version, int expectedRevision, bool enabled, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, enabled ? AuditActions.EnableSchedule : AuditActions.PauseSchedule, VersionTarget(key, version), new { expectedRevision, enabled }, async (connection, transaction, ct) =>
+        AdminAsync(command, enabled ? AuditActions.EnableSchedule : AuditActions.PauseSchedule, VersionTarget(key, version), Args(("expectedRevision", expectedRevision), ("enabled", enabled)), async (connection, transaction, ct) =>
         {
             var schedule = await ExpectedScheduleAsync(connection, transaction, key, version, expectedRevision, ct);
             if (schedule.Status != DefinitionStatus.Published)
@@ -103,7 +103,7 @@ public abstract partial class RelationalJobStore
         var schedules = new List<StoredSchedule>();
         while (await reader.ReadAsync(ct))
         {
-            schedules.Add(new(JsonSerializer.Deserialize<ScheduleDefinition>(Text(reader, "definition")!, JobJson.Options)!,
+            schedules.Add(new(JobJson.Deserialize<ScheduleDefinition>(Text(reader, "definition")!)!,
             Enum.Parse<DefinitionStatus>(Text(reader, "status")!), reader.GetInt32(reader.GetOrdinal("revision")), reader.GetInt32(reader.GetOrdinal("enabled")) == 1, Date(reader, "next_due")));
         }
 

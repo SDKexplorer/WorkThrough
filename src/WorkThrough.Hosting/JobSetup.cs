@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace WorkThrough;
 
 /// <summary>
@@ -17,7 +19,7 @@ public sealed class JobSetup<TInput>
     }
 
     /// <summary>Runs the job with <typeparamref name="TJob"/>, resolved from DI for each attempt.</summary>
-    public JobSetup<TInput> RunWith<TJob>() where TJob : class, IJob<TInput> => Handle(() => builder.AddJob<TInput, TJob>(definition));
+    public JobSetup<TInput> RunWith<[DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] TJob>() where TJob : class, IJob<TInput> => Handle(() => builder.AddJob<TInput, TJob>(definition));
 
     /// <summary>Runs the job with a delegate; the job succeeds when it completes.</summary>
     public JobSetup<TInput> Run(Func<JobCall<TInput>, Task> execute) => Handle(() => builder.AddJob(definition, execute));

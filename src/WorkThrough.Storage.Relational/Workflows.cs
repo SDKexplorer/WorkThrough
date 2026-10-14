@@ -27,8 +27,8 @@ public abstract partial class RelationalJobStore
         // Starts without admission options keep the fingerprint shape of earlier releases, so existing receipts still match.
         var fingerprint = idempotencyKey is null ? null
             : tenantId is null && maxParallelSteps is null
-                ? partitionKey is null ? Fingerprint(new { definition, input, correlationId }) : Fingerprint(new { definition, input, correlationId, partitionKey })
-                : Fingerprint(new { definition, input, correlationId, partitionKey, tenantId, maxParallelSteps });
+                ? partitionKey is null ? Fingerprint(Args(("definition", definition), ("input", input), ("correlationId", correlationId))) : Fingerprint(Args(("definition", definition), ("input", input), ("correlationId", correlationId), ("partitionKey", partitionKey)))
+                : Fingerprint(Args(("definition", definition), ("input", input), ("correlationId", correlationId), ("partitionKey", partitionKey), ("tenantId", tenantId), ("maxParallelSteps", maxParallelSteps)));
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
@@ -85,7 +85,7 @@ public abstract partial class RelationalJobStore
                 }
 
                 input = Required(Json(reader.GetString(0)));
-                definition = JsonSerializer.Deserialize<FlowDefinition>(reader.GetString(1), JobJson.Options)!;
+                definition = JobJson.Deserialize<FlowDefinition>(reader.GetString(1))!;
                 parentRun = reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2));
                 depth = reader.IsDBNull(3) ? 0 : Convert.ToInt32(reader.GetValue(3));
             }

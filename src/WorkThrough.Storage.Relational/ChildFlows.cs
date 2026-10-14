@@ -14,7 +14,7 @@ public abstract partial class RelationalJobStore
         Guid? ParentRunId = null, Guid? ParentJobId = null, int Depth = 0, Guid? ForkedFromRunId = null);
 
     /// <summary>The outcome a child run reports to its parent step.</summary>
-    private sealed record ChildOutcome(string Status, JsonElement? Output, string? Error);
+    internal sealed record ChildOutcome(string Status, JsonElement? Output, string? Error);
 
     /// <summary>
     /// Publishes a definition that starts its first run, and every child definition it carries that the store does not have yet.
@@ -36,11 +36,11 @@ public abstract partial class RelationalJobStore
             throw new StateConflictException("Only published flow definitions can start new runs.");
         }
 
-        var serialized = JsonSerializer.Serialize(definition, JobJson.Options);
+        var serialized = JobJson.Serialize(definition);
         var existing = await ScalarAsync(connection, transaction,
             "SELECT definition FROM dj_definitions WHERE flow_key=@key AND version=@version", ct,
             ("key", definition.Key), ("version", definition.Version));
-        if (existing is string saved && JsonSerializer.Serialize(JsonSerializer.Deserialize<FlowDefinition>(saved, JobJson.Options), JobJson.Options) != serialized)
+        if (existing is string saved && JobJson.Serialize(JobJson.Deserialize<FlowDefinition>(saved)) != serialized)
         {
             throw new StateConflictException($"Flow {VersionTarget(definition.Key, definition.Version)} is immutable. Publish a new version.");
         }
@@ -145,7 +145,7 @@ public abstract partial class RelationalJobStore
             return null;
         }
 
-        var definition = JsonSerializer.Deserialize<FlowDefinition>((string)saved!, JobJson.Options)!;
+        var definition = JobJson.Deserialize<FlowDefinition>((string)saved!)!;
         var childRun = await InsertRunAsync(connection, transaction, definition, job.Payload,
             new(job.CorrelationId, job.PartitionKey, job.TenantId, null, job.TraceParent, runId, job.Id, depth + 1), ct);
         await JournalAsync(connection, transaction, job, await NowAsync(connection, transaction, ct), ExecutionEventKinds.ChildFlowStarted, ct);
@@ -171,7 +171,7 @@ public abstract partial class RelationalJobStore
                 output[step.Id] = steps[step.Id].Output is { } value ? JsonNode.Parse(value.GetRawText()) : null;
             }
 
-            outcome = new(ChildSucceeded, JsonSerializer.SerializeToElement(output, JobJson.Options), null);
+            outcome = new(ChildSucceeded, JobJson.ToElement(output), null);
         }
         else
         {
@@ -180,7 +180,7 @@ public abstract partial class RelationalJobStore
 
         var name = FlowChild.SignalName(runId);
 
-        var payload = await StoredAsync(connection, transaction, JsonSerializer.SerializeToElement(outcome, JobJson.Options), ct);
+        var payload = await StoredAsync(connection, transaction, JobJson.ToElement(outcome), ct);
         await ExecuteAsync(connection, transaction, """
             INSERT INTO dj_signals(run_id,name,payload,received_at) SELECT @run,@name,@payload,@now FROM dj_registry
             WHERE id=1 AND NOT EXISTS (SELECT 1 FROM dj_signals WHERE run_id=@run AND name=@name)
@@ -194,7 +194,7 @@ public abstract partial class RelationalJobStore
         input[FlowLoop.IterationProperty] = iteration;
         input[FlowLoop.PreviousProperty] = previous is null ? null : JsonNode.Parse(previous);
 
-        return job with { Payload = JsonSerializer.SerializeToElement(input, JobJson.Options) };
+        return job with { Payload = JobJson.ToElement(input) };
     }
 
     /// <summary>
@@ -232,7 +232,7 @@ public abstract partial class RelationalJobStore
     /// <summary>Reads a child outcome: the step's output when the child succeeded, otherwise the failure to record.</summary>
     private static (bool Succeeded, string? Output, string? Error) ReadChildOutcome(JsonElement payload)
     {
-        var outcome = payload.Deserialize<ChildOutcome>(JobJson.Options)!;
+        var outcome = JobJson.Deserialize<ChildOutcome>(payload)!;
 
         return outcome.Status == ChildSucceeded
             ? (true, outcome.Output?.GetRawText(), null)

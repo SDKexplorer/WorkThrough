@@ -140,7 +140,7 @@ public abstract partial class RelationalJobStore : IEngineProtocol
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                var worker = JsonSerializer.Deserialize<WorkerHeartbeat>(reader.GetString(0), JobJson.Options)!;
+                var worker = JobJson.Deserialize<WorkerHeartbeat>(reader.GetString(0))!;
                 if (worker.Protocol >= level)
                 {
                     ready.Add(worker.WorkerId);

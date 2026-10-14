@@ -10,7 +10,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
     private static readonly TimeSpan MaximumRetention = TimeSpan.FromDays(36500);
 
     public Task<Result<int>> ConfigureRetentionAsync(RetentionPolicy policy, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.ConfigureRetention, "retention policy", new { policy, expectedRevision }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.ConfigureRetention, "retention policy", Args(("policy", policy), ("expectedRevision", expectedRevision)), async (connection, transaction, ct) =>
         {
             var current = await ReadRetentionPolicyAsync(connection, transaction, ct);
             if ((current?.Revision ?? 0) != expectedRevision)
@@ -20,13 +20,13 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
 
             var revision = checked(expectedRevision + 1);
             await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_policy", "id,revision,policy", "1,@revision,@policy", "id", "revision,policy"), ct,
-                ("revision", revision), ("policy", JsonSerializer.Serialize(policy, JobJson.Options)));
+                ("revision", revision), ("policy", JobJson.Serialize(policy)));
 
             return revision;
         }, cancellationToken, validate: () => ValidateRetentionPolicy(policy));
 
     public Task<Result<RetentionHold>> SetRetentionHoldAsync(Guid unitId, bool held, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.SetRetentionHold, unitId.ToString(), new { held, expectedRevision }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.SetRetentionHold, unitId.ToString(), Args(("held", held), ("expectedRevision", expectedRevision)), async (connection, transaction, ct) =>
         {
             var resolved = await ScalarAsync(connection, transaction, "SELECT COALESCE(workflow_run_id,id) FROM dj_jobs WHERE id=@id", ct, ("id", unitId.ToString())) as string ?? unitId.ToString();
             var exists = Convert.ToInt64(await ScalarAsync(connection, transaction, """
@@ -52,7 +52,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
         }, cancellationToken);
 
     public Task<Result<bool>> RetryRetentionIncidentAsync(Guid unitId, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.RetryRetentionIncident, unitId.ToString(), new { unitId }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.RetryRetentionIncident, unitId.ToString(), Args(("unitId", unitId)), async (connection, transaction, ct) =>
             await ExecuteAsync(connection, transaction, "DELETE FROM dj_retention_incidents WHERE unit_id=@id", ct, ("id", unitId.ToString())) == 1, cancellationToken);
 
     public async Task<RetentionHold?> FindRetentionHoldAsync(Guid unitId, CancellationToken cancellationToken = default)
@@ -90,7 +90,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
                 await reader.ReadAsync(ct);
                 pending = ParseGuid(Text(reader, "batch_id"));
                 expires = Date(reader, "lease_expires_at");
-                last = reader.IsDBNull(2) ? null : JsonSerializer.Deserialize<MaintenanceResult>(reader.GetString(2), JobJson.Options);
+                last = reader.IsDBNull(2) ? null : JobJson.Deserialize<MaintenanceResult>(reader.GetString(2));
                 failure = Text(reader, "failure_code");
                 failedAt = Date(reader, "failed_at");
             }
@@ -131,7 +131,7 @@ public abstract partial class RelationalJobStore : IRetentionAdministration, IRe
             return null;
         }
 
-        return new(JsonSerializer.Deserialize<RetentionPolicy>(reader.GetString(0), JobJson.Options)!, reader.GetInt32(1));
+        return new(JobJson.Deserialize<RetentionPolicy>(reader.GetString(0))!, reader.GetInt32(1));
     }
 
     private async Task RejectHeldArchiveAsync(DbConnection connection, DbTransaction transaction, Guid id, CancellationToken ct)

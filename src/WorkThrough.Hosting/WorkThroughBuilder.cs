@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -58,7 +59,7 @@ public sealed class WorkThroughBuilder
     }
 
     /// <summary>Registers a job at the address its [Job] attribute, or its input's [JobContract], declares.</summary>
-    public WorkThroughBuilder AddJob<TInput, TJob>() where TJob : class, IJob<TInput>
+    public WorkThroughBuilder AddJob<TInput, [DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] TJob>() where TJob : class, IJob<TInput>
     {
         Catalog.Register<TInput, TJob>();
         Services.TryAddScoped<TJob>();
@@ -67,7 +68,7 @@ public sealed class WorkThroughBuilder
     }
 
     /// <summary>Binds a typed permanent address to a job class at the composition root.</summary>
-    public WorkThroughBuilder AddJob<TInput, TJob>(JobDefinition<TInput> definition, params JobContractId[] aliases)
+    public WorkThroughBuilder AddJob<TInput, [DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] TJob>(JobDefinition<TInput> definition, params JobContractId[] aliases)
         where TJob : class, IJob<TInput>
     {
         Catalog.Register<TInput, TJob>(definition, aliases);
@@ -77,7 +78,7 @@ public sealed class WorkThroughBuilder
     }
 
     /// <summary>Binds an explicit permanent address to a job class.</summary>
-    public WorkThroughBuilder AddJob<TInput, TJob>(JobContractId identity, params JobContractId[] aliases)
+    public WorkThroughBuilder AddJob<TInput, [DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] TJob>(JobContractId identity, params JobContractId[] aliases)
         where TJob : class, IJob<TInput> => AddJob<TInput, TJob>(new JobDefinition<TInput>(identity), aliases);
 
     /// <summary>
@@ -131,6 +132,8 @@ public sealed class WorkThroughBuilder
     /// Registers every job class in the assembly at the address its [Job] attribute, or its input's [JobContract], declares. It
     /// follows the source generator's rules at startup instead of build time. Classes marked [ManualJobRegistration] are left to AddJob.
     /// </summary>
+    [RequiresUnreferencedCode("Scans the assembly for job classes; use the source generator's AddGeneratedJobs or AddJob when trimming.")]
+    [RequiresDynamicCode("Registers each job class found by reflection; use the source generator's AddGeneratedJobs or AddJob in native AOT.")]
     public WorkThroughBuilder AddJobs(Assembly assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
@@ -202,14 +205,14 @@ public sealed class WorkThroughBuilder
         return this;
     }
 
-    public WorkThroughBuilder AddMiddleware<TMiddleware>() where TMiddleware : class, IJobMiddleware
+    public WorkThroughBuilder AddMiddleware<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TMiddleware>() where TMiddleware : class, IJobMiddleware
     {
         Services.AddScoped<IJobMiddleware, TMiddleware>();
 
         return this;
     }
 
-    public WorkThroughBuilder AddValidator<TInput, TValidator>() where TValidator : class, IJobValidator<TInput>
+    public WorkThroughBuilder AddValidator<TInput, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TValidator>() where TValidator : class, IJobValidator<TInput>
     {
         Services.AddScoped<IJobValidator<TInput>, TValidator>();
         Services.TryAddEnumerable(ServiceDescriptor.Scoped<IJobMiddleware, ValidationMiddleware<TInput>>());
@@ -217,14 +220,14 @@ public sealed class WorkThroughBuilder
         return this;
     }
 
-    public WorkThroughBuilder AddObserver<TObserver>() where TObserver : class, IJobObserver
+    public WorkThroughBuilder AddObserver<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TObserver>() where TObserver : class, IJobObserver
     {
         Services.AddScoped<IJobObserver, TObserver>();
 
         return this;
     }
 
-    public WorkThroughBuilder UseRetryPolicy<TPolicy>() where TPolicy : class, IJobRetryPolicy
+    public WorkThroughBuilder UseRetryPolicy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPolicy>() where TPolicy : class, IJobRetryPolicy
     {
         Services.Replace(ServiceDescriptor.Scoped<IJobRetryPolicy, TPolicy>());
 
@@ -240,7 +243,7 @@ public sealed class WorkThroughBuilder
         return this;
     }
 
-    public WorkThroughBuilder AddEventSubscriber<THandler>(string name, long startAfter = 0) where THandler : class, IExecutionEventHandler
+    public WorkThroughBuilder AddEventSubscriber<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] THandler>(string name, long startAfter = 0) where THandler : class, IExecutionEventHandler
     {
         if (string.IsNullOrWhiteSpace(name) || name.Length > MaximumSubscriberLength || startAfter < 0)
         {

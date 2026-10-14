@@ -27,6 +27,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     private const int MaximumReadAttempts = 3;
     private static readonly TimeSpan ReadRetryDelay = TimeSpan.FromMilliseconds(25);
 
+    static RelationalJobStore() => JobJson.AddContext(StorageJsonContext.Default);
+
     // Events queued by each open write transaction; see FlushJournalAsync.
     private readonly ConditionalWeakTable<DbTransaction, List<Statement>> pendingEvents = new();
 
@@ -126,13 +128,20 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     // Work without admission keys keeps the fingerprint shape of earlier releases, so existing receipts still match.
     private static string JobFingerprint(JobRecord job) => (job.PartitionKey, job.TenantId) switch
     {
-        (null, null) => Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId }),
-        (_, null) => Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId, job.PartitionKey }),
-        _ => Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId, job.PartitionKey, job.TenantId })
+        (null, null) => Fingerprint(Args(("contract", job.Contract), ("payload", job.Payload), ("queue", job.Queue), ("correlationId", job.CorrelationId), ("expiresAt", job.ExpiresAt), ("causationJobId", job.CausationJobId))),
+        (_, null) => Fingerprint(Args(("contract", job.Contract), ("payload", job.Payload), ("queue", job.Queue), ("correlationId", job.CorrelationId), ("expiresAt", job.ExpiresAt), ("causationJobId", job.CausationJobId), ("partitionKey", job.PartitionKey))),
+        _ => Fingerprint(Args(("contract", job.Contract), ("payload", job.Payload), ("queue", job.Queue), ("correlationId", job.CorrelationId), ("expiresAt", job.ExpiresAt), ("causationJobId", job.CausationJobId), ("partitionKey", job.PartitionKey), ("tenantId", job.TenantId)))
     };
 
-    private static string Fingerprint(object value) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, JobJson.Options))));
+    private static string Fingerprint(Fields value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JobJson.Serialize(value))));
+
+    /// <summary>
+    /// A JSON object with these properties in this order. It stands in for the anonymous objects earlier releases serialized, with the
+    /// same names and values, so their fingerprints and audit records keep their exact form.
+    /// </summary>
+    private static Fields Args(params (string Name, object? Value)[] properties) => Fields.Named(properties);
+
+    private static Fields Arguments(object value) => Fields.Of(value);
 
     private async Task<Guid> AcceptJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
     {

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 namespace WorkThrough;
@@ -36,9 +37,12 @@ public sealed class JobAliasAttribute(string key) : Attribute
 /// <summary>Resolves a job class's address: its <see cref="JobAttribute"/>, otherwise the <see cref="JobContractAttribute"/> on its input.</summary>
 public static class JobIdentity
 {
-    public static JobContractId For<TJob>() => For(typeof(TJob));
+    /// <summary>What trimming keeps on a job class: the interfaces its address is read from and the constructors that create it.</summary>
+    public const DynamicallyAccessedMemberTypes JobTypeMembers = DynamicallyAccessedMemberTypes.Interfaces | DynamicallyAccessedMemberTypes.PublicConstructors;
 
-    public static JobContractId For(Type jobType)
+    public static JobContractId For<[DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] TJob>() => For(typeof(TJob));
+
+    public static JobContractId For([DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] Type jobType)
     {
         ArgumentNullException.ThrowIfNull(jobType);
         if (jobType.GetCustomAttribute<JobAttribute>() is { } job)

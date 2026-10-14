@@ -55,7 +55,7 @@ public abstract partial class RelationalJobStore : IExecutionOperations
             draining ? AuditActions.DrainWorker : AuditActions.ResumeWorker, cancellationToken);
 
     public Task<Result<int>> SetQueueWeightAsync(string queue, int weight, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.SetQueueWeight, queue, new { weight, expectedRevision }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.SetQueueWeight, queue, Args(("weight", weight), ("expectedRevision", expectedRevision)), async (connection, transaction, ct) =>
         {
             var previous = await ScalarAsync(connection, transaction, "SELECT revision FROM dj_queue_controls WHERE queue=@key", ct, ("key", queue));
             if (Convert.ToInt32(previous) != expectedRevision)
@@ -83,7 +83,7 @@ public abstract partial class RelationalJobStore : IExecutionOperations
 
     private Task<Result<int>> SetControlAsync(ControlTable table, string key, bool enabled, int expectedRevision,
         AdministrativeCommand command, string action, CancellationToken ct) =>
-        AdminAsync(command, action, key, new { enabled, expectedRevision }, async (connection, transaction, token) =>
+        AdminAsync(command, action, key, Args(("enabled", enabled), ("expectedRevision", expectedRevision)), async (connection, transaction, token) =>
         {
             var previous = await ScalarAsync(connection, transaction, $"SELECT revision FROM {table.Name} WHERE {table.KeyColumn}=@key", token, ("key", key));
             if (Convert.ToInt32(previous) != expectedRevision)
@@ -107,7 +107,7 @@ public abstract partial class RelationalJobStore : IExecutionOperations
     }
 
     public Task<Result<Guid>> ReplayAsync(Guid jobId, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.ReplayJob, jobId.ToString(), new { jobId }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.ReplayJob, jobId.ToString(), Args(("jobId", jobId)), async (connection, transaction, ct) =>
         {
             var original = await ReadJobAsync(connection, transaction, jobId, ct)
                 ?? throw new MissingStateException("Execution does not exist in the active store. Export archived input explicitly before starting new work.");

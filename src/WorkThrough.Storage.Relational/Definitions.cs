@@ -10,7 +10,7 @@ public abstract partial class RelationalJobStore
     private static string VersionTarget(string key, int version) => $"{key}/v{version}";
 
     public Task<Result<int>> SaveDraftAsync(FlowDefinition definition, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.EditDefinition, VersionTarget(definition.Key, definition.Version), new { definition, expectedRevision }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.EditDefinition, VersionTarget(definition.Key, definition.Version), Args(("definition", definition), ("expectedRevision", expectedRevision)), async (connection, transaction, ct) =>
         {
             var saved = await ReadDefinitionAsync(connection, transaction, definition.Key, definition.Version, ct);
             if (saved is null ? expectedRevision != 0 : saved.Status != DefinitionStatus.Draft || saved.Revision != expectedRevision)
@@ -22,7 +22,7 @@ public abstract partial class RelationalJobStore
             var upsert = UpsertSql("dj_definition_lifecycle", "flow_key,version,definition,status,revision",
                 "@key,@version,@definition,@status,@revision", "flow_key,version", "definition,revision");
             await ExecuteAsync(connection, transaction, upsert, ct, ("key", definition.Key), ("version", definition.Version),
-                ("definition", JsonSerializer.Serialize(definition, JobJson.Options)), ("status", nameof(DefinitionStatus.Draft)), ("revision", revision));
+                ("definition", JobJson.Serialize(definition)), ("status", nameof(DefinitionStatus.Draft)), ("revision", revision));
 
             return revision;
         }, cancellationToken, validate: () => ValidateDraft(definition, expectedRevision));
@@ -41,7 +41,7 @@ public abstract partial class RelationalJobStore
 
     private Task<Result<int>> TransitionDefinitionAsync(string key, int version, int expectedRevision, DefinitionStatus from, DefinitionStatus status,
         string action, AdministrativeCommand command, CancellationToken ct) =>
-        AdminAsync(command, action, VersionTarget(key, version), new { expectedRevision }, async (connection, transaction, token) =>
+        AdminAsync(command, action, VersionTarget(key, version), Args(("expectedRevision", expectedRevision)), async (connection, transaction, token) =>
         {
             var saved = await ReadDefinitionAsync(connection, transaction, key, version, token);
             if (saved is null || saved.Revision != expectedRevision || saved.Status != from)
@@ -53,7 +53,7 @@ public abstract partial class RelationalJobStore
             {
                 FlowValidator.Validate(saved.Definition);
                 await ExecuteAsync(connection, transaction, "INSERT INTO dj_definitions(flow_key,version,definition) VALUES (@key,@version,@definition)", token,
-                    ("key", key), ("version", version), ("definition", JsonSerializer.Serialize(saved.Definition, JobJson.Options)));
+                    ("key", key), ("version", version), ("definition", JobJson.Serialize(saved.Definition)));
             }
 
             await ExecuteAsync(connection, transaction, "UPDATE dj_definition_lifecycle SET status=@status,revision=revision+1 WHERE flow_key=@key AND version=@version", token,
@@ -101,7 +101,7 @@ public abstract partial class RelationalJobStore
     }
 
     private static StoredFlowDefinition Definition(DbDataReader reader) => new(
-        JsonSerializer.Deserialize<FlowDefinition>(reader.GetString(0), JobJson.Options)!, Enum.Parse<DefinitionStatus>(reader.GetString(1)), reader.GetInt32(2));
+        JobJson.Deserialize<FlowDefinition>(reader.GetString(0))!, Enum.Parse<DefinitionStatus>(reader.GetString(1)), reader.GetInt32(2));
 
     public Task<FlowDefinition?> GetRunDefinitionAsync(Guid runId, CancellationToken cancellationToken = default)
     {
@@ -111,7 +111,7 @@ public abstract partial class RelationalJobStore
                 SELECT d.definition FROM dj_definitions d JOIN dj_flows f ON d.flow_key=f.flow_key AND d.version=f.version WHERE f.id=@id
                 """, ct, ("id", runId.ToString()));
 
-            return saved is string json ? JsonSerializer.Deserialize<FlowDefinition>(json, JobJson.Options) : null;
+            return saved is string json ? JobJson.Deserialize<FlowDefinition>(json) : null;
         }, cancellationToken);
     }
 }
