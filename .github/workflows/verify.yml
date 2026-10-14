@@ -44,8 +44,8 @@ jobs:
           --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'WorkThrough_Test_2026!' -C -Q 'SELECT 1' -b"
           --health-interval 5s --health-timeout 5s --health-retries 30
       postgres:
-        # Docker Official Images mirror avoids Docker Hub's shared-runner anonymous pull quota.
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        # Docker Hub; the public ECR mirror ran out of anonymous data on shared runners.
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: durablejobs-test
@@ -72,17 +72,36 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: dashboard-ui/package-lock.json
-      - run: ./scripts/verify.sh
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      # Pull requests run the quick gate; merges to main/develop and manual runs run the full release gate.
+      - run: ./scripts/verify.sh ${{ github.event_name == 'pull_request' && '--quick' || '' }}
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: performance-smoke
           path: artifacts/performance/*.json
+          if-no-files-found: ignore
   oracle:
     # Separate runner: Oracle and SQL Server would compete for a single runner's memory.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
+      postgres:
+        # PostgreSQL is the default store of the suite and the samples.
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: durablejobs-test
+          POSTGRES_DB: durablejobs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d durablejobs"
+          --health-interval 5s --health-timeout 5s --health-retries 10
       oracle:
         image: container-registry.oracle.com/database/free:23.26.3.0-lite-amd64@sha256:770ca58ab319d8cfde610b0db25c06899ce0af9591c4addfa10d2cb8f0318e65
         env:
@@ -94,11 +113,17 @@ jobs:
           --health-cmd "/opt/oracle/checkDBStatus.sh"
           --health-interval 10s --health-timeout 10s --health-retries 30
     env:
+      DURABLEJOBS_POSTGRES: Host=127.0.0.1;Port=5432;Database=durablejobs;Username=postgres;Password=durablejobs-test
       DURABLEJOBS_ORACLE: User Id=system;Password=WorkThrough_Oracle_2026;Data Source=127.0.0.1:1521/FREEPDB1
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Free runner disk space
+        # The Oracle image, its growing datafile and the native AOT toolchain otherwise fill the runner's disk.
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
@@ -120,19 +145,38 @@ jobs:
           GRANT EXECUTE ON SYS.DBMS_LOCK TO SYSTEM WITH GRANT OPTION;
           EXIT;
           SQL
-      - run: ./scripts/verify.sh
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      # Pull requests run the quick gate; merges to main/develop and manual runs run the full release gate.
+      - run: ./scripts/verify.sh ${{ github.event_name == 'pull_request' && '--quick' || '' }}
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: oracle-performance-smoke
           path: artifacts/performance/*.json
+          if-no-files-found: ignore
   mysql:
-    # MySQL and MariaDB share a runner; together they use less memory than Oracle or SQL Server.
+    # MySQL, MariaDB and the brokers share a runner; together they use less memory than Oracle or SQL Server.
     runs-on: ubuntu-latest
     timeout-minutes: 40
     services:
+      postgres:
+        # PostgreSQL is the default store of the suite and the samples.
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: durablejobs-test
+          POSTGRES_DB: durablejobs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d durablejobs"
+          --health-interval 5s --health-timeout 5s --health-retries 10
       mysql:
-        image: public.ecr.aws/docker/library/mysql:8.4@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
+        image: mysql:8.4@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
         env:
           MYSQL_ROOT_PASSWORD: WorkThrough_MySql_2026
         ports:
@@ -141,7 +185,7 @@ jobs:
           --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pWorkThrough_MySql_2026"
           --health-interval 5s --health-timeout 5s --health-retries 30
       mariadb:
-        image: public.ecr.aws/docker/library/mariadb:11.4@sha256:1292844148b311e4ed4300022a996d39083f415a963e970cf47cad1b3b18e3a6
+        image: mariadb:11.4@sha256:1292844148b311e4ed4300022a996d39083f415a963e970cf47cad1b3b18e3a6
         env:
           MARIADB_ROOT_PASSWORD: WorkThrough_MariaDb_2026
         ports:
@@ -150,8 +194,13 @@ jobs:
           --health-cmd "healthcheck.sh --connect --innodb_initialized"
           --health-interval 5s --health-timeout 5s --health-retries 30
     env:
+      DURABLEJOBS_POSTGRES: Host=127.0.0.1;Port=5432;Database=durablejobs;Username=postgres;Password=durablejobs-test
       DURABLEJOBS_MYSQL: Server=127.0.0.1;Port=3306;User ID=root;Password=WorkThrough_MySql_2026
       DURABLEJOBS_MARIADB: Server=127.0.0.1;Port=3307;User ID=root;Password=WorkThrough_MariaDb_2026
+      WORKTHROUGH_RABBITMQ: amqp://guest:guest@127.0.0.1:5673/
+      WORKTHROUGH_KAFKA: 127.0.0.1:9092
+      WORKTHROUGH_SERVICEBUS: Endpoint=sb://localhost:5674;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
+      WORKTHROUGH_SERVICEBUS_QUEUE: wt-test-greetings
     steps:
       - uses: actions/checkout@v7
         with:
@@ -166,6 +215,20 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: dashboard-ui/package-lock.json
+      - name: Start disposable brokers
+        run: |
+          docker run -d --name rabbitmq -p 5673:5672 rabbitmq:4.1
+          docker run -d --name kafka -p 9092:9092 \
+            -e KAFKA_NODE_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+            -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://127.0.0.1:9092 -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+            -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+            -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 -e KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0 apache/kafka:3.9.1
+          docker network create servicebus
+          docker run -d --name servicebus-sql --network servicebus -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=WorkThrough_Bus_2026! mcr.microsoft.com/azure-sql-edge:latest
+          sleep 20
+          docker run -d --name servicebus --network servicebus -p 5674:5672 -v "$PWD/tests/ServiceBus/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json" \
+            -e SQL_SERVER=servicebus-sql -e MSSQL_SA_PASSWORD=WorkThrough_Bus_2026! -e ACCEPT_EULA=Y mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+          for i in $(seq 1 60); do docker logs servicebus 2>&1 | grep -q "Successfully Up" && break; sleep 5; done
       - name: Allow the parallel test fixtures' connections
         env:
           MYSQL_CONTAINER: ${{ job.services.mysql.id }}
@@ -173,9 +236,16 @@ jobs:
         run: |
           docker exec "$MYSQL_CONTAINER" mysql -uroot -pWorkThrough_MySql_2026 -e "SET GLOBAL max_connections=2000"
           docker exec "$MARIADB_CONTAINER" mariadb -uroot -pWorkThrough_MariaDb_2026 -e "SET GLOBAL max_connections=2000"
-      - run: ./scripts/verify.sh
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      # Pull requests run the quick gate; merges to main/develop and manual runs run the full release gate.
+      - run: ./scripts/verify.sh ${{ github.event_name == 'pull_request' && '--quick' || '' }}
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: mysql-performance-smoke
           path: artifacts/performance/*.json
+          if-no-files-found: ignore

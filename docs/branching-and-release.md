@@ -9,7 +9,7 @@
 
 An additional staging branch is unnecessary until a distinct deployment requires it. Use version tags and immutable package artifacts for a release. Do not publish NuGet packages automatically as part of ordinary branch CI.
 
-The workflow change in this proposal verifies PRs and pushes to both long-lived branches. Its jobs are `console`, `verify` (SQLite, PostgreSQL and SQL Server), `oracle` and `mysql` (MySQL and MariaDB). Dependabot version updates target `develop` after the configuration is promoted to the default branch; GitHub security updates still target the default branch. Existing bot PRs are not silently merged or closed. See [Dependabot target-branch semantics](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch).
+The workflow change in this proposal verifies PRs and pushes to both long-lived branches. Its jobs are `console`, `verify` (PostgreSQL and SQL Server), `oracle` and `mysql` (MySQL and MariaDB). Pull requests run `verify.sh --quick` (build, format, test suites); pushes to `main` and `develop` and manual runs run the full release gate. Dependabot version updates target `develop` after the configuration is promoted to the default branch; GitHub security updates still target the default branch. Existing bot PRs are not silently merged or closed. See [Dependabot target-branch semantics](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch).
 
 ## Protection policy and actual enforcement
 
@@ -41,12 +41,12 @@ A public alpha can invite contributors and feedback while keeping the support cl
 
 Before changing visibility:
 
-- [ ] Choose and add a maintainer-approved license; inspect third-party notices and assets.
-- [ ] Review the complete reachable Git history, branches, release artifacts and examples for credentials/private data. Rotate any exposed real secret; deleting its latest copy is insufficient. This review has not been run by the planning task.
-- [ ] Establish a private security-reporting channel and enable the applicable GitHub security controls; update `SECURITY.md`.
+- [x] License: MIT (2026-10-14). The console package ships the Angular build's third-party notices as `THIRD-PARTY-NOTICES.txt`.
+- [x] Reachable history scanned for credentials and keys (2026-10-14): only throwaway passwords for local and CI test containers.
+- [ ] After making the repository public, enable private vulnerability reporting (Settings → Code security); `SECURITY.md` already points to it.
 - [ ] Apply and verify branch protection, including the solo-maintainer approval policy.
 - [x] Document the verified provider/runtime matrix and alpha limitations; distinguish read-only MCP and implemented providers from planned controlled actions and sustained qualification.
-- [ ] Decide package ownership, release versioning and artifact provenance before publishing to NuGet.
+- [ ] Versioning decided: after merging to `main`, set the version to 1.0.0-rc.1 there and publish from `main`; 1.0.0 follows. Still open: the nuget.org account that owns the `WorkThrough.*` package IDs.
 - [ ] Verify clean public-consumer setup, examples and links; add contribution/issue guidance suitable for outside users.
 
 Changing visibility makes repository content and history publicly accessible. The maintainer must explicitly decide that action after reviewing this checklist. Keeping the repository private and upgrading the account plan is a separate way to enable protection.

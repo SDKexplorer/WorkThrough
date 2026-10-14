@@ -13,12 +13,12 @@ The core engine and processor relocation guarantee are implemented. Completing a
 | 3 | SQL Server, Oracle, MySQL and MariaDB implemented and native CI verified | Provider dialect/transaction implementation, real-database conformance, package consumers, relocation and process-kill recovery on .NET 8/10 |
 | 4 | Implemented operational UX: windowed metrics, step display labels, worker acquisition health and retention status | Real measurements and saved-data inspection in the Angular console; no invented counts or missing-history claims |
 | 5 | Implemented: partition-key and tenant concurrency, rate limits, bounded flow fan-out, weighted queue fairness (ADR-018) and tenant-scoped dashboard/MCP access (ADR-019) | Separate lock/tenant identities, resource-policy tests and multi-process admission/fairness evidence on SQLite, PostgreSQL, SQL Server and Oracle |
-| 6 | Controlled MCP actions, after the read-only release | Trusted approval, exact target/parameters, revocation/state preconditions and existing atomic command/audit reconciliation |
+| 6 | Implemented: controlled MCP actions (ADR-031) | Trusted approval, exact target/parameters, revocation/state preconditions and existing atomic command/audit reconciliation |
 | 7 | Production/public release readiness; 100k-job/20-client correctness passed on SQLite, PostgreSQL, SQL Server and Oracle; two-hour PostgreSQL soak passed (233k jobs, flat latency and CPU); proposed throughput budget missed in some runs | Two-hour soaks on SQL Server and Oracle, soaks and throughput on MySQL/MariaDB and longer memory observation, external IdP/AI-client checks, multi-host/PITR evidence, license/package/visibility decisions and enforced branch policies |
 
 Branch protection remains blocked by GitHub's current private-repository plan. Changing account plan or repository visibility is a maintainer decision. Public visibility, package publication and a project license are not authorized by completing implementation. Advanced architecture items remain design-and-implementation work, not hidden completed features.
 
-Recovery enhancements (validated input correction, checkpoint forks, compensation, child flows, loops, failure branches and contract upcasters) are implemented. Hangfire's recurring, enqueued and scheduled jobs import through explicit method mappings ([migrating from Hangfire](migrating-from-hangfire.md)); continuations, batches and filters do not, because their semantics differ. Importers for other engines are not planned.
+Recovery enhancements (validated input correction, checkpoint forks, compensation, child flows, loops, failure branches and contract upcasters) are implemented. Hangfire's recurring, enqueued and scheduled jobs import through explicit method mappings ([migrating from Hangfire](migrating-from-hangfire.md)), and Quartz.NET jobs and triggers through job-class mappings ([migrating from Quartz.NET](migrating-from-quartz.md)). Continuations, batches, filters and listeners do not, because their semantics differ.
 
 ## P0 — identity and durable execution
 
@@ -68,7 +68,10 @@ Recovery enhancements (validated input correction, checkpoint forks, compensatio
 - [x] Define named schedule lifecycle, update ownership, pause/resume, and atomic/idempotent occurrence creation. Reuse one processor across immediate jobs, one-time schedules, recurring schedules, and flow steps.
 - [x] Deliver the executable sample in `samples/README.md`: one Shop system (shared definitions, processors, intake API, headless worker, OIDC console, MCP) smoke-tested by `verify.sh`. Relocation fixtures live in `tests/Relocation`.
 - [x] Seed recurring schedules from code (`SeedSchedules`), through the audited lifecycle and without overriding operators.
-- [x] Import from Hangfire with explicit method-to-address mappings, a plan that reports what cannot move, idempotent import and retirement in Hangfire (`WorkThrough.Migration.Hangfire`). Other engines are not planned.
+- [x] Import from Hangfire with explicit method-to-address mappings, a plan that reports what cannot move, idempotent import and retirement in Hangfire (`WorkThrough.Migration.Hangfire`).
+- [x] Schedules with seconds, fixed intervals, start and end bounds and excluded dates under engine protocol 9, and a Quartz.NET importer for cron, simple and calendar-interval triggers and holiday calendars (ADR-030, `WorkThrough.Migration.Quartz`).
+- [x] Remove the SQLite provider; PostgreSQL backs the test host, samples, templates and the shared suite (ADR-033).
+- [x] Named calendars that operators edit while schedules run: schema 11, engine protocol 10, audited commands and a console panel (ADR-032).
 - [x] Add contract upcasters (ADR-024) and rolling-deployment capability checks (ADR-021, preflight). Pending old versions stay runnable through upcasts.
 - [ ] Evaluate automatic canonical flow revisions with optional human labels; pin executions to the chosen revision and make activation/migration explicit. Mandatory integer versions remain the current API.
 - [x] Add partition-key concurrency and rate limits. Correlation must remain independent from lock identity (ADR-018, schema 5).
@@ -80,7 +83,7 @@ Recovery enhancements (validated input correction, checkpoint forks, compensatio
 
 ## P3 — controlled recovery and release
 
-- [ ] Add explicitly enabled MCP recovery/control actions only after trusted approval integration, state preconditions and command/audit reconciliation are verified. Keep bulk replay, payload changes and deletion separately scoped.
+- [x] Add explicitly enabled MCP recovery/control actions with host approval, state preconditions and command/audit reconciliation (ADR-031). Bulk replay, payload changes and deletion stay out of scope.
 - [ ] Apply and verify GitHub branch protections using [branching and release guidance](branching-and-release.md). `develop` exists; enforcement is blocked by the current private-repository account plan. Public visibility requires a separate maintainer decision and readiness review.
 - [x] Fork an execution from a checkpoint step into a new linked run; the source run and its audit trail are unchanged.
 - [x] Add explicit compensation handlers for reversible external effects (ADR-025). State rewind is never labeled as undoing arbitrary side effects.
@@ -110,19 +113,19 @@ Gaps found when reviewing WorkThrough as an adopter would. None blocks the curre
 - [x] An easier first job: `AddJobs(assembly)` registers attributed jobs without the generator, storage registration needs no extra `using`, and `QuickStart` and `QuickStart.Web` samples sit beside Shop.
 - [x] `dotnet new workthrough-worker` and `workthrough-web` templates for every storage provider, checked in `verify.sh`.
 - [x] Rolling upgrades from schema 6: schema reader ranges and engine protocol levels (ADR-021).
-- [x] Jobs as delegates at an explicit address (`AddJob(definition, job => ...)`), job stubs and `RunFlowAsync` for flow tests, and a `dotnet new workthrough-tests` template.
+- [x] One place per job (`Job(definition, job => job.RunWith<T>().Every(...).AtMostRunning(n))`), delegate jobs, definition defaults for queue and attempts, a fluent awaitable enqueue (`await jobs.Enqueue(definition, input).After(...).Idempotent(...)`), job stubs and `RunFlowAsync` for flow tests, and a `dotnet new workthrough-tests` template.
 
 ## Adoption priorities — 2026-10-11
 
 Positioning: relocation alone does not win adoption. Hangfire has compatibility hooks, Quartz has rename mappings, and Wolverine separates handlers from message identities. The advantage must be how consistently the whole product handles deployment, diagnosis and recovery.
 
-1. **Release confidence (critical):** 30-minute soaks on SQL Server and Oracle, a PostgreSQL restore drill and OIDC against a local Keycloak passed (2026-10-12). A container partition exercise passed (2026-10-13). The first two-hour SQL Server soak stopped at minute 56 on a deadlock in the soak's own measurement query; the harness now retries such reads. Still open: two-hour soaks on SQL Server and Oracle (running), MySQL/MariaDB soaks, hosted identity providers, managed cloud databases, separate physical machines. Package publication and the license come last.
+1. **Release confidence (critical):** 30-minute soaks on SQL Server and Oracle, a PostgreSQL restore drill and OIDC against a local Keycloak passed (2026-10-12). A container partition exercise passed (2026-10-13). The Oracle two-hour soak and the MySQL and MariaDB 30-minute soaks passed (2026-10-13). The second SQL Server two-hour soak slowed as history grew and its producer timed out at minute 103: per-run reads and the worker's maintenance probe scanned history, because SQL Server could not seek the filtered step index. Three SQL Server indexes fix it; the two-hour SQL Server soak then passed with 231,845 jobs (2026-10-14). Still open: hosted identity providers and managed cloud databases (scripts ready, accounts needed), separate physical machines. Package publication and the license come last.
 2. **Execution controls:** done. Per-key serialization, tenant quotas, rate limits and weighted fair queues are exact across hosts (ADR-018, ADR-022).
 3. **Contract evolution (high):** input upcasts between versions are done (ADR-024); preflight counts them as coverage. A saved flow revision pins its graph and processor versions, not its handler binaries; upcasts let pinned steps run on current code.
-4. **Consumer testing tools (high):** done. `WorkThrough.Testing` runs the real store and worker on a temporary SQLite file, with a movable clock, waits and flow assertions. Dependencies are replaced through DI.
+4. **Consumer testing tools (high):** done. `WorkThrough.Testing` runs the real store and worker in a throwaway PostgreSQL schema, with a movable clock, waits and flow assertions. Dependencies are replaced through DI.
 5. **Recovery and composition (medium):** child flows (ADR-023), audited input correction, compensation (ADR-025), checkpoint forks, bounded loops (ADR-026) and failure branches (ADR-028) are done. Bounded fan-out, retry and pause/resume exist.
-6. **Operational breadth (medium):** the console shows engine protocol rollout, worker levels, upcast routing and parent/child runs. Wider fleet investigation continues; MCP actions remain phase two.
-7. **Adoption (high):** done for the first round: a Hangfire importer and guide, a Quartz.NET comparison, delegate jobs, flow tests with stubbed jobs and a tests template. Next candidates: enqueueing inside an EF Core `DbContext` transaction, and thin bridges to message brokers.
+6. **Operational breadth (medium):** the console shows engine protocol rollout, worker levels, upcast routing and parent/child runs. Wider fleet investigation continues; MCP actions need a person's approval in the host (ADR-031).
+7. **Adoption (high):** a Hangfire importer and guide, a Quartz.NET importer and guide, delegate jobs, flow tests with stubbed jobs, a tests template, and EF Core integration (`db.Enqueue` with `SaveChangesAsync`) are done. Broker bridges for RabbitMQ, Kafka and Azure Service Bus are done ([message brokers](messaging.md)). Native AOT runs with SQLite and PostgreSQL (samples/NativeAot).
 
 ## Exit criteria for the initial repository
 

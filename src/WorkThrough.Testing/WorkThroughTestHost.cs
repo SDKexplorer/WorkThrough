@@ -1,13 +1,15 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using WorkThrough.Storage;
 
 namespace WorkThrough.Testing;
 
 /// <summary>
-/// Runs WorkThrough as production does, on a throwaway SQLite file: the real store, worker and scheduler, with a clock tests can move.
+/// Runs WorkThrough as production does, in a throwaway schema of a PostgreSQL database: the real store, worker and scheduler, with a
+/// clock tests can move. Set <c>WORKTHROUGH_TEST_POSTGRES</c> to a connection string for a disposable database the tests may create
+/// schemas in; each host creates its own schema and drops it when disposed.
 /// </summary>
 /// <example>
 /// <code>
@@ -22,18 +24,23 @@ public sealed class WorkThroughTestHost : IAsyncDisposable
     /// <summary>How long a wait lasts before it fails with the current state.</summary>
     public static TimeSpan DefaultTimeout { get; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>The environment variable naming the disposable PostgreSQL database tests run in.</summary>
+    public const string ConnectionVariable = "WORKTHROUGH_TEST_POSTGRES";
+
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(10);
     private const int IdleScanLimit = 500;
 
     private readonly IHost host;
-    private readonly string path;
+    private readonly string database;
+    private readonly string schema;
     private readonly StoreClock clock;
     private readonly IReadOnlyList<string> queues;
 
-    private WorkThroughTestHost(IHost host, string path, StoreClock clock, IReadOnlyList<string> queues)
+    private WorkThroughTestHost(IHost host, string database, string schema, StoreClock clock, IReadOnlyList<string> queues)
     {
         this.host = host;
-        this.path = path;
+        this.database = database;
+        this.schema = schema;
         this.clock = clock;
         this.queues = queues;
     }
@@ -63,12 +70,23 @@ public sealed class WorkThroughTestHost : IAsyncDisposable
     {
         queues ??= [JobDefaults.Queue];
         ArgumentNullException.ThrowIfNull(configure);
-        var path = Path.Combine(Path.GetTempPath(), $"workthrough-test-{Guid.NewGuid():N}.db");
+        var database = Environment.GetEnvironmentVariable(ConnectionVariable)
+            ?? throw new InvalidOperationException($"Set {ConnectionVariable} to a disposable PostgreSQL database, for example " +
+                "'Host=127.0.0.1;Port=5432;Database=workthrough_tests;Username=postgres;Password=...'. Each test host uses its own schema.");
+        var schema = $"wt_test_{Guid.NewGuid():N}";
+        await using (var connection = new NpgsqlConnection(database))
+        {
+            await connection.OpenAsync(cancellationToken);
+            await using var create = new NpgsqlCommand($"CREATE SCHEMA {schema}", connection);
+            await create.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         var clock = new StoreClock();
         var workthrough = builder.Services.AddWorkThrough()
-            .UseSqlite($"Data Source={path}", new SqliteStorageOptions { ClockOffset = () => clock.Offset });
+            .UsePostgreSql(StoreConnection(database, schema),
+                new PostgresStorageOptions { ClockOffset = () => clock.Offset });
         configure(workthrough);
         workthrough.AddScheduler().AddWorker(options =>
         {
@@ -77,7 +95,7 @@ public sealed class WorkThroughTestHost : IAsyncDisposable
             options.Queues = [.. queues];
         });
         services?.Invoke(builder.Services);
-        var created = new WorkThroughTestHost(builder.Build(), path, clock, queues);
+        var created = new WorkThroughTestHost(builder.Build(), database, schema, clock, queues);
         await created.host.StartAsync(cancellationToken);
 
         return created;
@@ -177,14 +195,20 @@ public sealed class WorkThroughTestHost : IAsyncDisposable
         }
     }
 
+    private static string StoreConnection(string database, string schema) => new NpgsqlConnectionStringBuilder(database) { SearchPath = schema }.ToString();
+
     public async ValueTask DisposeAsync()
     {
         await host.StopAsync();
         host.Dispose();
-        SqliteConnection.ClearAllPools();
-        foreach (var file in new[] { path, path + "-wal", path + "-shm" })
+        await using (var store = new NpgsqlConnection(StoreConnection(database, schema)))
         {
-            File.Delete(file);
+            NpgsqlConnection.ClearPool(store);
         }
+
+        await using var connection = new NpgsqlConnection(database);
+        await connection.OpenAsync();
+        await using var drop = new NpgsqlCommand($"DROP SCHEMA IF EXISTS {schema} CASCADE", connection);
+        await drop.ExecuteNonQueryAsync();
     }
 }

@@ -112,6 +112,16 @@ public abstract partial class RelationalJobStore : IEngineProtocol
         }
     }
 
+    private async Task RequireScheduleProtocolAsync(DbConnection connection, DbTransaction transaction, ScheduleDefinition definition, CancellationToken ct)
+    {
+        var active = await ActiveProtocolAsync(connection, transaction, ct);
+        if (definition.RequiredProtocol > active)
+        {
+            throw new StateConflictException($"Schedule {definition.Key} v{definition.Version} needs engine protocol {definition.RequiredProtocol} for seconds, " +
+                $"intervals, bounds, excluded dates or named calendars, but the store is at {active}. Upgrade every worker and scheduler first.");
+        }
+    }
+
     private async Task<int> ActiveProtocolAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct) =>
         Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT protocol FROM dj_compatibility WHERE id=1", ct));
 
@@ -130,7 +140,7 @@ public abstract partial class RelationalJobStore : IEngineProtocol
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                var worker = JsonSerializer.Deserialize<WorkerHeartbeat>(reader.GetString(0), JobJson.Options)!;
+                var worker = JobJson.Deserialize<WorkerHeartbeat>(reader.GetString(0))!;
                 if (worker.Protocol >= level)
                 {
                     ready.Add(worker.WorkerId);

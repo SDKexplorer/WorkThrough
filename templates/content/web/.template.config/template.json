@@ -13,10 +13,9 @@
     "storage": {
       "type": "parameter",
       "datatype": "choice",
-      "defaultValue": "sqlite",
+      "defaultValue": "postgresql",
       "description": "The database that stores jobs.",
       "choices": [
-        { "choice": "sqlite", "description": "A local SQLite file; one machine." },
         { "choice": "postgresql", "description": "PostgreSQL; several machines." },
         { "choice": "sqlserver", "description": "SQL Server; several machines." },
         { "choice": "oracle", "description": "Oracle; several machines." },
@@ -30,7 +29,6 @@
       "replaces": "WORKTHROUGH_VERSION",
       "description": "The WorkThrough package version."
     },
-    "UseSqlite": { "type": "computed", "value": "(storage == \"sqlite\")" },
     "UsePostgreSql": { "type": "computed", "value": "(storage == \"postgresql\")" },
     "UseSqlServer": { "type": "computed", "value": "(storage == \"sqlserver\")" },
     "UseOracle": { "type": "computed", "value": "(storage == \"oracle\")" },

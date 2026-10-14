@@ -7,14 +7,14 @@ This compares design choices, not marketing claims. It reflects public documenta
 | | WorkThrough | Hangfire | Quartz.NET | Wolverine | MassTransit | Temporal | Durable Functions |
 |---|---|---|---|---|---|---|---|
 | What it is | Durable jobs, flows and schedules in your database | Background jobs in your database | Scheduler | Messaging with a durable inbox/outbox | Message bus over brokers | Durable execution platform | Durable orchestrations on Azure Functions |
-| Infrastructure | SQLite, PostgreSQL, SQL Server, Oracle, MySQL or MariaDB | SQL Server or Redis, plus community storages | Memory or ADO.NET databases | PostgreSQL, SQL Server, EF Core, plus brokers | A broker (RabbitMQ, Azure Service Bus, SQS…) | Temporal cluster or Temporal Cloud | Azure Storage, MSSQL or a managed scheduler |
+| Infrastructure | PostgreSQL, SQL Server, Oracle, MySQL or MariaDB | SQL Server or Redis, plus community storages | Memory or ADO.NET databases | PostgreSQL, SQL Server, EF Core, plus brokers | A broker (RabbitMQ, Azure Service Bus, SQS…) | Temporal cluster or Temporal Cloud | Azure Storage, MSSQL or a managed scheduler |
 | Stored work names | A versioned address (`invoices.generate` v1) | The CLR type, method and arguments | The job's CLR type | The message type name (an alias can be configured) | The message type | Workflow and activity type names | Function names |
 | Survives moving or renaming code | Yes, by design and tested; input upcasts for changed contracts | No: queued jobs break | No: the type name changes | Partly, through aliases | Partly, through message names | Yes, if names are kept | Yes, if names are kept |
 | Workflows | Persisted graphs: bindings, conditions, joins, fan-out, child flows, loops, failure branches, compensation, signals, incidents | Continuations; batches in Pro | No | Sagas | Sagas and routing slips | Code-first workflows, deterministic replay | Code-first orchestrations, replay |
 | Concurrency and tenant controls | Fleet, per-type, per-key, per-tenant and rate limits; weighted queues | Per-server workers; throttling in Pro | Thread pool and misfire rules | Per-endpoint parallelism | Concurrency and rate limits per endpoint | Task-queue rate limits | Per-function concurrency |
 | Throughput | About 300–800 jobs/s per store; ~500/s with per-tenant quotas | High | High | Very high | Very high | Very high | High |
 | Dashboard | Built in, audited actions, tenant-scoped | Built in, mature | Third-party | Commercial add-on | No | Built in | Azure portal and tools |
-| AI assistant access | Read-only MCP endpoint | No | No | No | No | No | No |
+| AI assistant access | MCP endpoint: read-only, plus person-approved actions | No | No | No | No | No | No |
 | License | Not chosen yet | LGPL-3.0 core; Pro is paid | Apache-2.0 | MIT | Apache-2.0 up to v8; v9 is commercial | MIT server; Temporal Cloud paid | MIT |
 | Maturity | Alpha, unpublished | Over 10 years | Over 15 years | Mature | Mature | Mature | Mature |
 
@@ -49,8 +49,8 @@ Quartz.NET is a scheduler; WorkThrough is a job and workflow engine with a sched
 
 | | WorkThrough | Quartz.NET |
 |---|---|---|
-| Triggers | Five-field cron in an IANA or Windows time zone | Cron with seconds, simple intervals, daily and calendar intervals |
-| Exclusions | None; skip dates in the job | Calendars (holidays, weekly, cron calendars) |
+| Triggers | Cron with optional seconds, fixed intervals, daily windows and wall-clock calendar intervals, in an IANA or Windows time zone, with start and end bounds | Cron with seconds, simple intervals, daily and calendar intervals |
+| Exclusions | Calendars of dates, yearly dates, weekdays, days of the month, daily ranges and cron matches, copied into each schedule | Named calendars of the same kinds, shared and editable at run time |
 | Missed runs | Skip, coalesce or catch up; skip or coalesce overlapping runs | Misfire instructions per trigger; `[DisallowConcurrentExecution]` |
 | Retries | Per-job attempts with backoff, rejection and deferral | None built in; the job reschedules itself |
 | Queues and limits | Weighted queues; fleet, type, key, tenant and rate limits | Thread pool size and trigger priority |
@@ -59,7 +59,7 @@ Quartz.NET is a scheduler; WorkThrough is a job and workflow engine with a sched
 | Stored identity | A versioned address | The job's CLR type name |
 | Operations | Built-in audited console, history, retention | Third-party dashboards |
 
-Choose Quartz.NET for second-level triggers, calendars or interval triggers. Choose WorkThrough when scheduled work is part of a larger set of jobs and flows that need retries, limits, history and safe refactoring.
+Quartz.NET still lets operators edit a named calendar shared by many triggers at run time, and has trigger priorities and listeners. Choose WorkThrough when scheduled work is part of a larger set of jobs and flows that need retries, limits, history and safe refactoring; [the importer](migrating-from-quartz.md) moves existing Quartz jobs and triggers.
 
 ## Trade-offs to weigh
 

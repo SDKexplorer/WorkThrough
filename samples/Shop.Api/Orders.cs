@@ -17,8 +17,13 @@ public sealed class Orders(RelationalJobStore store, IExecutionQueries execution
           customer VARCHAR(200) NOT NULL, amount DECIMAL(18,2) NOT NULL)
         """;
 
-    public Task InitializeAsync(CancellationToken ct) => store.InTransactionAsync(async (connection, transaction, _, token) =>
-        await Execute(connection, transaction, CreateTable).ExecuteNonQueryAsync(token), ct);
+    /// <summary>Initializes the store first, which creates its schema, then the order table beside the job tables.</summary>
+    public async Task InitializeAsync(CancellationToken ct)
+    {
+        await store.InitializeAsync(ct);
+        await store.InTransactionAsync(async (connection, transaction, _, token) =>
+            await Execute(connection, transaction, CreateTable).ExecuteNonQueryAsync(token), ct);
+    }
 
     public async Task<string> PlaceAsync(PlaceOrder request, CancellationToken ct)
     {

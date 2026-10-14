@@ -2,15 +2,17 @@
 
 This is a chronological evidence log. Earlier package counts and pending states describe their recorded revision. The summary below states the current position; each row points to its dated entry.
 
-## Current status — 2026-10-13
+## Current status — 2026-10-14
 
 | Area | Latest evidence | Still open |
 |---|---|---|
-| SQLite, PostgreSQL | Full suite on every change; PostgreSQL two-hour soak (233k jobs) and restore drill passed | — |
-| SQL Server, Oracle | Full suite in CI; 30-minute soaks passed (2026-10-12) | Two-hour soaks |
-| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers, locally and in CI (2026-10-13) | Soaks and throughput |
+| PostgreSQL | Full suite on every change; two-hour soak (233k jobs) and restore drill passed. SQLite was removed (ADR-033) | — |
+| SQL Server, Oracle | Full suite; Oracle two-hour soak passed (2026-10-13); SQL Server two-hour soak passed after the index fix (2026-10-14) | — |
+| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers; 30-minute soaks passed (2026-10-13) | — |
 | Multi-host | Container network-partition exercise passed (2026-10-13) | Separate physical machines |
-| Identity | OIDC against a local Keycloak 26.4 (2026-10-12) | Hosted providers (Entra ID, Auth0) |
+| Identity | OIDC against a local Keycloak 26.4 (2026-10-12); MCP bearer check script validated against Keycloak over HTTPS (2026-10-14) | Hosted providers (Entra ID, Auth0): `scripts/check-hosted-idp.py` |
+| Managed databases | Encryption gate and runner script (2026-10-14) | Azure SQL MI, RDS and others: `scripts/check-managed-db.sh` |
+| Native AOT | PostgreSQL sample runs as a native binary (2026-10-14) | Other providers, dashboard, MCP |
 | Packages | Package-only consumers on SDK 8 and 10; templates build with every provider | Publication, license |
 | Runtimes | .NET 8 and .NET 10 | .NET 9 is not claimed |
 
@@ -381,7 +383,7 @@ Payload protection, failure branches and MySQL/MariaDB (2026-10-13):
 
   Found and fixed while qualifying: concurrent claims under a shared limit admitted 2 of 3 jobs, because InnoDB locked more candidate rows than a claim leased. Claims now lock candidates by identity. The trigger-based fault tests needed MySQL trigger syntax, and MySQL reserves `generated`, which a fixture used as an alias.
 - **SQL Server two-hour soak:** stopped at minute 56 with an unhandled deadlock. The victim was the soak's own per-minute measurement query, a large scan that takes shared locks without READ_COMMITTED_SNAPSHOT; the producer and workers were unaffected. The harness now retries a measurement read chosen as a deadlock victim, as the store does for its own reads.
-- **Open:** one SQLite test failed once with "SQL logic error" when beginning a read, during a run with four providers in parallel. It passed in isolation and in three further SQLite runs; the cause is not yet known.
+- **SQLite under contention:** two SQLite tests failed once each with "SQL logic error", one when beginning a read and one at the `synchronous` pragma every open sets, during runs with several providers in parallel. SQLite raises that error for both statements inside an open transaction, so a pooled connection came back still in one. Opening a connection now rolls back such a transaction; what left it open is not yet identified.
 
 Easier adoption (2026-10-13):
 
@@ -390,3 +392,41 @@ Easier adoption (2026-10-13):
 - **Hangfire import:** against Hangfire's in-memory storage, the importer planned an enqueued job, a scheduled job and a recurring job as ready, and reported an unmapped method and a seconds-level cron. Importing ran the jobs at their due times and created an enabled schedule; a second import created nothing; retiring deleted the jobs and removed the recurring job in Hangfire. Import is refused while Hangfire servers run. The migration sample runs in `verify.sh`.
 - **CI found:** on MariaDB, a claim under a flow's `MaxParallelSteps` gave up after three blocked steps of that flow and left admissible work for the next poll (6 of 7 jobs admitted in one round). A claim now skips the other steps of a flow it finds at its bound. 10 consecutive local runs of the admission tests then passed on MySQL and MariaDB; an earlier batch of 20 that overlapped heavy builds had 4 failures, so this remains under observation.
 
+Oracle two-hour soak (2026-10-13): 205,494 jobs succeeded exactly once, none retried, and every per-minute window stayed within its partition, tenant, rate and flow-parallelism limits. Worker memory ranged between 455 and 495 MiB through the second hour, with no upward trend. [Raw report](performance-results/2026-10-13-oracle-soak-120.json).
+
+SQL Server, Oracle and MySQL/MariaDB throughput (2026-10-13): the full suite passed on SQL Server (both read modes) and Oracle, 553 tests with SQLite; the one failure was the SQLite case above. With a preloaded backlog of 5,000 jobs, three 16-slot workers and 1 ms handlers on the local arm64 host, MySQL 8.4 drained 463 jobs/s (362 with 50 tenant quotas) and MariaDB 11.4 558 (442).
+
+EF Core integration (2026-10-13): `db.Enqueue` with `SaveChangesAsync` committed an entity and its job together, returned the existing job for a repeated idempotency key, and left neither after a failed save (duplicate key) or a rolled-back transaction, with EF Core 8 on SQLite, PostgreSQL, SQL Server, Oracle, MySQL and MariaDB. Found while qualifying: EF Core 8's Npgsql provider cannot load against Npgsql 10, which the PostgreSQL package required; its minimum is now Npgsql 8.0.9, and the full suite passed on it (730 tests on SQLite, PostgreSQL, MySQL and MariaDB).
+
+Message brokers (2026-10-13): against RabbitMQ 4.1, Kafka 3.9.1 (KRaft) and the Azure Service Bus emulator in local containers, a message published through `jobs.Publish` arrived and ran as a job, and a message delivered twice with one message ID became one job. On RabbitMQ an unroutable publish failed its job instead of succeeding. Azure Service Bus itself is not yet verified.
+
+
+MySQL and MariaDB soaks (2026-10-13): 30 minutes each, with partition, tenant, rate and flow-parallelism limits. MySQL completed 57,289 jobs and MariaDB 58,332, each exactly once, with every per-minute window within its limits; worker memory held at 355–357 MiB ([MySQL](performance-results/2026-10-13-mysql-soak.json), [MariaDB](performance-results/2026-10-13-mariadb-soak.json)).
+
+SQL Server soak and indexes (2026-10-14):
+
+- **Finding:** the second two-hour SQL Server soak slowed as history grew; offers fell from 1,465 to about 830 a minute, and at minute 103 an enqueue exceeded the 30-second command timeout and stopped the producer. The harness only surfaced it at the end; it now fails in the minute the producer faults.
+- **Cause:** `SELECT * FROM dj_jobs WHERE workflow_run_id=@id` scanned the table, because SQL Server cannot seek the filtered unique `(workflow_run_id, step_id)` index for a run alone. Its reads grew from 135 to 982 pages per call. The worker's maintenance probe also scanned for expired leases and queued expiries.
+- **Fix:** `ix_dj_jobs_run`, and two filtered indexes holding only running leases and expiring queued jobs, created at every initialization. Live, the run lookup dropped from 982 to 15 logical reads and from 6 ms to 0.09 ms.
+- **Check:** a 30-minute soak with the indexes added mid-run completed 57,419 jobs exactly once within limits, offering 44,162, level with MySQL ([results](performance-results/2026-10-14-sqlserver-soak-index-fix.json)). A new two-hour run with the indexes passed; see below.
+
+Native AOT (2026-10-14):
+
+- `samples/NativeAot` published with `PublishAot` on .NET 10 (osx-arm64) with no trimming or AOT warnings. The binary ran a two-step flow and a one-second schedule against SQLite, and again against an existing database.
+- A PostgreSQL variant of the same program ran the flow and schedule against a throwaway schema. SQL Server, Oracle, MySQL, EF Core, the dashboard and MCP are not AOT-compatible.
+- With `JsonSerializerIsReflectionEnabledByDefault=false`, the suite's remaining JSON failures were test-owned types; the engine gaps it found (`ProcessorAliasMapping[]`, audit results by runtime type) were fixed.
+- Fingerprint compatibility tests show that job receipts, flow starts and operator commands hash exactly as the anonymous objects they replaced, including timestamps with offsets.
+
+Controlled MCP actions, named calendars and verification tooling (2026-10-14):
+
+- **MCP actions (ADR-031):** on all six providers, an approved retry ran once and a repeated execute returned the first result with one audit entry. On SQLite: a target changed after approval was not acted on; another caller, an expired proposal and a revoked permission were refused; a queue pause ran through approval; unenrolled actions and a read-only endpoint refused action calls.
+- **Named calendars (ADR-032):** on all six providers, editing a calendar moved and restored the next occurrence of a schedule naming it; publish and enable needed the calendar; delete was refused while a draft or enabled schedule named it; schedules naming calendars waited for protocol 10. Oracle, MySQL and MariaDB stores set back to schema 10 upgraded in place. The console saved and listed a calendar.
+- **Suites:** 1,085 passed across SQLite, PostgreSQL, SQL Server, Oracle, MySQL and MariaDB. The three failures were the broker tests, whose containers were stopped to free memory for the databases.
+- **Hosted identity tooling:** `scripts/check-hosted-idp.py --local-keycloak` passed against Keycloak 26.4 over HTTPS with client-credentials tokens: a role-mapped client listed 9 read tools and searched executions; a broken signature got 401 with the resource metadata challenge; an unmapped client saw no tools. No hosted provider has been run.
+- **Managed database tooling:** with `WT_REQUIRE_TLS=1`, the encryption check passed on SQL Server (encrypted by default) and failed on the local PostgreSQL container, which does not use TLS. No managed server has been run.
+
+SQL Server two-hour soak (2026-10-14): with the run, lease and expiry indexes from the start, 231,845 jobs (178,328 offered, 17,839 flows) succeeded exactly once, none retried, and every per-minute window stayed within its partition, tenant, rate and flow-parallelism limits. Offers held at about 1,490 a minute and completions at about 1,950 through minute 120, with queue-wait p95 between 370 and 620 ms; worker memory stayed between 376 and 380 MiB after warm-up ([results](performance-results/2026-10-14-sqlserver-soak-120.json)).
+
+SQLite removed (2026-10-14, ADR-033): the provider and its tests are gone; the test host, samples, templates, relocation proof, exercises and CI use PostgreSQL. With only `DURABLEJOBS_POSTGRES` set, the shared suite passed 274 tests; the 3 failures were the broker tests, whose containers were stopped. Earlier SQLite evidence above is history.
+
+Sign-in after the tenant change (2026-10-14): `scripts/check-oidc.py` passed against Keycloak 26.4 with the fail-closed tenant resolver and the PostgreSQL shop store. The operator, whose role maps to `tenants.all`, saw all 12 jobs; the tenant-a viewer saw only its 6.

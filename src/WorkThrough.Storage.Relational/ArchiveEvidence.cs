@@ -79,7 +79,7 @@ public abstract partial class RelationalJobStore
         {
             await using var reader = await command.ExecuteReaderAsync(ct);
             await reader.ReadAsync(ct);
-            var definition = JsonSerializer.Deserialize<FlowDefinition>(reader.GetString(reader.GetOrdinal("definition")), JobJson.Options);
+            var definition = JobJson.Deserialize<FlowDefinition>(reader.GetString(reader.GetOrdinal("definition")));
 
             return new(ReadWorkflowRun(reader, runId), definition, Json(reader.GetString(reader.GetOrdinal("input"))), signals);
         }

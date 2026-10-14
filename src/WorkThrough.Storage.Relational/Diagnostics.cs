@@ -115,7 +115,7 @@ public abstract partial class RelationalJobStore
         var now = await NowAsync(connection, transaction, ct);
         var observed = worker with { SeenAt = DateTimeOffset.FromUnixTimeMilliseconds(now) };
         await ExecuteAsync(connection, transaction, UpsertSql("dj_workers", "id,seen_at,details", "@id,@now,@details", "id", "seen_at,details"), ct,
-            ("id", worker.WorkerId), ("now", now), ("details", JsonSerializer.Serialize(observed, JobJson.Options)));
+            ("id", worker.WorkerId), ("now", now), ("details", JobJson.Serialize(observed)));
 
         return true;
     }, cancellationToken);
@@ -129,7 +129,7 @@ public abstract partial class RelationalJobStore
             var workers = new List<WorkerHeartbeat>();
             while (await reader.ReadAsync(ct))
             {
-                workers.Add(JsonSerializer.Deserialize<WorkerHeartbeat>(reader.GetString(0), JobJson.Options)!);
+                workers.Add(JobJson.Deserialize<WorkerHeartbeat>(reader.GetString(0))!);
             }
 
             return workers;

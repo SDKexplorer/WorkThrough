@@ -20,9 +20,15 @@ Nine initial Dependabot PRs were opened against an older baseline. The maintenan
 
 The old setup-node and SQLite failures were in the non-cooperative execution-deadline regression, rather than dependency restore or native loading. Current main includes the monotonic deadline fix. Refreshing onto that baseline and running the complete gate is required; historical green checks are insufficient for the current implementation.
 
+## Minimum versions for shared drivers
+
+`WorkThrough.Storage.PostgreSql` references Npgsql 8.0.9 deliberately: a package reference is a minimum, and EF Core 8's Npgsql provider fails at run time with Npgsql 10. Applications on newer stacks still resolve their own newer Npgsql. Raise the minimum only when the package needs a newer API, and run the EF Core tests when you do.
+
 ## Pinned transitive dependencies
 
 `WorkThrough.Migration.Hangfire` references Newtonsoft.Json 13.0.3 directly, because Hangfire.Core accepts 11.0.1, which has a known high-severity vulnerability. Keep the direct reference at a patched version until Hangfire.Core requires one itself.
+
+`WorkThrough.Storage.SqlServer` and `WorkThrough.Storage.Oracle` reference System.Security.Cryptography.Pkcs 9.0.21 directly, because Microsoft.Data.SqlClient and Oracle.ManagedDataAccess.Core accept 8.0.1 and 9.0.18, which has high-severity vulnerabilities (GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7). Remove the references once the drivers require a patched version.
 
 ## Automation boundaries
 

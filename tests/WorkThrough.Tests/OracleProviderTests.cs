@@ -17,6 +17,20 @@ public sealed class OracleProviderTests
         Assert.Throws<ArgumentException>(() => new OracleJobStore("User Id=owner;Data Source=localhost/FREEPDB1", new(Schema: schema)));
 
     [OracleTheory, MemberData(nameof(Databases))]
+    public async Task A_schema_10_store_upgrades_in_place_to_named_calendars(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var job = await new JobClient(harness.Store).EnqueueAsync(new JobDefinition<string>("oracle.upgrade"), "saved");
+        await SchemaUpgrade.RewindAsync(harness, typeof(OracleJobStore), "OracleSchema", "OracleAdmissionSchema", "OracleCompatibilitySchema",
+            "OracleLimitLockSchema", "OracleChildFlowSchema", "OracleCorrectionSchema", "OracleForkSchema");
+
+        await harness.NewStore().InitializeAsync();
+
+        Assert.Equal("saved", (await harness.Store.GetAsync(job))!.Payload.GetString());
+        await harness.Store.SaveCalendarAsync("holidays", new ScheduleCalendar(), 0, SchemaUpgrade.Command()).SucceedsAsync();
+    }
+
+    [OracleTheory, MemberData(nameof(Databases))]
     public async Task Concurrent_initializers_and_resuming_a_ddl_checkpoint_preserve_identity(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider, initialize: false);

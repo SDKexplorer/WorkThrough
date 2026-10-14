@@ -8,12 +8,12 @@ case "$profile" in
   --smoke) retained=1000; baseline=5; investigation=10; repetitions=1 ;;
   --full) retained=100000; baseline=60; investigation=120; repetitions=3 ;;
   --soak) retained=100000; baseline=120; investigation=7200; repetitions=1 ;;
-  *) echo 'Use --smoke, --full or --soak [sqlite|postgres|sqlserver|oracle|mysql|mariadb]' >&2; exit 2 ;;
+  *) echo 'Use --smoke, --full or --soak [postgres|sqlserver|oracle|mysql|mariadb]' >&2; exit 2 ;;
 esac
-providers=(sqlite postgres sqlserver oracle mysql mariadb)
+providers=(postgres sqlserver oracle mysql mariadb)
 if [[ -n "${2:-}" ]]; then
   case "$2" in
-    sqlite|postgres|sqlserver|oracle|mysql|mariadb) providers=("$2") ;;
+    postgres|sqlserver|oracle|mysql|mariadb) providers=("$2") ;;
     *) echo 'Unknown provider.' >&2; exit 2 ;;
   esac
 fi
@@ -23,14 +23,13 @@ dotnet build tests/WorkThrough.Exercises -c Release -m:1 -nr:false -p:UseSharedC
 mkdir -p artifacts/performance
 for provider in "${providers[@]}"; do
   case "$provider" in
-    sqlite) variable=DURABLEJOBS_SQLITE ;;
     postgres) variable=DURABLEJOBS_POSTGRES ;;
     sqlserver) variable=DURABLEJOBS_SQLSERVER ;;
     oracle) variable=DURABLEJOBS_ORACLE ;;
     mysql) variable=DURABLEJOBS_MYSQL ;;
     mariadb) variable=DURABLEJOBS_MARIADB ;;
   esac
-  if [[ "$provider" != sqlite && -z "${!variable:-}" ]]; then
+  if [[ -z "${!variable:-}" ]]; then
     if [[ -n "${2:-}" ]]; then echo "Supply a disposable $variable connection." >&2; exit 2; fi
     echo "$provider not run: supply a disposable $variable connection."
     continue

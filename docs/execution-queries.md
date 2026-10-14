@@ -60,7 +60,7 @@ All routes require `executions.read`, use the existing host resource-policy hook
 
 ## Storage and verification boundaries
 
-Queries use SQLite deferred read transactions, PostgreSQL Repeatable Read, SQL Server Snapshot, Oracle Serializable and read-only MySQL/MariaDB Repeatable Read snapshots. They do not acquire the write admission lock or mutate engine state. Connection initialization is separate from read access. Each operation has a five-second cancellation budget and five-second command timeout; synchronous SQLite internals and connection setup mean this is not a hard wall-clock SLA.
+Queries use PostgreSQL Repeatable Read, SQL Server Snapshot, Oracle Serializable and read-only MySQL/MariaDB Repeatable Read snapshots. They do not acquire the write admission lock or mutate engine state. Connection initialization is separate from read access. Each operation has a five-second cancellation budget and five-second command timeout; synchronous SQLite internals and connection setup mean this is not a hard wall-clock SLA.
 
 Initialization adds compatible indexes for creation ordering, filtered history and failed-attempt time. No persisted job identity, payload or schema-version meaning changes. Existing schema-3 stores acquire the indexes on initialization; index creation on a large store needs an appropriate deployment window. Existing schema-1 upgrade coverage still applies.
 

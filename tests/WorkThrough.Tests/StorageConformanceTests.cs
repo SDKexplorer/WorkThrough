@@ -12,7 +12,7 @@ public sealed class StorageConformanceTests
 {
     public static IEnumerable<object[]> Providers()
     {
-        yield return ["sqlite"];
+        yield return ["postgres"];
         if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_ORACLE")))
         {
             yield return ["oracle"];
@@ -21,11 +21,6 @@ public sealed class StorageConformanceTests
         if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_SQLSERVER")))
         {
             yield return ["sqlserver"];
-        }
-
-        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_POSTGRES")))
-        {
-            yield return ["postgres"];
         }
 
         if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DURABLEJOBS_MYSQL")))
@@ -582,8 +577,7 @@ public sealed class StorageConformanceTests
     [Fact]
     public async Task Storage_failure_is_not_reported_as_accepted_work()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "absent", "jobs.db");
-        var client = new JobClient(new SqliteJobStore($"Data Source={path}"));
+        var client = new JobClient(new PostgresJobStore("Host=127.0.0.1;Port=1;Database=absent;Username=none;Timeout=2"));
         await Assert.ThrowsAnyAsync<Exception>(() => client.EnqueueAsync(new Alpha("must not disappear")));
     }
 }

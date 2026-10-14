@@ -105,5 +105,6 @@ public abstract partial class RelationalJobStore
         CREATE TABLE IF NOT EXISTS dj_schedule_occurrences (
           schedule_key TEXT NOT NULL,version INTEGER NOT NULL,due BIGINT NOT NULL,outcome TEXT NOT NULL,job_id TEXT,
           PRIMARY KEY(schedule_key,version,due));
+        CREATE TABLE IF NOT EXISTS dj_calendars (name TEXT PRIMARY KEY,definition TEXT NOT NULL,revision INTEGER NOT NULL);
         """;
 }

@@ -104,7 +104,7 @@ public abstract partial class RelationalJobStore : IExecutionEvents
     }
 
     public Task<Result<int>> TrimEventsAsync(long through, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.TrimEvents, "event journal", new { through }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.TrimEvents, "event journal", Args(("through", through)), async (connection, transaction, ct) =>
         {
             var position = await ReadEventPositionAsync(connection, transaction, ct);
             if (through < position.RetainedAfter || through > position.LastSequence)

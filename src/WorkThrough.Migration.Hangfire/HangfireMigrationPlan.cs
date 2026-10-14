@@ -5,7 +5,10 @@ namespace WorkThrough.Migration.Hangfire;
 
 public enum HangfireJobKind
 {
-    Recurring, Enqueued, Scheduled
+    Recurring, Enqueued, Scheduled,
+
+    /// <summary>A job that failed in Hangfire, imported to run again when <see cref="HangfireMigration.IncludeFailed"/> is set.</summary>
+    Failed
 }
 
 /// <summary>A Hangfire method invocation as Hangfire stored it: the method and its deserialized arguments.</summary>
@@ -14,6 +17,18 @@ public sealed record HangfireCall(Type Type, MethodInfo Method, IReadOnlyList<ob
     /// <summary>Argument <paramref name="index"/>, as the method's parameter type that Hangfire deserialized it to.</summary>
     public T Argument<T>(int index) => Arguments[index] is T value ? value
         : throw new InvalidOperationException($"Argument {index} of {Type.Name}.{Method.Name} is not a {typeof(T).Name}.");
+}
+
+/// <summary>
+/// A Hangfire invocation as stored, for jobs whose types no longer load: the type's full name, the method name and each argument's JSON.
+/// </summary>
+public sealed record HangfireArguments(string Type, string Method, IReadOnlyList<JsonElement> Arguments)
+{
+    private static readonly JsonSerializerOptions Options = new(JobJson.Options) { PropertyNameCaseInsensitive = true };
+
+    /// <summary>Argument <paramref name="index"/> read as <typeparamref name="T"/>; property names match regardless of case.</summary>
+    public T Argument<T>(int index) => Arguments[index].Deserialize<T>(Options)
+        ?? throw new InvalidOperationException($"Argument {index} of {Type}.{Method} is null.");
 }
 
 /// <summary>One Hangfire job and what it becomes in WorkThrough, or why it cannot move.</summary>

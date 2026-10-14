@@ -39,7 +39,7 @@ public abstract partial class RelationalJobStore
         ArgumentNullException.ThrowIfNull(aliases);
         var ordered = aliases.Where(a => a?.Alias is not null).OrderBy(a => a.Alias.Key, StringComparer.Ordinal).ThenBy(a => a.Alias.Version).ToArray();
 
-        return AdminAsync(command, AuditActions.SetProcessorAliases, "registry", new { aliases = ordered, expectedRevision }, async (connection, transaction, ct) =>
+        return AdminAsync(command, AuditActions.SetProcessorAliases, "registry", Args(("aliases", ordered), ("expectedRevision", expectedRevision)), async (connection, transaction, ct) =>
         {
             var previous = await ReadRegistryAsync(connection, transaction, ct);
             if (previous.Revision != expectedRevision)

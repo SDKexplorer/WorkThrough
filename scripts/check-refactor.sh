@@ -6,14 +6,9 @@ proof_dir="$(mktemp -d "$repo_dir/artifacts/refactor-XXXXXXXX")"
 runtime="${WORKTHROUGH_DOTNET8:-dotnet}"
 dotnet publish "$repo_dir/tests/Relocation/Refactor.Before" -c Release --no-restore -o "$proof_dir/before" -m:1 -p:UseSharedCompilation=false --nologo
 dotnet publish "$repo_dir/tests/Relocation/Refactor.After" -c Release --no-restore -o "$proof_dir/after" -m:1 -p:UseSharedCompilation=false --nologo
-"$runtime" "$proof_dir/before/Refactor.Before.dll" "Data Source=$proof_dir/jobs.db" "$proof_dir/receipt.txt"
-mv "$proof_dir/before/Refactor.Before.dll" "$proof_dir/before/Refactor.Before.dll.removed"
 test ! -f "$proof_dir/after/Refactor.Before.dll"
-dotnet --roll-forward LatestMajor "$proof_dir/after/Refactor.After.dll" "Data Source=$proof_dir/jobs.db" "$proof_dir/receipt.txt"
-
-mv "$proof_dir/before/Refactor.Before.dll.removed" "$proof_dir/before/Refactor.Before.dll"
+if [[ -z "${DURABLEJOBS_POSTGRES:-}" ]]; then echo 'Supply a disposable DURABLEJOBS_POSTGRES database for the relocation proof.' >&2; exit 2; fi
 for provider in postgres sqlserver oracle mysql mariadb; do
-  if [[ "$provider" == postgres && -z "${DURABLEJOBS_POSTGRES:-}" ]]; then continue; fi
   if [[ "$provider" == mysql && -z "${DURABLEJOBS_MYSQL:-}" ]]; then continue; fi
   if [[ "$provider" == mariadb && -z "${DURABLEJOBS_MARIADB:-}" ]]; then continue; fi
   if [[ "$provider" == oracle && -z "${DURABLEJOBS_ORACLE:-}" ]]; then echo "Oracle not run: supply a disposable DURABLEJOBS_ORACLE connection."; continue; fi

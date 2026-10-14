@@ -18,7 +18,7 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             throw new ArgumentException("Signal input must be non-null and at most 1 MiB.");
         }
 
-        var hash = Fingerprint(new { name, input });
+        var hash = Fingerprint(Args(("name", name), ("input", input)));
 
         return WriteAsync(async (connection, transaction, ct) =>
         {
@@ -35,7 +35,7 @@ public abstract partial class RelationalJobStore : IWorkflowSignals
             }
 
             var saved = await ScalarAsync(connection, transaction, "SELECT d.definition FROM dj_flows f JOIN dj_definitions d ON f.flow_key=d.flow_key AND f.version=d.version WHERE f.id=@run AND f.status IN ('Running','Paused','Incident')", ct, ("run", runId.ToString()));
-            if (saved is not string json || !JsonSerializer.Deserialize<FlowDefinition>(json, JobJson.Options)!.Steps.Any(s => s.Signal?.Name == name))
+            if (saved is not string json || !JobJson.Deserialize<FlowDefinition>(json)!.Steps.Any(s => s.Signal?.Name == name))
             {
                 throw new StateConflictException("An active flow revision must declare this signal.");
             }

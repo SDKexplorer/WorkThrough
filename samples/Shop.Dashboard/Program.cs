@@ -12,8 +12,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddWorkThrough().UseShopStorage(ShopSetup.Settings(builder.Configuration)).InitializeStorageOnStart(false);
 builder.Services.AddWorkThroughDashboard();
 
-// Users whose identity token carries "tenant" claims see only those tenants; operators without one see the whole store.
-builder.Services.AddSingleton<ITenantAccessResolver, TenantClaimResolver>();
 var identity = builder.Configuration.GetSection("Identity").Get<DashboardIdentityOptions>();
 var anonymousDevelopment = builder.Environment.IsDevelopment() && identity?.Authority is null;
 if (!anonymousDevelopment)
@@ -22,6 +20,9 @@ if (!anonymousDevelopment)
     {
         throw new InvalidOperationException("Configure Identity:Authority, ClientId, and ClientSecret using host configuration or a secret store.");
     }
+
+    // Users whose ID token carries tenant claims see only those tenants; tenants.all sees the store; anyone else sees nothing.
+    builder.Services.AddSingleton<ITenantAccessResolver>(new TenantClaimResolver(identity.TenantClaim));
 
     builder.Services.AddAuthentication(options =>
     {
@@ -53,7 +54,7 @@ if (!anonymousDevelopment)
             options.MapInboundClaims = false;
             options.SaveTokens = false;
             options.TokenValidationParameters.NameClaimType = "name";
-            options.TokenValidationParameters.RoleClaimType = "roles";
+            options.TokenValidationParameters.RoleClaimType = identity.RoleClaim;
             options.Events.OnRedirectToIdentityProvider = context =>
             {
                 if (context.Request.Path.StartsWithSegments(ConsolePath + "/api"))
@@ -72,7 +73,7 @@ if (!anonymousDevelopment)
                 {
                     if (context.Principal.IsInRole(role.Key))
                     {
-                        foreach (var permission in role.Value.Where(DashboardPermissions.All.Contains))
+                        foreach (var permission in role.Value.Where(p => DashboardPermissions.All.Contains(p) || p == TenantClaimResolver.AllTenants))
                         {
                             claims.AddClaim(new(DashboardPermissions.ClaimType, permission, ClaimValueTypes.String, "WorkThroughHost"));
                         }
@@ -108,5 +109,12 @@ public sealed class DashboardIdentityOptions
     public string? Authority { get; set; }
     public string? ClientId { get; set; }
     public string? ClientSecret { get; set; }
+
+    /// <summary>The ID-token claim holding the user's roles: "roles" for Entra ID and Keycloak, a namespaced claim for Auth0.</summary>
+    public string RoleClaim { get; set; } = "roles";
+
+    /// <summary>The ID-token claim holding the user's tenants; Auth0 needs a namespaced claim.</summary>
+    public string TenantClaim { get; set; } = TenantClaimResolver.DefaultClaimType;
+
     public Dictionary<string, string[]> RolePermissions { get; set; } = [];
 }

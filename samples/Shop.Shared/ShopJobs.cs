@@ -12,7 +12,7 @@ public static class ShopJobs
     public static JobDefinition<OrderPlaced> StartCheckout { get; } = new("shop.checkout.start", displayName: "Start checkout");
     public static JobDefinition<ReserveStock> ReserveStock { get; } = new("shop.stock.reserve", displayName: "Reserve stock");
     public static JobDefinition<ChargePayment> ChargePayment { get; } = new("shop.payment.charge", displayName: "Charge payment");
-    public static JobDefinition<ShipOrder> ShipOrder { get; } = new("shop.shipping.ship", displayName: "Ship order");
+    public static JobDefinition<ShipOrder> ShipOrder { get; } = new JobDefinition<ShipOrder>("shop.shipping.ship", displayName: "Ship order").InQueue(ShippingQueue);
     public static JobDefinition<NotifyCustomer> NotifyCustomer { get; } = new("shop.customer.notify", displayName: "Notify customer");
     public static JobDefinition<DailyReport> DailyReport { get; } = new("shop.reports.daily", displayName: "Daily sales report");
 }

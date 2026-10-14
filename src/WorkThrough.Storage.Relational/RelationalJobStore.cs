@@ -10,7 +10,7 @@ namespace WorkThrough.Storage;
 public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobAdministration, IWorkflowDefinitions, IJobDiagnostics, IJobSchedules, IDeploymentQueries, IProcessorRegistry
 {
     /// <summary>The schema version this package writes. Providers refuse other versions.</summary>
-    protected const int SchemaVersion = 10;
+    protected const int SchemaVersion = 11;
 
     // Version 3 added expiry, causation and terminal timestamps to existing job tables.
     private const int TerminalTimestampsVersion = 3;
@@ -26,6 +26,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     private const string CancellationError = "Cancellation requested";
     private const int MaximumReadAttempts = 3;
     private static readonly TimeSpan ReadRetryDelay = TimeSpan.FromMilliseconds(25);
+
+    static RelationalJobStore() => JobJson.AddContext(StorageJsonContext.Default);
 
     // Events queued by each open write transaction; see FlushJournalAsync.
     private readonly ConditionalWeakTable<DbTransaction, List<Statement>> pendingEvents = new();
@@ -126,13 +128,20 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     // Work without admission keys keeps the fingerprint shape of earlier releases, so existing receipts still match.
     private static string JobFingerprint(JobRecord job) => (job.PartitionKey, job.TenantId) switch
     {
-        (null, null) => Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId }),
-        (_, null) => Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId, job.PartitionKey }),
-        _ => Fingerprint(new { job.Contract, job.Payload, job.Queue, job.CorrelationId, job.ExpiresAt, job.CausationJobId, job.PartitionKey, job.TenantId })
+        (null, null) => Fingerprint(Args(("contract", job.Contract), ("payload", job.Payload), ("queue", job.Queue), ("correlationId", job.CorrelationId), ("expiresAt", job.ExpiresAt), ("causationJobId", job.CausationJobId))),
+        (_, null) => Fingerprint(Args(("contract", job.Contract), ("payload", job.Payload), ("queue", job.Queue), ("correlationId", job.CorrelationId), ("expiresAt", job.ExpiresAt), ("causationJobId", job.CausationJobId), ("partitionKey", job.PartitionKey))),
+        _ => Fingerprint(Args(("contract", job.Contract), ("payload", job.Payload), ("queue", job.Queue), ("correlationId", job.CorrelationId), ("expiresAt", job.ExpiresAt), ("causationJobId", job.CausationJobId), ("partitionKey", job.PartitionKey), ("tenantId", job.TenantId)))
     };
 
-    private static string Fingerprint(object value) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, JobJson.Options))));
+    private static string Fingerprint(Fields value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JobJson.Serialize(value))));
+
+    /// <summary>
+    /// A JSON object with these properties in this order. It stands in for the anonymous objects earlier releases serialized, with the
+    /// same names and values, so their fingerprints and audit records keep their exact form.
+    /// </summary>
+    private static Fields Args(params (string Name, object? Value)[] properties) => Fields.Named(properties);
+
+    private static Fields Arguments(object value) => Fields.Of(value);
 
     private async Task<Guid> AcceptJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
     {
@@ -328,9 +337,38 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     /// again before each lease (ADR-022). Below engine protocol 3 this runs only while no limit exists, for one queue; it returns
     /// null, for the serialized path, when that no longer holds.
     /// </summary>
-    private Task<IReadOnlyList<JobRecord>?> ClaimWithRowLocksAsync(ClaimRequest request, CancellationToken cancellationToken) =>
+    private async Task<IReadOnlyList<JobRecord>?> ClaimWithRowLocksAsync(ClaimRequest request, CancellationToken cancellationToken)
+    {
+        var exclusions = new ClaimExclusions();
+        for (var attempt = 1; ; attempt++)
+        {
+            IReadOnlyList<JobRecord>? claimed;
+            try
+            {
+                claimed = await ClaimWithRowLocksOnceAsync(request, exclusions, cancellationToken);
+            }
+            catch (DbException error) when (attempt < MaximumClaimRestarts && IsDeadlockVictim(error))
+            {
+                // The database rolled the whole claim back, so it leased nothing and can run again.
+                continue;
+            }
+
+            if (!exclusions.Restart || attempt == MaximumClaimRestarts)
+            {
+                return claimed;
+            }
+        }
+    }
+
+    /// <summary>
+    /// One claim transaction. A page after the first must not wait for limit locks while this transaction holds others, so when it
+    /// cannot take them and nothing is leased yet, the claim asks to restart: ending the transaction releases the candidates it held,
+    /// which other claims skipped meanwhile, and the next attempt keeps what it learned about rejected jobs and full flows.
+    /// </summary>
+    private Task<IReadOnlyList<JobRecord>?> ClaimWithRowLocksOnceAsync(ClaimRequest request, ClaimExclusions exclusions, CancellationToken cancellationToken) =>
         RowLockedWriteAsync<IReadOnlyList<JobRecord>?>(async (connection, transaction, ct) =>
         {
+            exclusions.Restart = false;
             var settings = await ReadClaimSettingsAsync(connection, transaction, request.WorkerId, ct);
             settings.RequireClaimable(request);
             if (settings.Draining)
@@ -353,8 +391,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
             var budgets = new LocalBudgets(request.Budgets);
             var leased = new List<JobRecord>();
-            var rejected = new HashSet<Guid>();
-            var fullFlows = new HashSet<Guid>();
+            var rejected = exclusions.Rejected;
+            var fullFlows = exclusions.FullFlows;
             var fruitless = 0;
             var holdsLimitLocks = false;
             while (leased.Count < request.MaximumJobs && fruitless < MaximumFruitlessPages)
@@ -389,6 +427,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                     var rows = candidates.SelectMany(candidate => LimitScopes(candidate, Admitting(candidate, settings), policies)).Select(LimitLockRow).ToArray();
                     if (!await LockLimitRowsAsync(connection, transaction, rows, wait: !holdsLimitLocks, ct))
                     {
+                        exclusions.Restart = leased.Count == 0;
+
                         break;
                     }
 
@@ -515,6 +555,17 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
     /// <summary>Pages in a row whose every candidate failed the exact admission check before a claim gives up for this poll.</summary>
     private const int MaximumFruitlessPages = 3;
+
+    /// <summary>Claim transactions one poll may use; see <see cref="ClaimWithRowLocksOnceAsync"/>.</summary>
+    private const int MaximumClaimRestarts = 3;
+
+    /// <summary>What one poll's claim attempts learned: jobs the exact check refused and flows at their step bound.</summary>
+    private sealed class ClaimExclusions
+    {
+        public HashSet<Guid> Rejected { get; } = [];
+        public HashSet<Guid> FullFlows { get; } = [];
+        public bool Restart { get; set; }
+    }
 
     /// <summary>Ready jobs of the given contracts in queue @queue as of @now, whose queue is not paused and whose flow is running.</summary>
     private static string ReadyJobSql(IEnumerable<JobContractId> contracts, List<(string, object?)> parameters)
@@ -1053,6 +1104,9 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             }
         }
     }
+
+    /// <summary>The database chose this transaction as a deadlock victim and rolled it back.</summary>
+    protected virtual bool IsDeadlockVictim(DbException error) => false;
 
     /// <summary>A read failure that a new snapshot can resolve, such as Oracle's ORA-08177 after concurrent dictionary DDL.</summary>
     protected virtual bool IsReadSnapshotConflict(DbException error) => false;

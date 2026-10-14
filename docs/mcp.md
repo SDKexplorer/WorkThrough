@@ -1,4 +1,4 @@
-# Read-only MCP hosting
+# MCP hosting
 
 `WorkThrough.Mcp` is an optional NuGet package over `IExecutionQueries` and the optional `IExecutionInspectionQueries` / `IOperationHistoryQueries` / `IRuntimeQueries` / `IRetentionQueries`, using the official C# MCP SDK 2.2.0 and ASP.NET Core Streamable HTTP in stateless mode. It references neither Dashboard/Angular nor application processors. No model account or API key is needed on the server.
 
@@ -22,7 +22,7 @@ Search accepts a `query` object matching `ExecutionQuery`; enums use names such 
 
 Search can investigate failed attempts even after recovery, and follow correlation or flow IDs. Results include stable processor identities and causation/run references. They contain no input/output, exception/progress text, implementation names, effect keys or lease tokens. Stored labels remain untrusted business data. Metadata can itself be sensitive; grant access only to principals allowed to read all metadata in this store.
 
-Automatic-retention status is read-only. There are no administrative tools. A custom provider without any optional ports keeps the original four tools; unavailable inspection/history tools are hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
+Automatic-retention status is read-only. Administrative tools exist only when the host enrolls [controlled actions](#controlled-actions). A custom provider without any optional ports keeps the original four tools; unavailable inspection/history tools are hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
 
 ## Diagnostic and flow inspection
 
@@ -84,9 +84,9 @@ app.MapWorkThroughMcp();
 await app.RunAsync();
 ```
 
-Initialize/upgrade storage through the deployment process before starting a read-only host. Disabling startup initialization prevents schema/index writes by this host. Give it read-only database credentials where possible. SQLite needs an absolute local file path; `Mode=ReadOnly` is supported. Tested PostgreSQL connections set `default_transaction_read_only=on`; that verifies query behavior, not a deployment's role grants.
+Initialize/upgrade storage through the deployment process before starting a read-only host. Disabling startup initialization prevents schema/index writes by this host. Give it read-only database credentials where possible. Tested PostgreSQL connections set `default_transaction_read_only=on`; that verifies query behavior, not a deployment's role grants.
 
-[Shop.Mcp](../samples/Shop.Mcp/Program.cs) uses `Mcp:Authority`, `Resource`, `Environment` and optional `EndpointPath`, plus the shop's `Shop:Sqlite` or `Shop:PostgreSql` store; environment variables use the `Mcp__` and `Shop__` prefixes. It registers the tenant-claim resolver and supplies no development credential, anonymous fallback, worker or initializer. Configure ASP.NET's listener/TLS as usual.
+[Shop.Mcp](../samples/Shop.Mcp/Program.cs) uses `Mcp:Authority`, `Resource`, `Environment` and optional `EndpointPath`, plus the shop's `Shop:PostgreSql` store; environment variables use the `Mcp__` and `Shop__` prefixes. It registers the tenant-claim resolver and supplies no development credential, anonymous fallback, worker or initializer. Configure ASP.NET's listener/TLS as usual.
 
 Register one WorkThrough MCP server per service collection. The host owns the public URI and maps the same path; use a dedicated host for independent stores. This release does not configure `UsePathBase` or proxy path rewriting. Behind a TLS-terminating proxy, configure trusted forwarded headers before authentication so ASP.NET observes HTTPS; never trust arbitrary forwarded headers. Resource and authority URIs require HTTPS. `AllowLoopbackHttp` is an explicit local-test exception only for a loopback resource URI; bind the development listener to loopback too.
 
@@ -100,7 +100,38 @@ RFC 9728 metadata is mapped at `/.well-known/oauth-protected-resource` followed 
 
 Every tool call rechecks `WorkThrough.executions.read` with an `OperationResource` containing the configured endpoint/environment and the appropriate `ExecutionId`, `WorkflowRunId` or `ArchiveId`. Diagnostics additionally checks `payloads.read`; audit and cleanup preview additionally check `audit.read` and `retention.read`. Override policies after registration for host restrictions. Search access is store-wide unless the host registers an `ITenantAccessResolver`. Tenant-scoped principals list and call only the seven per-execution tools, see their tenants' executions only, and receive absent results for anything else ([ADR-019](adr/0019-tenant-access-isolation.md)). Flow access covers all nodes/events in that run. Correlation filters and cursors never grant authority. Dashboard policies still receive `DashboardResource`; permission constants are shared without replacing that compatibility hook.
 
+### Identity providers
+
+Providers do not issue `workthrough.permission` claims; the host maps the provider's roles or permissions in the JWT callback, as Shop.Mcp does with `Mcp:RoleClaim` and `Mcp:RolePermissions`. Provider setup for Keycloak, Entra ID and Auth0, and what has been verified, are in [sign-in and permissions](sign-in.md). `scripts/check-hosted-idp.py` checks a configured provider with client-credentials tokens.
+
 Discovery is permission-filtered; unregistered direct calls are rejected. Browser origins other than the configured resource origin are rejected, and the adapter does not enable cross-origin CORS. Native authenticated clients send no Origin header. Arbitrary cross-origin browser embedding is outside this release.
+
+## Controlled actions
+
+The endpoint is read-only unless the host enrolls actions ([ADR-031](adr/0031-mcp-controlled-actions.md)):
+
+```csharp
+builder.Services.AddSingleton<IMcpActionApprovals, ConsoleApprovals>(); // the host's approval workflow
+builder.Services.AddWorkThroughMcp(new()
+{
+    Authority = authority, Resource = resource, Environment = "production",
+    Actions = new HashSet<McpAction> { McpAction.RetryJob, McpAction.PauseQueue, McpAction.ResumeQueue },
+    ApprovalLifetime = TimeSpan.FromMinutes(15)
+});
+```
+
+`workthrough_prepare_action` takes an action, a target (job ID, queue or worker ID) and a reason. It checks the action's permission (`jobs.retry`, `jobs.cancel`, `flows.recover`, `queues.manage` or `workers.manage`) and binds the target's current attempt or revision. It hands the proposal to `IMcpActionApprovals.SubmitAsync` and returns it with status `awaiting-approval`. A person approves it in the host's workflow. `workthrough_execute_action` then takes only the proposal ID. It runs the approved copy through the existing audited operation, with the proposal ID as the command ID.
+
+| Status | Meaning |
+|---|---|
+| `succeeded` | The action ran, or a repeat returned the first result |
+| `not-approved` | No approval, or the proposal belongs to another caller or environment |
+| `expired` | Past `ApprovalLifetime` |
+| `forbidden` | The caller lacks the action's permission now |
+| `precondition-failed` | The target changed after preparation; nothing happened |
+| `not-found` | The job does not exist |
+
+Only `succeeded` changed engine state. Tenant-restricted principals cannot use actions. The endpoint needs write-capable `IJobAdministration`, `IExecutionOperations` and `IJobQueries`; without them, or without `IMcpActionApprovals`, the action tools are not listed.
 
 ## Access evidence and bounds
 
@@ -108,7 +139,7 @@ Discovery is permission-filtered; unregistered direct calls are rejected. Browse
 
 Enforced bounds:
 
-- Five-second cooperative tool/query cancellation, with disconnect propagation. SQLite's synchronous driver and host callbacks prevent a hard wall-clock SLA.
+- Five-second cooperative tool/query cancellation, with disconnect propagation. Host callbacks prevent a hard wall-clock SLA.
 - 16 KiB request bodies, request IDs up to 128 characters, no batch requests and a five-second body-read budget.
 - 48 KiB serialized tool results including structured content and compatibility text, reserving space below the 64 KiB response budget for protocol framing. Oversized results return `response_too_large` and guidance to lower page size; no broken JSON or silently partial page.
 - Host-wide concurrent HTTP admission (default 16), no waiting queue, and per-issuer/subject fixed-window admission (default 120 requests/minute). Rejections return 429 and `Retry-After: 60`. Fleet-wide limits need a gateway.

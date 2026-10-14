@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text.Json;
 
@@ -12,11 +13,11 @@ public sealed class JobCatalog : IJobRegistrar
     public IReadOnlyList<ProcessorAliasMapping> Aliases => registrations.Values.Where(r => r.Identity != r.CanonicalIdentity)
         .Select(r => new ProcessorAliasMapping(r.Identity, r.CanonicalIdentity)).OrderBy(r => r.Alias.Key, StringComparer.Ordinal).ThenBy(r => r.Alias.Version).ToArray();
 
-    public void Register<TInput, TJob>() where TJob : class, IJob<TInput> =>
+    public void Register<TInput, [DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] TJob>() where TJob : class, IJob<TInput> =>
         Register<TInput, TJob>(new JobDefinition<TInput>(JobIdentity.For<TJob>(), JobIdentity.DisplayName(typeof(TJob))));
 
     /// <summary>Binds an address to a job class at the composition root; a [Job] attribute on the class must agree with it.</summary>
-    public void Register<TInput, TJob>(JobDefinition<TInput> definition, params JobContractId[] aliases)
+    public void Register<TInput, [DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] TJob>(JobDefinition<TInput> definition, params JobContractId[] aliases)
         where TJob : class, IJob<TInput>
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -49,7 +50,7 @@ public sealed class JobCatalog : IJobRegistrar
             (handler, input, context, ct) => execute(new(input, context, handler.Services, ct)));
     }
 
-    private void Add<TJob, THandler>(JobContractId identity, string? displayName, JobContractId[] aliases,
+    private void Add<TJob, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] THandler>(JobContractId identity, string? displayName, JobContractId[] aliases,
         Func<THandler, TJob, JobExecutionContext, CancellationToken, Task<JobResult>> invoke)
     {
         if (identity.Key == SignalWait.Processor.Key || aliases.Any(alias => alias?.Key == SignalWait.Processor.Key))
@@ -86,7 +87,7 @@ public sealed class JobCatalog : IJobRegistrar
         {
             registrations.TryAdd(candidate, new(candidate, typeof(TJob), typeof(THandler), async (handler, payload, context, ct) =>
             {
-                var request = payload.Deserialize<TJob>(JobJson.Options) ?? throw new JsonException($"Null input is invalid for {candidate}.");
+                var request = JobJson.Deserialize<TJob>(payload) ?? throw new JsonException($"Null input is invalid for {candidate}.");
 
                 return await invoke((THandler)handler, request, context, ct).ConfigureAwait(false);
             })
@@ -128,8 +129,8 @@ public sealed class JobCatalog : IJobRegistrar
 
         registrations.Add(from, new(from, typeof(TOld), target.HandlerType, async (handler, payload, context, ct) =>
         {
-            var stored = payload.Deserialize<TOld>(JobJson.Options) ?? throw new JsonException($"Null input is invalid for {from}.");
-            var converted = JsonSerializer.SerializeToElement(convert(stored), JobJson.Options);
+            var stored = JobJson.Deserialize<TOld>(payload) ?? throw new JsonException($"Null input is invalid for {from}.");
+            var converted = JobJson.ToElement(convert(stored));
 
             return await target.InvokeAsync(handler, converted, context, ct).ConfigureAwait(false);
         })
@@ -158,7 +159,8 @@ public sealed class JobCatalog : IJobRegistrar
     }
 }
 
-public sealed record JobRegistration(JobContractId Identity, Type RequestType, Type HandlerType,
+public sealed record JobRegistration(JobContractId Identity, Type RequestType,
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)][property: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type HandlerType,
     Func<object, JsonElement, JobExecutionContext, CancellationToken, Task<JobResult>> InvokeAsync)
 {
     public JobContractId CanonicalIdentity { get; init; } = Identity;

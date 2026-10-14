@@ -60,6 +60,8 @@ public static class AuditActions
     public const string PublishSchedule = "schedules.publish";
     public const string EnableSchedule = "schedules.enable";
     public const string PauseSchedule = "schedules.pause";
+    public const string SaveCalendar = "calendars.save";
+    public const string DeleteCalendar = "calendars.delete";
     public const string PauseQueue = "queues.pause";
     public const string ResumeQueue = "queues.resume";
     public const string SetQueueWeight = "queues.weight";

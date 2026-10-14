@@ -19,7 +19,7 @@ public sealed class DashboardTests
     [InlineData("/admin", "/mounted")]
     public async Task Dashboard_requires_authentication_and_reads_unknown_contracts_without_handlers(string groupPrefix, string pathBase)
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("<script>alert(1)</script>"), new(CorrelationId: "order:123"));
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -91,7 +91,7 @@ public sealed class DashboardTests
     [Fact]
     public async Task The_console_reports_the_engine_protocol_and_what_blocks_the_next_level()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         await RollingUpgradeTests.ExecuteAsync(harness, $"UPDATE dj_compatibility SET protocol={EngineProtocol.Baseline}");
         await harness.Store.HeartbeatAsync(new("older-worker", default, [], ["default"], 1, 0));
         await using var app = await StartDashboardAsync(harness);
@@ -107,7 +107,7 @@ public sealed class DashboardTests
     [Fact]
     public async Task Correcting_an_input_requires_the_payload_permission_too()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("bad"), new(MaxAttempts: 1));
         var job = (await harness.Store.ClaimAsync(new("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromSeconds(30))))!;
         Assert.True(await harness.Store.RejectAsync(id, job.LeaseToken!.Value, new("Rejected", "bad", null)));
@@ -132,7 +132,7 @@ public sealed class DashboardTests
     [Fact]
     public async Task Metadata_viewer_cannot_read_exceptions_or_mutate_jobs_even_with_valid_csrf()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("SECRET-PAYLOAD"), new(MaxAttempts: 1));
         var job = (await harness.Store.ClaimAsync(new("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromSeconds(30))))!;
         await harness.Store.FailWithDetailsAsync(id, job.LeaseToken!.Value, new("Failure", "SECRET-MESSAGE", "SECRET-STACK"), TimeSpan.Zero);
@@ -157,6 +157,8 @@ public sealed class DashboardTests
         Assert.Equal(JobStatus.Failed, (await harness.Store.GetAsync(id))!.Status);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/replay", new DashboardCommand(Guid.NewGuid(), "unauthorized"))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/jobs/api/queues", new QueueControlCommand("default", true, new(Guid.NewGuid(), "unauthorized")))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/jobs/api/calendars",
+            new CalendarCommand("holidays", new ScheduleCalendar(), new(Guid.NewGuid(), "unauthorized")))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/jobs/api/archives/{id}/export")).StatusCode);
         Assert.Empty(await harness.Store.AuditAsync());
         client.DefaultRequestHeaders.Remove("X-Test-User");
@@ -166,6 +168,11 @@ public sealed class DashboardTests
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/jobs/api/retention/policy", retentionCommand)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/jobs/api/retention/policy", retentionCommand with { Command = new(Guid.NewGuid(), "Stale revision") })).StatusCode);
         Assert.Contains("\"enabled\":false", await client.GetStringAsync("/jobs/api/retention"));
+        var holidays = new CalendarCommand("holidays", new ScheduleCalendar().ExcludingEveryYear(12, 25), new(Guid.NewGuid(), "Company holidays"));
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/jobs/api/calendars", holidays)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/jobs/api/calendars", holidays with { Command = new(Guid.NewGuid(), "Stale revision") })).StatusCode);
+        Assert.Contains("\"name\":\"holidays\"", await client.GetStringAsync("/jobs/api/calendars"));
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/jobs/api/calendars/holidays/delete", new DashboardCommand(Guid.NewGuid(), "No longer used", ExpectedRevision: 1))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync($"/jobs/api/jobs/{Guid.NewGuid()}/retry",
             new DashboardCommand(Guid.NewGuid(), "Retry an execution that was never accepted"))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/jobs/api/limits",
@@ -186,7 +193,8 @@ public sealed class DashboardTests
         client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", unidentifiedToken.RootElement.GetProperty("token").GetString());
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/jobs/api/jobs/{id}/retry", new DashboardCommand(Guid.NewGuid(), "No subject", 1))).StatusCode);
         var audit = await harness.Store.AuditAsync();
-        Assert.Equal([AuditActions.SetKeyedLimit, AuditActions.ConfigureRetention], audit.Select(entry => entry.Action).Order(StringComparer.Ordinal));
+        Assert.Equal([AuditActions.DeleteCalendar, AuditActions.SaveCalendar, AuditActions.SetKeyedLimit, AuditActions.ConfigureRetention],
+            audit.Select(entry => entry.Action).Order(StringComparer.Ordinal));
         Assert.All(audit, entry => Assert.Equal("operator", entry.Actor.Subject));
     }
 

@@ -17,7 +17,8 @@ new RecurringJobManager(hangfire).AddOrUpdate<Reports>("nightly-report", reports
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddSingleton<Mailer>().AddSingleton<Reports>();
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=hangfire-migration.db")
+    .UsePostgreSql(Environment.GetEnvironmentVariable("WORKTHROUGH_POSTGRES")
+        ?? "Host=127.0.0.1;Port=5432;Database=workthrough;Username=postgres;Password=workthrough;Search Path=hangfire_migration")
     .AddJob(Emails.Welcome, job =>
     {
         job.Service<Mailer>().SendWelcome(job.Input.Address);

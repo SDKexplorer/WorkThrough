@@ -124,7 +124,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Http_limits_and_failing_access_sink_do_not_leak_successful_results()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         await using var server = await McpTestHost.CreateAsync(harness, requestsPerMinute: 3);
         using var client = server.Client();
         using var huge = new StringContent(new string('x', 17000));
@@ -142,7 +142,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Oversized_result_is_an_explicit_error_and_can_be_read_with_smaller_pages()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var jobs = new JobClient(harness.Store);
         for (var index = 0; index < 40; index++)
         {
@@ -162,7 +162,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Concurrent_queries_are_bounded_and_disconnect_cancels_the_query()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var queries = new WaitingQueries(harness.Store);
         await using var server = await McpTestHost.CreateAsync(harness, queries: queries, concurrentRequests: 1);
         using var client = server.Client();
@@ -182,7 +182,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Query_deadline_returns_an_error_without_fabricating_an_empty_history()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var queries = new WaitingQueries(harness.Store);
         await using var server = await McpTestHost.CreateAsync(harness, queries: queries);
         using var client = server.Client();
@@ -277,7 +277,8 @@ public sealed partial class McpTests
             IExecutionQueries? queries = null, int concurrentRequests = 16, Guid? deniedRun = null,
             bool includeInspection = true, IMcpDiagnosticRedactor? redactor = null, ILoggerProvider? loggerProvider = null,
             bool includeHistory = true, Guid? deniedArchive = null, bool includeRuntime = true, bool includeRetention = true,
-            ITenantAccessResolver? tenants = null)
+            ITenantAccessResolver? tenants = null, IReadOnlySet<McpAction>? actions = null, IMcpActionApprovals? approvals = null,
+            TimeSpan? approvalLifetime = null)
         {
             var key = RSA.Create(2048);
             var audit = new AccessRecorder();
@@ -318,6 +319,14 @@ public sealed partial class McpTests
                 builder.Services.AddSingleton(redactor);
             }
 
+            if (approvals is not null)
+            {
+                builder.Services.AddSingleton(approvals);
+                builder.Services.AddSingleton<IJobAdministration>(harness.Store);
+                builder.Services.AddSingleton<IExecutionOperations>(harness.Store);
+                builder.Services.AddSingleton<IJobQueries>(harness.Store);
+            }
+
             builder.Services.AddSingleton<IMcpAccessSink>(audit);
             if (tenants is not null)
             {
@@ -334,7 +343,9 @@ public sealed partial class McpTests
                 Environment = "tests",
                 EndpointPath = "/operations/mcp",
                 RequestsPerMinute = requestsPerMinute,
-                ConcurrentRequests = concurrentRequests
+                ConcurrentRequests = concurrentRequests,
+                Actions = actions ?? new HashSet<McpAction>(),
+                ApprovalLifetime = approvalLifetime ?? TimeSpan.FromMinutes(15)
             }, jwt =>
             {
                 jwt.Configuration = new OpenIdConnectConfiguration { Issuer = Issuer };
@@ -371,15 +382,6 @@ public sealed partial class McpTests
                 return new MySqlJobStore(harness.ReadOnlyConnectionString!);
             }
 
-            if (harness.Store is SqliteJobStore)
-            {
-                return new SqliteJobStore(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(harness.ConnectionString)
-                {
-                    Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly,
-                    Pooling = false
-                }.ToString());
-            }
-
             return new PostgresJobStore(new Npgsql.NpgsqlConnectionStringBuilder(harness.ConnectionString)
             {
                 Options = "-c default_transaction_read_only=on",
@@ -388,22 +390,23 @@ public sealed partial class McpTests
         }
 
         internal HttpClient Client(bool authenticated = true, bool permission = true, string subject = "operator", bool payloads = false,
-            bool audit = false, bool retention = false)
+            bool audit = false, bool retention = false, params string[] grants)
         {
             var client = app.GetTestClient();
             client.BaseAddress = new("https://localhost");
             if (authenticated)
             {
-                client.DefaultRequestHeaders.Authorization = new("Bearer", Token(permission: permission, subject: subject, payloads: payloads, audit: audit, retention: retention));
+                client.DefaultRequestHeaders.Authorization = new("Bearer", Token(permission: permission, subject: subject, payloads: payloads, audit: audit, retention: retention, grants: grants));
             }
 
             return client;
         }
 
         internal string Token(string audience = Resource, bool expired = false, string issuer = Issuer, bool permission = true, string subject = "operator", bool payloads = false,
-            bool audit = false, bool retention = false)
+            bool audit = false, bool retention = false, string[]? grants = null)
         {
             var claims = new List<Claim> { new("sub", subject), new("client_id", "integration-client") };
+            claims.AddRange((grants ?? []).Select(grant => new Claim(OperationPermissions.ClaimType, grant)));
             if (permission)
             {
                 claims.Add(new(OperationPermissions.ClaimType, OperationPermissions.ReadExecutions));

@@ -70,6 +70,74 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "workthrough-mcp-viewer",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "mcp-viewer-test-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "https://localhost:5298/operations/mcp",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "workthrough-mcp-outsider",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "mcp-outsider-test-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "https://localhost:5298/operations/mcp",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -113,6 +181,20 @@
       "realmRoles": [
         "workthrough-viewer"
       ]
+    },
+    {
+      "username": "service-account-workthrough-mcp-viewer",
+      "enabled": true,
+      "serviceAccountClientId": "workthrough-mcp-viewer",
+      "realmRoles": [
+        "workthrough-viewer"
+      ]
+    },
+    {
+      "username": "service-account-workthrough-mcp-outsider",
+      "enabled": true,
+      "serviceAccountClientId": "workthrough-mcp-outsider",
+      "realmRoles": []
     }
   ]
 }

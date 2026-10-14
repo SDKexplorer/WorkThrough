@@ -1,6 +1,7 @@
 using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace WorkThrough.Storage;
 
@@ -147,7 +148,8 @@ public abstract partial class RelationalJobStore : IOperationHistoryQueries
     private static ExecutionCursor HistoryWindow<T>(string kind, T query, string? cursor, DateTimeOffset? from,
         DateTimeOffset? until, string storeId, DateTimeOffset observed)
     {
-        var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { kind, query })));
+        var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new HistoryFingerprint<T>(kind, query),
+            (JsonTypeInfo<HistoryFingerprint<T>>)CursorJsonContext.Default.GetTypeInfo(typeof(HistoryFingerprint<T>))!)));
         var previous = cursor is null ? null : ReadExecutionCursor(cursor);
         var upper = previous?.Until ?? CeilingMilliseconds(until ?? observed.AddMilliseconds(1));
         var lower = previous?.From ?? CeilingMilliseconds(from ?? DateTimeOffset.FromUnixTimeMilliseconds(upper) - OperationQueryLimits.DefaultWindow);

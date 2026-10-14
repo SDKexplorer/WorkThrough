@@ -1,9 +1,12 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace WorkThrough;
 
 /// <summary>Identifies a generated registration manifest in a deployed assembly.</summary>
 [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
-public sealed class JobModuleAttribute(Type moduleType) : Attribute
+public sealed class JobModuleAttribute([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type moduleType) : Attribute
 {
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
     public Type ModuleType { get; } = moduleType;
 }
 
@@ -15,5 +18,5 @@ public interface IJobModule
 public interface IJobRegistrar
 {
     /// <summary>Registers a job at the address its class or input type declares.</summary>
-    void Register<TInput, TJob>() where TJob : class, IJob<TInput>;
+    void Register<TInput, [DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] TJob>() where TJob : class, IJob<TInput>;
 }

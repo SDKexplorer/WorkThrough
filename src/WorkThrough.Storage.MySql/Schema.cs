@@ -12,7 +12,7 @@ public sealed partial class MySqlJobStore
     private sealed record SchemaStep(string Name, bool Index, string Sql, string? Column = null);
 
     /// <summary>Schema 10, the first MySQL schema. Never edit or reorder: its fingerprint identifies existing installations.</summary>
-    private static readonly SchemaStep[] MySqlSchemaSteps =
+    private static readonly SchemaStep[] MySqlBaseSchema =
     [
         new("dj_admission", false, "CREATE TABLE dj_admission(id INT PRIMARY KEY) {table}"),
         new("dj_retention_policy", false, "CREATE TABLE dj_retention_policy(id INT PRIMARY KEY,revision INT NOT NULL,policy LONGTEXT NOT NULL) {table}"),
@@ -160,7 +160,23 @@ public sealed partial class MySqlJobStore
             """),
     ];
 
+    /// <summary>Schema 11 additions: named calendars (ADR-032).</summary>
+    private static readonly SchemaStep[] MySqlCalendarSchema =
+    [
+        new("dj_calendars", false, "CREATE TABLE dj_calendars(name VARCHAR(120) PRIMARY KEY,definition LONGTEXT NOT NULL,revision INT NOT NULL) {table}"),
+    ];
+
+    private static readonly SchemaStep[] MySqlSchemaSteps = [.. MySqlBaseSchema, .. MySqlCalendarSchema];
+
     /// <summary>Identifies the installed step list; any edit to a step's SQL changes it.</summary>
-    private static readonly string SchemaFingerprint = Convert.ToHexString(SHA256.HashData(
-        Encoding.UTF8.GetBytes(string.Join("\n", MySqlSchemaSteps.Select(step => step.Sql.ReplaceLineEndings("\n"))))));
+    private static readonly string SchemaFingerprint = Fingerprint(MySqlSchemaSteps);
+
+    /// <summary>Completed earlier installations that this schema extends by resuming after their last step.</summary>
+    private static readonly (int Version, int Steps, string Fingerprint)[] Predecessors =
+    [
+        (10, MySqlBaseSchema.Length, Fingerprint(MySqlBaseSchema))
+    ];
+
+    private static string Fingerprint(IEnumerable<SchemaStep> steps) => Convert.ToHexString(SHA256.HashData(
+        Encoding.UTF8.GetBytes(string.Join("\n", steps.Select(step => step.Sql.ReplaceLineEndings("\n"))))));
 }

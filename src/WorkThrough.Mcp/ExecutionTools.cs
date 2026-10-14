@@ -15,7 +15,7 @@ internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQu
     internal const string Search = "workthrough_search_executions";
     internal const string Get = "workthrough_get_execution";
     internal const string Attempts = "workthrough_get_attempts";
-    internal static readonly string[] Names = [Context, Search, Get, Attempts, .. InspectionTools.Names, .. HistoryTools.Names, .. RuntimeTools.Names, RetentionTools.Status];
+    internal static readonly string[] Names = [Context, Search, Get, Attempts, .. InspectionTools.Names, .. HistoryTools.Names, .. RuntimeTools.Names, RetentionTools.Status, .. ActionTools.Names];
 
     private const string ContextFormatVersion = "1";
 
@@ -23,13 +23,14 @@ internal sealed class ExecutionTools(WorkThroughMcpOptions options, IExecutionQu
     private const string Coverage = "live";
 
     [McpServerTool(Name = Context, ReadOnly = true, Destructive = false, OpenWorld = false, UseStructuredContent = true)]
-    [Description("Describe this configured read-only endpoint, query limits and unavailable capabilities. No cross-store or tenant discovery.")]
+    [Description("Describe this configured endpoint, whether it is read-only, query limits and unavailable capabilities. No cross-store or tenant discovery.")]
     public async Task<McpExecutionContext> GetContext(CancellationToken cancellationToken)
     {
         var context = await Queries.GetExecutionContextAsync(cancellationToken);
         var names = Names.Where(name => McpCapabilities.IsAvailable(services, name)).ToArray();
 
-        return new(options.Environment, options.Resource.AbsoluteUri, context.StoreId, context.ObservedAt, ContextFormatVersion, Coverage, true,
+        return new(options.Environment, options.Resource.AbsoluteUri, context.StoreId, context.ObservedAt, ContextFormatVersion, Coverage,
+            !McpCapabilities.ActionsAvailable(services),
             names, McpCapabilities.Unavailable(services), OperationQueryLimits.DefaultPageSize, OperationQueryLimits.MaximumPageSize,
             OperationQueryLimits.MaximumWindowDays, McpToolGuard.MaximumResponseBytes, OperationQueryLimits.DeadlineSeconds);
     }

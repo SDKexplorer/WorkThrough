@@ -4,7 +4,7 @@
   "classifications": ["Test", "xUnit", "Background jobs"],
   "identity": "WorkThrough.Templates.Tests",
   "name": "WorkThrough tests",
-  "description": "xUnit tests for WorkThrough jobs and flows: a flow's logic with stubbed jobs, on the real engine and a throwaway SQLite file.",
+  "description": "xUnit tests for WorkThrough jobs and flows: a flow's logic with stubbed jobs, on the real engine in a throwaway PostgreSQL schema (set WORKTHROUGH_TEST_POSTGRES).",
   "shortName": "workthrough-tests",
   "sourceName": "WorkThroughTests",
   "preferNameDirectory": true,

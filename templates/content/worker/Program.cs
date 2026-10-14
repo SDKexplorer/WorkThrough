@@ -7,9 +7,7 @@ var connectionString = builder.Configuration.GetConnectionString("WorkThrough")
 
 // Run as many copies of this worker as you need against the same database; they share the work.
 builder.Services.AddWorkThrough()
-#if (UseSqlite)
-    .UseSqlite(connectionString)
-#elif (UsePostgreSql)
+#if (UsePostgreSql)
     .UsePostgreSql(connectionString)
 #elif (UseSqlServer)
     .UseSqlServer(connectionString)
@@ -18,8 +16,10 @@ builder.Services.AddWorkThrough()
 #else
     .UseOracle(connectionString)
 #endif
-    .AddJobs(typeof(Program).Assembly)
-    .SeedSchedules(ScheduleDefinition.Create("reports.daily", "0 6 * * *", new DailyReport(Days: 1)))
+    .Job(Reports.Daily, job => job
+        .RunWith<DailyReportJob>()
+        .Every("0 6 * * *", new DailyReport(Days: 1))
+        .AtMostRunning(1))
     .AddScheduler()
     .AddWorker(options => options.MaxConcurrentJobs = 8);
 

@@ -7,9 +7,7 @@
   <ItemGroup>
     <PackageReference Include="WorkThrough.Hosting" Version="WORKTHROUGH_VERSION" />
     <PackageReference Include="WorkThrough.Dashboard" Version="WORKTHROUGH_VERSION" />
-<!--#if (UseSqlite) -->
-    <PackageReference Include="WorkThrough.Storage.Sqlite" Version="WORKTHROUGH_VERSION" />
-<!--#elif (UsePostgreSql) -->
+<!--#if (UsePostgreSql) -->
     <PackageReference Include="WorkThrough.Storage.PostgreSql" Version="WORKTHROUGH_VERSION" />
 <!--#elif (UseSqlServer) -->
     <PackageReference Include="WorkThrough.Storage.SqlServer" Version="WORKTHROUGH_VERSION" />

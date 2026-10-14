@@ -2,14 +2,17 @@
 
 | Sample | Shows |
 |---|---|
-| [QuickStart](QuickStart/Program.cs) | The smallest program: one job, SQLite, an in-process worker. It runs the job and exits. |
+| [QuickStart](QuickStart/Program.cs) | The smallest program: one job, PostgreSQL, an in-process worker. It runs the job and exits. |
 | [QuickStart.Web](QuickStart.Web/Program.cs) | An API that enqueues jobs, with idempotent requests, a delayed job, the worker and the console in one process. |
+| [NativeAot](NativeAot/Program.cs) | A native AOT binary: explicit job registration, a source-generated JSON context for job data, a flow and a schedule on PostgreSQL. Publish with `dotnet publish samples/NativeAot -c Release`. |
 | [HangfireMigration](HangfireMigration/Program.cs) | Moves a Hangfire application's queued, delayed and recurring jobs into WorkThrough with the importer, then retires them in Hangfire. |
+| [QuartzMigration](QuartzMigration/Program.cs) | Moves Quartz.NET jobs with a holiday-calendar cron trigger and an interval trigger into WorkThrough schedules, then unschedules them in Quartz. |
 | [Shop](#shop-sample) | A system split into deployable hosts, with a flow, tenants, limits, schedules, an OIDC console and MCP. |
 
 ```bash
 dotnet run --project samples/QuickStart
 dotnet run --project samples/HangfireMigration
+dotnet run --project samples/QuartzMigration
 ASPNETCORE_ENVIRONMENT=Development dotnet run --project samples/QuickStart.Web --urls http://127.0.0.1:5296
 curl -X POST http://127.0.0.1:5296/signups -H 'Content-Type: application/json' -d '{"email":"ada@example.com"}'
 ```
@@ -22,8 +25,8 @@ One small shop, deployed the way a real system would be: shared definitions, job
 
 | Project | Role |
 |---|---|
-| `Shop.Shared` | Typed job addresses (`ShopJobs`), the checkout flow, settings, storage choice, seeded policies and schedule, and the tenant-claim resolver. Producers need only this project. |
-| `Shop.Jobs` | The `IJob<T>` implementations and the one place that maps addresses to classes (`AddShopJobs`). |
+| `Shop.Shared` | Typed job addresses (`ShopJobs`) with their queues, the checkout flow, settings, storage choice, fleet-wide policies and the tenant-claim resolver. Producers need only this project. |
+| `Shop.Jobs` | The `IJob<T>` implementations and `AddShopJobs`, which sets up each job in one `Job(...)` block: its class, limits and schedule. |
 | `Shop.Api` | Order intake and review approval, a worker and scheduler, and the embedded dashboard. `--smoke` runs an end-to-end check. |
 | `Shop.Worker` | Headless worker for scaling out. `--describe-worker` prints its capabilities; `--preflight` checks that it covers the stored work. |
 | `Shop.Dashboard` | Standalone console with OIDC sign-in, role-based permissions and tenant-scoped users. References no job code. |
@@ -50,10 +53,9 @@ curl -X POST http://127.0.0.1:5295/orders -H 'Content-Type: application/json' -d
 
 Each order row and its "start checkout" job commit in one database transaction (`Orders.PlaceAsync`). That job starts the flow with an idempotency key, so a retry never starts a second checkout.
 
-Scale out by starting workers against the same store. Separate local processes need the same absolute SQLite path; use PostgreSQL for several machines:
+Scale out by starting workers against the same store:
 
 ```bash
-Shop__Sqlite="Data Source=$PWD/shop.db" dotnet run --project samples/Shop.Worker
 Shop__PostgreSql="Host=...;Database=shop" dotnet run --project samples/Shop.Worker
 ```
 
@@ -61,27 +63,27 @@ Shop__PostgreSql="Host=...;Database=shop" dotnet run --project samples/Shop.Work
 
 - **Stable addresses** (`ShopJobs`, `AddShopJobs`): stored work names `shop.payment.charge` v1, never a CLR type. Move or rename a job class and existing work still runs.
 - **Flow** (`CheckoutFlow`): steps pass outputs to inputs by property name. The review step runs only when the payment output says so, and shipping waits for it only then.
-- **Policies** (`ShopSetup.SeedShopPolicies`), created once and afterwards owned by operators in the console:
+- **Policies**, created once and afterwards owned by operators in the console. Fleet-wide ones are in `ShopSetup.SeedShopPolicies`; each job's own sit with it in `AddShopJobs`:
   - at most 12 running attempts fleet-wide and 2 shipments at a time;
   - 4 slots per tenant, so one busy tenant cannot starve the others;
   - one payment at a time per customer;
   - 120 payment starts per tenant per minute;
   - a daily report at 06:00 UTC.
-- **Tenants:** orders carry their tenant; partition keys are namespaced with it. Users whose identity token has `tenant` claims see only those tenants in `Shop.Dashboard` and `Shop.Mcp` (`TenantClaimResolver`).
+- **Tenants:** orders carry their tenant; partition keys are namespaced with it. Users whose token has `tenant` claims see only those tenants in `Shop.Dashboard` and `Shop.Mcp`; roles mapped to `tenants.all` see the whole store; anyone else sees nothing (`TenantClaimResolver`).
 - **Effects:** jobs receive `context.IdempotencyKey`, stable across retries; pass it to payment and shipping providers. Delivery is at least once.
 
 ## Configuration
 
 Settings bind from the `Shop` section, with environment variables as `Shop__Name`:
 
-- **Storage:** `Sqlite` (default `Data Source=shop.db`) or `PostgreSql`.
+- **Storage:** `PostgreSql`, by default the local database from `samples/compose.yaml` in schema `shop`.
 - **Capacity:** `WorkerSlots`, `FleetSlots`, `ShippingSlots`, `SlotsPerTenant`.
 - **Rate:** `PaymentsPerTenantPerMinute`.
 - **Report schedule:** `DailyReportCron`, `DailyReportTimeZone`.
 
-`Shop.Dashboard` reads `Identity:Authority`, `ClientId` and `ClientSecret` from host configuration or a secret store; without an authority it runs anonymously only in Development. Its role-to-permission map is in `appsettings.json`; see [dashboard security](../docs/dashboard-security.md). `Shop.Mcp` needs `Mcp:Authority`, `Mcp:Resource` and `Mcp:Environment` and has no anonymous mode; see [MCP](../docs/mcp.md). Both use an already initialized store.
+`Shop.Dashboard` reads `Identity:Authority`, `ClientId`, `ClientSecret`, `RoleClaim`, `TenantClaim` and `RolePermissions` from host configuration or a secret store; without an authority it runs anonymously only in Development. Its role map is in `appsettings.json`; see [sign-in and permissions](../docs/sign-in.md). `Shop.Mcp` needs `Mcp:Authority`, `Mcp:Resource` and `Mcp:Environment` and has no anonymous mode; see [MCP](../docs/mcp.md). Both use an already initialized store.
 
-SQL Server, Oracle, MySQL and MariaDB work the same way through `UseSqlServer`, `UseOracle` and `UseMySql`; see [providers](../docs/providers.md). The sample keeps to SQLite and PostgreSQL so that its order table DDL stays portable.
+SQL Server, Oracle, MySQL and MariaDB work the same way through `UseSqlServer`, `UseOracle` and `UseMySql`; see [providers](../docs/providers.md). The sample keeps to PostgreSQL so that its order table DDL stays simple.
 
 ## Verification
 

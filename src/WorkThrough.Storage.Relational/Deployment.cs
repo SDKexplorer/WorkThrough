@@ -62,7 +62,7 @@ public abstract partial class RelationalJobStore
                             break;
                         }
 
-                        var schedule = JsonSerializer.Deserialize<ScheduleDefinition>(reader.GetString(0), JobJson.Options)!;
+                        var schedule = JobJson.Deserialize<ScheduleDefinition>(reader.GetString(0))!;
                         var key = (schedule.Processor, schedule.Queue);
                         if (items.TryGetValue(key, out var existing))
                         {

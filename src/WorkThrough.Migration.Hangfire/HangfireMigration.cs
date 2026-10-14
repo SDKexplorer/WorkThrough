@@ -1,7 +1,5 @@
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Hangfire;
@@ -20,13 +18,17 @@ public sealed partial class HangfireMigration(JobStorage storage)
     private const int PageSize = 500;
     private const string IdempotencyPrefix = "hangfire:";
     private const string SchedulePrefix = "hangfire.";
-    private const int CronFields = 5;
     private static readonly OperationActor Actor = new("workthrough", "hangfire-migration", "Hangfire migration");
 
     private readonly List<Mapping> mappings = [];
     private Func<string, string> scheduleKey = DefaultScheduleKey;
 
     private sealed record Mapping(Type Service, MethodInfo Method, JobContractId Target, Func<HangfireCall, JsonElement> Convert, string? Queue);
+
+    private sealed record NameMapping(string Type, string Method, JobContractId Target, Func<HangfireArguments, JsonElement> Convert, string? Queue);
+
+    private readonly List<NameMapping> nameMappings = [];
+    private bool includeFailed;
 
     /// <summary>Imports calls of <paramref name="method"/> as work at <paramref name="target"/>, with the input <paramref name="convert"/> builds.</summary>
     /// <example><c>.Map((IMailer mailer) =&gt; mailer.SendWelcome(default!), Emails.Welcome, call =&gt; new WelcomeEmail(call.Argument&lt;string&gt;(0)))</c></example>
@@ -36,6 +38,31 @@ public sealed partial class HangfireMigration(JobStorage storage)
     /// <summary>Imports calls of an asynchronous <paramref name="method"/>.</summary>
     public HangfireMigration Map<TService, TInput>(Expression<Func<TService, Task>> method, JobDefinition<TInput> target, Func<HangfireCall, TInput> convert,
         string? queue = null) => Add(typeof(TService), method.Body, target, convert, queue);
+
+    /// <summary>
+    /// Imports calls of <paramref name="method"/> on the type whose full name is <paramref name="type"/>, read from Hangfire's stored
+    /// invocation, so the type need not load. Typed mappings take precedence when the type does load.
+    /// </summary>
+    /// <example><c>.MapByName("MyApp.Mailer", "SendWelcome", Emails.Welcome, call =&gt; new WelcomeEmail(call.Argument&lt;string&gt;(0)))</c></example>
+    public HangfireMigration MapByName<TInput>(string type, string method, JobDefinition<TInput> target, Func<HangfireArguments, TInput> convert,
+        string? queue = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(convert);
+        nameMappings.Add(new(type, method, target.Identity, arguments => JsonSerializer.SerializeToElement(convert(arguments), JobJson.Options), queue));
+
+        return this;
+    }
+
+    /// <summary>Also imports jobs that failed in Hangfire, to run again in WorkThrough with a fresh attempt budget.</summary>
+    public HangfireMigration IncludeFailed()
+    {
+        includeFailed = true;
+
+        return this;
+    }
 
     /// <summary>Names the WorkThrough schedule for each Hangfire recurring job ID; by default <c>hangfire.</c> plus the ID in lowercase.</summary>
     public HangfireMigration NameSchedules(Func<string, string> key)
@@ -63,7 +90,10 @@ public sealed partial class HangfireMigration(JobStorage storage)
         {
             foreach (var recurring in connection.GetRecurringJobs())
             {
-                items.Add(Recurring(recurring.Id, recurring.Job, recurring.LoadException, recurring.Cron, recurring.TimeZoneId, recurring.Queue));
+                var stored = connection.GetAllEntriesFromHash($"recurring-job:{recurring.Id}")?.GetValueOrDefault("Job") is { } payload
+                    ? InvocationData.DeserializePayload(payload)
+                    : null;
+                items.Add(Recurring(recurring.Id, recurring.Job, stored, recurring.LoadException, recurring.Cron, recurring.TimeZoneId, recurring.Queue));
             }
         }
 
@@ -74,7 +104,7 @@ public sealed partial class HangfireMigration(JobStorage storage)
             {
                 var page = monitoring.EnqueuedJobs(queue.Name, from, PageSize);
                 items.AddRange(page.Where(entry => entry.Value.InEnqueuedState).Select(entry =>
-                    Job(HangfireJobKind.Enqueued, entry.Key, entry.Value.Job, entry.Value.LoadException, queue.Name, null)));
+                    Job(HangfireJobKind.Enqueued, entry.Key, entry.Value.Job, entry.Value.InvocationData, entry.Value.LoadException, queue.Name, null)));
                 if (page.Count < PageSize)
                 {
                     break;
@@ -86,8 +116,20 @@ public sealed partial class HangfireMigration(JobStorage storage)
         {
             var page = monitoring.ScheduledJobs(from, PageSize);
             items.AddRange(page.Where(entry => entry.Value.InScheduledState).Select(entry =>
-                Job(HangfireJobKind.Scheduled, entry.Key, entry.Value.Job, entry.Value.LoadException, entry.Value.Job?.Queue,
-                    new DateTimeOffset(DateTime.SpecifyKind(entry.Value.EnqueueAt, DateTimeKind.Utc)))));
+                Job(HangfireJobKind.Scheduled, entry.Key, entry.Value.Job, entry.Value.InvocationData, entry.Value.LoadException,
+                    entry.Value.Job?.Queue ?? entry.Value.InvocationData?.Queue, new DateTimeOffset(DateTime.SpecifyKind(entry.Value.EnqueueAt, DateTimeKind.Utc)))));
+            if (page.Count < PageSize)
+            {
+                break;
+            }
+        }
+
+        for (var from = 0; includeFailed; from += PageSize)
+        {
+            var page = monitoring.FailedJobs(from, PageSize);
+            items.AddRange(page.Where(entry => entry.Value.InFailedState).Select(entry =>
+                Job(HangfireJobKind.Failed, entry.Key, entry.Value.Job, entry.Value.InvocationData, entry.Value.LoadException,
+                    entry.Value.Job?.Queue ?? entry.Value.InvocationData?.Queue, null)));
             if (page.Count < PageSize)
             {
                 break;
@@ -99,32 +141,30 @@ public sealed partial class HangfireMigration(JobStorage storage)
         return new(items, monitoring.Servers().Count, monitoring.ProcessingCount(), monitoring.FailedCount());
     }
 
-    private HangfireMigrationItem Job(HangfireJobKind kind, string id, Job? job, Exception? loadException, string? queue, DateTimeOffset? notBefore)
+    private HangfireMigrationItem Job(HangfireJobKind kind, string id, Job? job, InvocationData? stored, Exception? loadException, string? queue,
+        DateTimeOffset? notBefore)
     {
-        var item = Convert(kind, id, job, loadException, queue);
+        var item = Convert(kind, id, job, stored, loadException, queue);
 
         return item.IsReady ? item with { NotBefore = notBefore } : item;
     }
 
-    private HangfireMigrationItem Recurring(string id, Job? job, Exception? loadException, string? cron, string? timeZone, string? queue)
+    private HangfireMigrationItem Recurring(string id, Job? job, InvocationData? stored, Exception? loadException, string? cron, string? timeZone,
+        string? queue)
     {
-        var item = Convert(HangfireJobKind.Recurring, id, job, loadException, queue);
+        var item = Convert(HangfireJobKind.Recurring, id, job, stored, loadException, queue);
         if (!item.IsReady)
         {
             return item;
         }
 
+        // A seconds field of 0 adds nothing, and five fields need no newer engine protocol.
         var fields = (cron ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (fields.Length == CronFields + 1 && fields[0] != "0")
-        {
-            return item with { Problem = $"Cron '{cron}' runs more than once a minute; WorkThrough schedules have minute precision." };
-        }
-
         var key = scheduleKey(id);
         var schedule = item with
         {
             ScheduleKey = key,
-            Cron = fields.Length == CronFields + 1 ? string.Join(' ', fields.Skip(1)) : cron,
+            Cron = fields is ["0", _, _, _, _, _] ? string.Join(' ', fields.Skip(1)) : cron,
             TimeZone = string.IsNullOrEmpty(timeZone) ? ScheduleDefinition.DefaultTimeZone : timeZone
         };
         try
@@ -139,33 +179,74 @@ public sealed partial class HangfireMigration(JobStorage storage)
         return schedule;
     }
 
-    private HangfireMigrationItem Convert(HangfireJobKind kind, string id, Job? job, Exception? loadException, string? queue)
+    private HangfireMigrationItem Convert(HangfireJobKind kind, string id, Job? job, InvocationData? stored, Exception? loadException, string? queue)
     {
-        if (job is null)
-        {
-            return new(kind, id, "?") { Problem = $"Hangfire could not load the job: {loadException?.Message ?? "unknown type"}" };
-        }
-
-        var method = $"{job.Type.FullName}.{job.Method.Name}";
-        var mapping = mappings.FirstOrDefault(candidate => Matches(candidate, job));
-        if (mapping is null)
-        {
-            return new(kind, id, method) { Problem = "No mapping for this method." };
-        }
-
+        var typeName = job?.Type.FullName ?? stored?.Type?.Split(',')[0].Trim();
+        var methodName = job?.Method.Name ?? stored?.Method;
+        var method = $"{typeName ?? "?"}.{methodName ?? "?"}";
         try
         {
-            return new(kind, id, method)
+            if (job is not null && mappings.FirstOrDefault(candidate => Matches(candidate, job)) is { } typed)
             {
-                Target = mapping.Target,
-                Input = mapping.Convert(new(job.Type, job.Method, job.Args)),
-                Queue = mapping.Queue ?? queue ?? JobDefaults.Queue
-            };
+                return new(kind, id, method)
+                {
+                    Target = typed.Target,
+                    Input = typed.Convert(new(job.Type, job.Method, job.Args)),
+                    Queue = typed.Queue ?? queue ?? JobDefaults.Queue
+                };
+            }
+
+            if (stored is not null && nameMappings.FirstOrDefault(candidate => candidate.Type == typeName && candidate.Method == methodName) is { } named)
+            {
+                return new(kind, id, method)
+                {
+                    Target = named.Target,
+                    Input = named.Convert(new(typeName!, methodName!, StoredArguments(stored))),
+                    Queue = named.Queue ?? queue ?? JobDefaults.Queue
+                };
+            }
         }
         catch (Exception error) when (error is InvalidOperationException or ArgumentException or InvalidCastException or JsonException)
         {
             return new(kind, id, method) { Problem = $"The mapping could not convert the arguments: {error.Message}" };
         }
+
+        return new(kind, id, method)
+        {
+            Problem = job is null && stored is null ? $"Hangfire could not load the job: {loadException?.Message ?? "unknown type"}" : "No mapping for this method."
+        };
+    }
+
+    /// <summary>
+    /// Each stored argument as JSON. Hangfire stores an argument as a JSON string holding the argument's own JSON, which is unwrapped.
+    /// </summary>
+    private static IReadOnlyList<JsonElement> StoredArguments(InvocationData stored)
+    {
+        if (string.IsNullOrEmpty(stored.Arguments))
+        {
+            return [];
+        }
+
+        using var document = JsonDocument.Parse(stored.Arguments);
+
+        return [.. document.RootElement.EnumerateArray().Select(argument =>
+        {
+            if (argument.ValueKind != JsonValueKind.String)
+            {
+                return argument.Clone();
+            }
+
+            try
+            {
+                using var inner = JsonDocument.Parse(argument.GetString()!);
+
+                return inner.RootElement.Clone();
+            }
+            catch (JsonException)
+            {
+                return argument.Clone();
+            }
+        })];
     }
 
     /// <summary>The mapped method itself, or the same method on an implementation of the mapped service.</summary>
@@ -244,24 +325,14 @@ public sealed partial class HangfireMigration(JobStorage storage)
         return new(imported, skipped);
     }
 
-    /// <summary>Saves, publishes and enables a schedule; returns why it failed, or null. Command IDs derive from the job, so retries deduplicate.</summary>
+    /// <summary>Publishes and enables a schedule; returns why it failed, or null. Retries deduplicate on the job's ID.</summary>
     private static async Task<string?> PublishAsync(IJobSchedules schedules, HangfireMigrationItem item, CancellationToken ct)
     {
-        var definition = Definition(item);
-        var draft = await schedules.SaveScheduleDraftAsync(definition, 0, Command(item, "draft"), ct);
-        var published = draft.IsSuccess
-            ? await schedules.PublishScheduleAsync(definition.Key, definition.Version, draft.Value, Command(item, "publish"), ct)
-            : draft;
-        var enabled = published.IsSuccess
-            ? await schedules.SetScheduleEnabledAsync(definition.Key, definition.Version, published.Value, true, Command(item, "enable"), ct)
-            : published;
+        var created = await schedules.CreatePublishedAsync(Definition(item), enable: true, Actor, IdempotencyPrefix + item.HangfireId,
+            $"Imported from Hangfire recurring job {item.HangfireId}", ct);
 
-        return enabled.IsSuccess ? null : enabled.Error!.Message;
+        return created.IsSuccess ? null : created.Error!.Message;
     }
-
-    private static AdministrativeCommand Command(HangfireMigrationItem item, string step) =>
-        new(new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"{IdempotencyPrefix}{item.HangfireId}:{step}"))[..16]), Actor,
-            $"Imported from Hangfire recurring job {item.HangfireId}");
 
     /// <summary>
     /// Deletes the imported jobs in Hangfire and removes its imported recurring jobs, so restarting Hangfire cannot run them again.

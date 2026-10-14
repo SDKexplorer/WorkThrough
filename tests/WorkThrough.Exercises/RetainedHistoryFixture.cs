@@ -24,7 +24,6 @@ internal static class RetainedHistoryFixture
         var (numbers, identifier, remainder, correlation) = database.Provider switch
         {
             "postgres" => ($"SELECT generate_series(1,{count}) AS n", "'00000000-0000-0000-0000-'||LPAD(CAST(n AS TEXT),12,'0')", "n%3", "'fixture:'||CAST(n%16 AS TEXT)"),
-            "sqlite" => ($"WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM numbers WHERE n<{count}) SELECT n FROM numbers", "printf('00000000-0000-0000-0000-%012d',n)", "n%3", "'fixture:'||CAST(n%16 AS TEXT)"),
             "sqlserver" => ($"SELECT TOP ({count}) ROW_NUMBER() OVER(ORDER BY a.object_id,b.object_id) AS n FROM sys.all_objects a CROSS JOIN sys.all_objects b", "'00000000-0000-0000-0000-'+RIGHT(REPLICATE('0',12)+CAST(n AS varchar(12)),12)", "n%3", "'fixture:'+CAST(n%16 AS varchar(2))"),
             "oracle" => ($"SELECT LEVEL AS n FROM dual CONNECT BY LEVEL<={count}", "'00000000-0000-0000-0000-'||LPAD(TO_CHAR(n),12,'0')", "MOD(n,3)", "'fixture:'||TO_CHAR(MOD(n,16))"),
             "mysql" or "mariadb" => ($"SELECT n FROM (SELECT 1+{Decimal(0)}+10*{Decimal(1)}+100*{Decimal(2)}+1000*{Decimal(3)}+10000*{Decimal(4)}+100000*{Decimal(5)} AS n FROM {Digits(6)}) d WHERE n<={count}",

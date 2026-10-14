@@ -21,13 +21,13 @@ public static class OrderFlow
 {
     // Charge, then ship with the payment's ID. If the charge fails, apologise instead.
     public static FlowDefinition Definition { get; } = new FlowBuilder("orders.place", 1)
-        .Step("charge", OrderJobs.Charge.Identity)
+        .Step("charge", OrderJobs.Charge)
             .BindInput((Charge charge) => charge.OrderId, (PlaceOrder order) => order.OrderId)
             .BindInput((Charge charge) => charge.Amount, (PlaceOrder order) => order.Amount)
-        .Step("ship", OrderJobs.Ship.Identity).After("charge")
+        .Step("ship", OrderJobs.Ship).After("charge")
             .BindInput((Ship ship) => ship.OrderId, (PlaceOrder order) => order.OrderId)
             .BindInput((Ship ship) => ship.PaymentId, (Receipt receipt) => receipt.PaymentId, "charge")
-        .Step("apologise", OrderJobs.Apologise.Identity).OnFailureOf("charge")
+        .Step("apologise", OrderJobs.Apologise).OnFailureOf("charge")
             .BindInput((Apologise apology) => apology.OrderId, (PlaceOrder order) => order.OrderId)
         .Build();
 }

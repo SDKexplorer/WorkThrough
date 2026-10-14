@@ -10,6 +10,12 @@
     <Authors>WorkThrough contributors</Authors>
     <Description>Contract-based durable background jobs for .NET.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Copyright>Copyright (c) 2026 WorkThrough contributors</Copyright>
+    <PackageProjectUrl>https://github.com/SDKexplorer/WorkThrough</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/SDKexplorer/WorkThrough</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>background-jobs;jobs;workflow;scheduler;durable;queue</PackageTags>
   </PropertyGroup>
   <ItemGroup Condition="'$(IsPackable)' != 'false'">
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" />

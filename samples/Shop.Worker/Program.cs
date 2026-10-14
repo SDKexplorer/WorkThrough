@@ -17,7 +17,7 @@ var settings = ShopSetup.Settings(builder.Configuration);
 builder.Services.AddWorkThrough()
     .UseShopStorage(settings)
     .SeedShopPolicies(settings)
-    .AddShopJobs()
+    .AddShopJobs(settings)
     .AddScheduler()
     .AddWorker(options =>
     {

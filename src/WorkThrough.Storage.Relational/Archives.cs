@@ -63,7 +63,7 @@ public abstract partial class RelationalJobStore : IExecutionArchives
     }
 
     public Task<Result<IReadOnlyList<Guid>>> ArchiveCompletedAsync(ArchivePolicy policy, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync<IReadOnlyList<Guid>>(command, AuditActions.CreateArchives, "completed executions", policy, async (connection, transaction, ct) =>
+        AdminAsync<IReadOnlyList<Guid>>(command, AuditActions.CreateArchives, "completed executions", Arguments(policy), async (connection, transaction, ct) =>
         {
             var archived = new List<Guid>();
             foreach (var candidate in await ReadCandidatesAsync(connection, transaction, policy, ct))
@@ -90,7 +90,7 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         var now = await NowAsync(connection, transaction, ct);
         var package = new ExecutionArchive(ArchiveFormatVersion, candidate.Id, candidate.Kind, candidate.CorrelationId, DateTimeOffset.FromUnixTimeMilliseconds(now),
             evidence, flow?.Run, flow?.Definition, flow?.Input, events, flow?.Signals ?? []);
-        var json = JsonSerializer.Serialize(package, JobJson.Options);
+        var json = JobJson.Serialize(package);
         var bytes = Encoding.UTF8.GetBytes(json);
         if (bytes.Length > ExecutionArchive.MaximumBytes)
         {
@@ -173,7 +173,7 @@ public abstract partial class RelationalJobStore : IExecutionArchives
         reader.GetInt32(reader.GetOrdinal("jobs")), reader.GetString(reader.GetOrdinal("sha256")), reader.GetInt32(reader.GetOrdinal("has_body")) == 1);
 
     public Task<Result<bool>> PurgeArchiveAsync(Guid id, string expectedSha256, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, AuditActions.PurgeArchive, id.ToString(), new { expectedSha256 }, async (connection, transaction, ct) =>
+        AdminAsync(command, AuditActions.PurgeArchive, id.ToString(), Args(("expectedSha256", expectedSha256)), async (connection, transaction, ct) =>
         {
             await RejectHeldArchiveAsync(connection, transaction, id, ct);
             var hash = await ScalarAsync(connection, transaction, "SELECT sha256 FROM dj_archives WHERE id=@id", ct, ("id", id.ToString()));

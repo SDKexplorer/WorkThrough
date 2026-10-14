@@ -33,7 +33,14 @@ A job registered as a delegate is tested through the host below, or by keeping i
 
 ## Integration tests: `WorkThrough.Testing`
 
-For flows, retries, delays, signals, schedules or limits, use `WorkThroughTestHost` from the `WorkThrough.Testing` package. It runs the real store, worker and scheduler on a throwaway SQLite file, so tests exercise the same SQL and admission rules as production. Its clock can move forward.
+For flows, retries, delays, signals, schedules or limits, use `WorkThroughTestHost` from the `WorkThrough.Testing` package. It runs the real store, worker and scheduler in a throwaway schema of a disposable PostgreSQL database named by `WORKTHROUGH_TEST_POSTGRES`, so tests exercise the same SQL and admission rules as production. Its clock can move forward.
+
+```bash
+docker run -d --name workthrough-tests -e POSTGRES_PASSWORD=tests -p 127.0.0.1:55432:5432 postgres:17-alpine
+export WORKTHROUGH_TEST_POSTGRES='Host=127.0.0.1;Port=55432;Database=postgres;Username=postgres;Password=tests'
+```
+
+Each host creates its own schema and drops it when disposed, so tests can run in parallel against one database. Point it only at a database you can throw away.
 
 ```csharp
 [Fact]

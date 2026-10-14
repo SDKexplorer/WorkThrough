@@ -50,7 +50,7 @@ internal sealed class WorkerProcess : IDisposable
         start.Environment["WT_EXERCISE_SLOTS"] = slots?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
         start.Environment["WT_EXERCISE_PROVIDER"] = database.Provider;
         start.Environment["WT_EXERCISE_CONNECTION"] = database.ConnectionString;
-        start.Environment["WT_EXERCISE_EFFECTS"] = Path.Combine(database.DirectoryPath, "effects.db");
+        start.Environment["WT_EXERCISE_EFFECTS"] = Path.Combine(database.DirectoryPath, "effects");
         process = Process.Start(start)!;
         errors = process.StandardError.ReadToEndAsync();
     }

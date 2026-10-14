@@ -8,7 +8,7 @@ internal sealed class ValidationMiddleware<TInput>(IEnumerable<IJobValidator<TIn
     {
         if (invocation.Registration.RequestType == typeof(TInput))
         {
-            var input = invocation.Job.Payload.Deserialize<TInput>(JobJson.Options) ?? throw new JsonException("Null processor input.");
+            var input = JobJson.Deserialize<TInput>(invocation.Job.Payload) ?? throw new JsonException("Null processor input.");
             foreach (var validator in validators)
             {
                 await validator.ValidateAsync(input, invocation.Execution, ct);

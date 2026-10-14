@@ -1,6 +1,5 @@
 using System.Data.Common;
 using Microsoft.Data.SqlClient;
-using Microsoft.Data.Sqlite;
 using MySqlConnector;
 using Npgsql;
 using Oracle.ManagedDataAccess.Client;
@@ -24,7 +23,6 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             "oracle" => new OracleJobStore(connection),
             "sqlserver" => new SqlServerJobStore(connection),
             "postgres" => new PostgresJobStore(connection),
-            "sqlite" => new SqliteJobStore(connection),
             "mysql" or "mariadb" => new MySqlJobStore(connection),
             _ => throw new ArgumentException("Unknown provider.", nameof(provider))
         };
@@ -65,7 +63,11 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             await command.ExecuteNonQueryAsync();
             connection = new NpgsqlConnectionStringBuilder(admin) { SearchPath = schema }.ToString();
         }
-        else if (provider is "mysql" or "mariadb")
+        else if (provider is not ("mysql" or "mariadb"))
+        {
+            throw new ArgumentException("Unknown provider.", nameof(provider));
+        }
+        else
         {
             schema = "wt_exercise_" + Guid.NewGuid().ToString("N");
             await using var database = new MySqlConnection(MySqlAdministrator(provider));
@@ -73,10 +75,6 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             await using var command = new MySqlCommand($"CREATE DATABASE {schema}", database);
             await command.ExecuteNonQueryAsync();
             connection = new MySqlConnectionStringBuilder(MySqlAdministrator(provider)) { Database = schema }.ConnectionString;
-        }
-        else
-        {
-            connection = new SqliteConnectionStringBuilder { DataSource = Path.Combine(directory, "jobs.db"), DefaultTimeout = 30 }.ToString();
         }
 
         var result = new ExerciseDatabase(provider, connection, schema, directory) { oracleDatabase = oracle };
@@ -97,8 +95,7 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
         "oracle" => new OracleConnection(ConnectionString),
         "sqlserver" => new SqlConnection(ConnectionString),
         "postgres" => new NpgsqlConnection(ConnectionString),
-        "mysql" or "mariadb" => new MySqlConnection(ConnectionString),
-        _ => new SqliteConnection(ConnectionString)
+        _ => new MySqlConnection(ConnectionString)
     };
 
     public async Task<string> VersionAsync()
@@ -111,20 +108,10 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             "oracle" => "SELECT banner_full FROM v$version WHERE banner_full LIKE 'Oracle%'",
             "sqlserver" => "SELECT @@VERSION",
             "postgres" => "SELECT version()",
-            "mysql" or "mariadb" => "SELECT CONCAT(VERSION(),' ',@@version_comment)",
-            _ => "SELECT sqlite_version()"
+            _ => "SELECT CONCAT(VERSION(),' ',@@version_comment)"
         };
 
-        var version = (string)(await command.ExecuteScalarAsync())!;
-        if (Provider == "sqlite")
-        {
-            command.CommandText = "PRAGMA journal_mode";
-            var journal = await command.ExecuteScalarAsync();
-            command.CommandText = "PRAGMA synchronous";
-            version += $"; journal_mode={journal}; synchronous={await command.ExecuteScalarAsync()}";
-        }
-
-        return version;
+        return (string)(await command.ExecuteScalarAsync())!;
     }
 
     public async ValueTask DisposeAsync()
@@ -173,7 +160,6 @@ internal sealed class ExerciseDatabase(string provider, string connectionString,
             }
         }
 
-        SqliteConnection.ClearAllPools();
         Directory.Delete(DirectoryPath, true);
     }
 }

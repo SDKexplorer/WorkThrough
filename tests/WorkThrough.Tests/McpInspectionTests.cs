@@ -70,7 +70,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Missing_inspection_port_reports_capability_unavailable_without_falling_back_to_legacy_queries()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         await using var server = await McpTestHost.CreateAsync(harness, includeInspection: false, includeHistory: false, includeRuntime: false);
         using var client = server.Client(payloads: true);
         var listed = await ResultAsync(await CallAsync(client, "tools/list"));
@@ -82,7 +82,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Redaction_failure_cannot_return_original_diagnostics()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var definition = new JobDefinition<string>("inspection.redaction");
         var id = await new JobClient(harness.Store).EnqueueAsync(definition, "input");
         var job = (await harness.Store.ClaimAsync(new("worker", [definition.Identity], ["default"], TimeSpan.FromMinutes(1))))!;

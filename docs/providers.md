@@ -1,10 +1,9 @@
 # Storage providers
 
-Six databases implement the storage port through five packages. A claim that a provider works refers to a test run recorded in [verification](verification.md); compiling is not evidence.
+Five databases implement the storage port through four packages; SQLite was removed ([ADR-033](adr/0033-remove-sqlite.md)). A claim that a provider works refers to a test run recorded in [verification](verification.md); compiling is not evidence.
 
 | Database | Package and registration | Tested release | Writes that admit work | Decision record |
 |---|---|---|---|---|
-| SQLite | `WorkThrough.Storage.Sqlite`, `UseSqlite` | bundled 3.53.4, WAL | One immediate transaction at a time | — |
 | PostgreSQL | `WorkThrough.Storage.PostgreSql`, `UsePostgreSql` | 17 | Transaction-scoped advisory lock | — |
 | SQL Server | `WorkThrough.Storage.SqlServer`, `UseSqlServer` | 2022 CU27 Developer, Linux x64 | Transaction-owned application lock | [ADR-014](adr/0014-sql-server-storage.md) |
 | Oracle | `WorkThrough.Storage.Oracle`, `UseOracle` | Free 26ai 23.26.3.0 | Lock on a schema-local admission row | [ADR-015](adr/0015-oracle-storage.md) |
@@ -15,8 +14,7 @@ Managed services built on these engines (Azure SQL, Amazon RDS and Aurora, Azure
 
 ## Choosing a provider
 
-- **One machine:** SQLite. Several processes on that machine can share the file.
-- **Several machines:** any server database. Pick the one you already operate; the engine behaves the same on each.
+- **Any deployment:** pick the server database you already operate; the engine behaves the same on each. For one machine, run PostgreSQL alongside the application.
 - **Throughput:** PostgreSQL is the fastest measured server provider; see [throughput](#throughput) below.
 
 ## Provider contract
@@ -34,19 +32,9 @@ Every provider must:
 - initialize idempotently and reject unknown schema versions. A destructive migration is never implicit;
 - pass the complete shared test suite against a real instance.
 
-## SQLite
-
-Uses a local file. Writes that admit work take one immediate transaction at a time.
-
-- **Filesystem:** use a local durable volume. Network filesystems and shared files across machines are not supported.
-- **Journal:** initialization enables WAL for local multi-process use, and every connection sets `synchronous=FULL`. `new SqliteStorageOptions(UseWriteAheadLogging: false)` keeps an existing journal mode; it does not convert WAL back.
-- **Contention:** connections set `busy_timeout` to the connection string's `DefaultTimeout`, so contending processes wait inside SQLite instead of in long driver retries.
-- **Async:** the driver runs operations synchronously behind its async API ([Microsoft.Data.Sqlite async limits](https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/async)), so use a server database for a networked fleet.
-- **Backups:** use SQLite's backup API or a consistent snapshot that includes WAL state ([SQLite WAL](https://www.sqlite.org/wal.html)).
-
 ## PostgreSQL
 
-Uses ordinary `dj_` tables. Writes that admit work take a short transaction-scoped advisory lock. The lock is database-wide, so stores in different schemas of one database share it; use a separate database for independent stores that must not contend.
+Uses ordinary `dj_` tables. Initialization creates the schema named first in the connection's `Search Path` when it is a plain identifier and missing. Writes that admit work take a short transaction-scoped advisory lock. The lock is database-wide, so stores in different schemas of one database share it; use a separate database for independent stores that must not contend.
 
 - **Isolation:** use a separate database or search path per store.
 - **Reads:** Repeatable Read snapshots.
@@ -106,6 +94,7 @@ ALTER DATABASE [WorkThrough] SET READ_COMMITTED_SNAPSHOT ON; -- recommended; see
 | 8 | Parent links and depth for child flows ([ADR-023](adr/0023-child-flows.md)) |
 | 9 | The original input of a corrected job |
 | 10 | The source run of a forked run |
+| 11 | Named calendars ([ADR-032](adr/0032-named-calendars.md)) |
 
 Every upgrade is additive: queued work and live leases survive. Upgrading from schema 5 or earlier requires stopping older writers once, because those releases cannot read the compatibility record. From schema 6, a host accepts a newer schema whose `reader_minimum` still includes its own version, so later migrations roll out while older workers run. New shared semantics wait for an [engine protocol level](architecture.md#engine-protocol-and-payload-protection) that every live worker supports, and older hosts refuse to claim from a store above their level. MySQL and MariaDB start at schema 10.
 
@@ -115,21 +104,20 @@ Writes follow [ADR-020](adr/0020-write-path-throughput.md) and [ADR-022](adr/002
 
 - **Outside the admission lock:** owned-row writes and settlements run on row locks, ordered by flow and job, on PostgreSQL, Oracle, MySQL and MariaDB. Claims do too while the store has no limit, rate or bounded flow and the worker serves one queue.
 - **SQL Server** takes those paths only with `READ_COMMITTED_SNAPSHOT` on; otherwise it serializes them, because plain reads would wait on row locks. Azure SQL Database enables the setting by default.
-- **SQLite** has one writer.
 - **Under limits:** from engine protocol 3, claims lock per-limit rows instead of the admission lock, so tenants, keys, types and flows do not wait on each other and limits stay exact. A fleet-wide limit still serializes claims.
 
-With a preloaded backlog, no limits and near-instant handlers, three 16-slot workers drained about 810–830 jobs/s on PostgreSQL, 430 on emulated SQL Server with versioned reads (200 without), 280 on Oracle and 720–810 on local SQLite on the documented test host. With 50 tenant quotas, PostgreSQL drained about 500 jobs/s. MySQL and MariaDB are not yet measured. See [performance](performance.md).
+With a preloaded backlog, no limits and near-instant handlers, three 16-slot workers drained about 810–830 jobs/s on PostgreSQL, 430 on emulated SQL Server with versioned reads (200 without), 280 on Oracle on the documented test host. With 50 tenant quotas, PostgreSQL drained about 500 jobs/s. MySQL 8.4 drained about 460 jobs/s and MariaDB 11.4 about 560 (360 and 440 with 50 tenant quotas). See [performance](performance.md).
 
 ## Read-only hosts
 
-Dashboard and MCP hosts can run on read-only connections without initializing storage: SQLite `Mode=ReadOnly`, PostgreSQL `default_transaction_read_only=on`, or SELECT-only logins on SQL Server, Oracle, MySQL and MariaDB. Production read-only roles still need deployment-specific grants. See [MCP hosting](mcp.md).
+Dashboard and MCP hosts can run on read-only connections without initializing storage: PostgreSQL `default_transaction_read_only=on`, or SELECT-only logins on SQL Server, Oracle, MySQL and MariaDB. Production read-only roles still need deployment-specific grants. See [MCP hosting](mcp.md).
 
 - **History searches** (`IOperationHistoryQueries`): five-second budgets, 1–100 row pages and seven-day windows. Audit SQL projects only the actor's issuer and subject; actor JSON above 16,384 characters is not parsed. Archive SQL never selects the body. Archive preview uses the manual archive selector and returns at most ten units.
 - **Flow inspection** (`IExecutionInspectionQueries`): selected-attempt text is clipped in SQL, and payloads, outputs and full job records are never selected. Each provider projects saved dependencies with its own JSON functions, inside a 262,144-character definition bound.
 
 ## Running the provider tests
 
-Without server environment variables, the shared suite runs SQLite only. Each variable names a **disposable** server; never point these gates at production data.
+The shared suite always needs `DURABLEJOBS_POSTGRES`; the other providers run when their variable is set. Each variable names a **disposable** server; never point these gates at production data. `WORKTHROUGH_TEST_POSTGRES`, used by `WorkThrough.Testing`, defaults to the same database in `scripts/verify.sh`.
 
 | Variable | Login needs to | Fixtures create |
 |---|---|---|
@@ -149,4 +137,5 @@ docker stop workthrough-postgres-test
 
 - **Oracle:** the official lite container lacks the USERS tablespace; CI creates a test tablespace and grants SYSTEM `EXECUTE` on `SYS.DBMS_LOCK` with grant option. Oracle fixtures run one at a time, because concurrent schema DDL conflicts with dictionary reads inside Serializable transactions; connections inside a test still compete.
 - **MySQL and MariaDB:** fixtures bound their pools to 16 connections and run in parallel, so raise `max_connections` (2,000 in CI).
+- **Managed servers:** `scripts/check-managed-db.sh <provider> [soak-minutes]` qualifies one provider on a disposable managed server. It runs the suite with `WT_REQUIRE_TLS=1`, which fails unless every connection is encrypted, then the reliability exercise and a soak. Evidence goes to `artifacts/managed/`. It clears the other providers' variables and requires `WT_MANAGED_DB_DISPOSABLE=1`. Azure SQL Database is refused, because the fixtures need `CREATE DATABASE` and `USE`; use Azure SQL Managed Instance or RDS for SQL Server.
 - **CI:** PostgreSQL and SQL Server run on one runner; Oracle and MySQL/MariaDB each run on their own, with images pinned by digest. `scripts/verify.sh` includes each provider when its variable is set.

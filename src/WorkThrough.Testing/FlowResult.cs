@@ -32,10 +32,10 @@ public sealed class StepResult(JobRecord job)
     public string? Error => Job.Error;
 
     public T Output<T>() => Job.Output is { } output
-        ? output.Deserialize<T>(JobJson.Options)!
+        ? JobJson.Deserialize<T>(output)!
         : throw new WorkThroughAssertionException($"Step {Job.StepId} has no output; it is {Job.Status}.");
 
-    public T Input<T>() => Job.Payload.Deserialize<T>(JobJson.Options)!;
+    public T Input<T>() => JobJson.Deserialize<T>(Job.Payload)!;
 }
 
 /// <summary>A test expectation about a run or step did not hold.</summary>

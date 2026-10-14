@@ -31,6 +31,8 @@ public sealed partial class MySqlJobStore : RelationalJobStore
         this.connectionString = settings.ConnectionString;
     }
 
+    protected override bool IsDeadlockVictim(DbException error) => error is MySqlException { ErrorCode: MySqlErrorCode.LockDeadlock };
+
     protected override DbConnection CreateConnection() => new MySqlConnection(connectionString);
 
     // UTC_TIMESTAMP does not depend on the session time zone, so the clock has no daylight-saving gaps.
@@ -95,10 +97,7 @@ public sealed partial class MySqlJobStore : RelationalJobStore
         var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
         try
         {
-            if (Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT id FROM dj_admission WHERE id=1 FOR UPDATE", cancellationToken)) != 1)
-            {
-                throw new InvalidOperationException("The MySQL admission row is missing; writes are refused.");
-            }
+            await LockAdmissionAsync(connection, transaction, cancellationToken);
 
             return transaction;
         }
@@ -106,6 +105,14 @@ public sealed partial class MySqlJobStore : RelationalJobStore
         {
             await transaction.DisposeAsync();
             throw;
+        }
+    }
+
+    protected override async Task LockAdmissionAsync(DbConnection connection, DbTransaction transaction, CancellationToken cancellationToken)
+    {
+        if (Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT id FROM dj_admission WHERE id=1 FOR UPDATE", cancellationToken)) != 1)
+        {
+            throw new InvalidOperationException("The MySQL admission row is missing; writes are refused.");
         }
     }
 

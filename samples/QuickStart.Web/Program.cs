@@ -4,7 +4,8 @@ using WorkThrough;
 //   curl -X POST http://127.0.0.1:5296/signups -H 'Content-Type: application/json' -d '{"email":"ada@example.com"}'
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=quickstart-web.db")
+    .UsePostgreSql(Environment.GetEnvironmentVariable("WORKTHROUGH_POSTGRES")
+        ?? "Host=127.0.0.1;Port=5432;Database=workthrough;Username=postgres;Password=workthrough;Search Path=quickstart_web")
     .AddJobs(typeof(SendWelcomeEmail).Assembly)
     .AddWorker();
 builder.Services.AddWorkThroughDashboard();
@@ -16,9 +17,8 @@ app.MapGet("/", () => Results.Redirect("/jobs"));
 app.MapPost("/signups", async (Signup signup, JobClient jobs, CancellationToken ct) =>
 {
     // The idempotency key makes a repeated request return the jobs it already stored instead of sending twice.
-    var welcome = await jobs.EnqueueAsync(new WelcomeEmail(signup.Email), new(IdempotencyKey: $"welcome:{signup.Email}"), ct);
-    var tips = await jobs.EnqueueAsync(new TipsEmail(signup.Email),
-        new(IdempotencyKey: $"tips:{signup.Email}", NotBefore: DateTimeOffset.UtcNow.AddMinutes(1)), ct);
+    var welcome = await jobs.Enqueue(new WelcomeEmail(signup.Email)).Idempotent($"welcome:{signup.Email}").SendAsync(ct);
+    var tips = await jobs.Enqueue(new TipsEmail(signup.Email)).Idempotent($"tips:{signup.Email}").After(TimeSpan.FromMinutes(1)).SendAsync(ct);
 
     return Results.Accepted(value: new { welcome, tips });
 });

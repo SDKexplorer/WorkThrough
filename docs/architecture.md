@@ -9,7 +9,7 @@ flowchart TD
     Sample[Application composition root] --> Hosting
     Sample --> Dashboard
     Sample --> Mcp[Optional MCP adapter]
-    Sample --> Provider[SQLite, PostgreSQL, SQL Server, Oracle or MySQL/MariaDB provider]
+    Sample --> Provider[PostgreSQL, SQL Server, Oracle or MySQL/MariaDB provider]
     Provider --> Relational[Relational persistence mechanics]
     Tests[Application tests] --> Testing[WorkThrough.Testing]
     Testing --> Hosting
@@ -29,7 +29,7 @@ The relational adapter shares data mapping and transactional operations. Each da
 
 A job contains a stable key, contract version, JSON input, and operational metadata. It never uses a persisted CLR type, assembly name, or method to dispatch work. `[Job("documents.generate", Version = 1)]` identifies processor behavior independently of its input type. `[JobContract]` remains a typed-message convenience through the same catalog.
 
-Jobs implement `IJob<TInput>`. A job's address comes from a `JobDefinition` passed to `AddJob`, from `[Job("key")]` on its class, or from `[JobContract]` on its input type. Engine storage and the alias registry call the code behind an address a *processor*; it is the same thing. The optional generator exports a module manifest from each job assembly and composes referenced manifests into the application manifest. `AddGeneratedJobs(typeof(Program).Assembly)` registers those modules through the same `JobCatalog` API used by explicit `AddJob<TInput,TJob>()`. Rebuilding updates the manifest. `AddJobs(assembly)` applies the generator's rules by reflection at startup, also through `AddJob<TInput,TJob>()`, for applications that do not reference the generator; it covers only the given assembly and reports a missing address when the host starts rather than at compile time. `AddJob(definition, job => ...)` binds an explicit address to a delegate; the delegate is never stored, only the address. The application still needs a project/package reference to the new job assembly, and the new artifact must be deployed.
+Jobs implement `IJob<TInput>`. A job's address comes from a `JobDefinition` passed to `AddJob`, from `[Job("key")]` on its class, or from `[JobContract]` on its input type. Engine storage and the alias registry call the code behind an address a *processor*; it is the same thing. The optional generator exports a module manifest from each job assembly and composes referenced manifests into the application manifest. `AddGeneratedJobs(typeof(Program).Assembly)` registers those modules through the same `JobCatalog` API used by explicit `AddJob<TInput,TJob>()`. Rebuilding updates the manifest. `AddJobs(assembly)` applies the generator's rules by reflection at startup, also through `AddJob<TInput,TJob>()`, for applications that do not reference the generator; it covers only the given assembly and reports a missing address when the host starts rather than at compile time. `Job(definition, job => ...)` sets up a job in one place: its class (`RunWith<T>()`) or delegate (`Run(...)`), its seeded schedules and its limits. A delegate is never stored, only the address. A `JobDefinition` can carry a default queue and attempt budget, which enqueues, schedules and flow steps inherit. The application still needs a project/package reference to the new job assembly, and the new artifact must be deployed.
 
 The generator requires public, concrete, non-generic, top-level processor/handler classes or record classes. It diagnoses missing processor/contract attributes and inaccessible implementations. Duplicate contract implementations are rejected when the catalog is composed. Worker startup resolves each handler in a DI scope before claiming work, detecting missing dependencies in the actual deployment.
 
@@ -117,6 +117,8 @@ Hosts of different releases share a store while the schema's reader range admits
 | 6 | Bounded loops (ADR-026) |
 | 7 | Encrypted payloads may be written (ADR-027) |
 | 8 | Failure branches (ADR-028) |
+| 9 | Schedules with seconds, intervals, bounds or excluded dates (ADR-030) |
+| 10 | Schedules naming runtime-editable calendars (ADR-032) |
 
 A definition that needs a higher level than the store's active one is refused at start; a host below the active level refuses to claim.
 

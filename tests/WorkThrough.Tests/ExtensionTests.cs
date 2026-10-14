@@ -18,13 +18,13 @@ public sealed class ExtensionTests
     [InlineData("early", JobStatus.Failed)]
     public async Task Scoped_pipeline_validates_orders_and_rejects_invalid_continuation_usage(string behavior, JobStatus expected)
     {
-        await using var database = await StoreHarness.CreateAsync("sqlite");
+        await using var database = await StoreHarness.CreateAsync("postgres");
         var probe = new PipelineProbe(behavior);
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(probe);
         builder.Services.AddScoped<Lifetime>();
-        builder.Services.AddWorkThrough().UseSqlite(database.ConnectionString)
+        builder.Services.AddWorkThrough().UsePostgreSql(database.ConnectionString)
             .AddJob<Alpha, Processor>(new JobDefinition<Alpha>("tests.pipeline"))
             .AddMiddleware<Outer>().AddValidator<Alpha, Validator>().AddMiddleware<Inner>()
             .AddObserver<BrokenObserver>().AddObserver<CommittedObserver>()

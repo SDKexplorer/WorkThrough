@@ -1,5 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace WorkThrough;
 
@@ -26,12 +28,16 @@ public sealed class FlowBuilder
         return this;
     }
 
-    public FlowBuilder Step<TJob>(string id, object? input = null, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
+    public FlowBuilder Step<[DynamicallyAccessedMembers(JobIdentity.JobTypeMembers)] TJob>(string id, object? input = null, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
         => Step(id, JobContractId.For<TJob>(), input, queue, maxAttempts);
 
-    /// <summary>Adds an invocation using a shared typed definition.</summary>
-    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition, TInput input, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
-        => Step(id, definition.Identity, input, queue, maxAttempts);
+    /// <summary>Adds an invocation using a shared typed definition, in its queue and attempt budget unless given others.</summary>
+    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition, TInput input, string? queue = null, int? maxAttempts = null)
+        => Step(id, definition.Identity, input, queue ?? definition.Queue, maxAttempts ?? definition.MaxAttempts);
+
+    /// <summary>Adds an invocation whose input comes entirely from bindings, in the definition's queue and attempt budget.</summary>
+    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition)
+        => Step(id, definition.Identity, null, definition.Queue, definition.MaxAttempts);
 
     /// <summary>Adds a processor invocation without a dependency on its implementation assembly.</summary>
     public FlowBuilder Step(string id, JobContractId processor, object? input = null, string queue = JobDefaults.Queue, int maxAttempts = JobDefaults.MaxAttempts)
@@ -47,7 +53,7 @@ public sealed class FlowBuilder
             throw new ArgumentException("Invalid queue or retry policy.");
         }
 
-        var payload = JsonSerializer.SerializeToElement(input ?? new { }, JobJson.Options);
+        var payload = input is null ? JobJson.ToElement(new JsonObject()) : JobJson.ToElement(input);
         steps.Add(new(id, processor, payload, queue, [], [], null, maxAttempts));
 
         return this;
@@ -106,7 +112,7 @@ public sealed class FlowBuilder
 
         return Change(step => step with
         {
-            Loop = new(untilStep, untilProperty, JsonSerializer.SerializeToElement(equals, JobJson.Options), maximumIterations)
+            Loop = new(untilStep, untilProperty, JobJson.ToElement(equals), maximumIterations)
         });
     }
 
@@ -144,7 +150,7 @@ public sealed class FlowBuilder
         Change(step => step with { Bindings = [.. step.Bindings, new(targetProperty, sourceStep, sourceProperty)] });
 
     public FlowBuilder WhenOutput<T>(string sourceStep, string property, T equals) =>
-        Change(step => step with { Condition = new(sourceStep, property, JsonSerializer.SerializeToElement(equals, JobJson.Options)) });
+        Change(step => step with { Condition = new(sourceStep, property, JobJson.ToElement(equals)) });
 
     /// <summary>
     /// Sets a property of the last step's input from the flow input, or from <paramref name="sourceStep"/>'s output. Both sides are

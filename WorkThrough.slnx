@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/HangfireMigration/HangfireMigration.csproj" />
+    <Project Path="samples/QuartzMigration/QuartzMigration.csproj" />
+    <Project Path="samples/NativeAot/NativeAot.csproj" />
     <Project Path="samples/QuickStart/QuickStart.csproj" />
     <Project Path="samples/QuickStart.Web/QuickStart.Web.csproj" />
     <Project Path="samples/Shop.Shared/Shop.Shared.csproj" />
@@ -14,16 +16,21 @@
   <Folder Name="/src/">
     <Project Path="src/WorkThrough.Core/WorkThrough.Core.csproj" />
     <Project Path="src/WorkThrough.Dashboard/WorkThrough.Dashboard.csproj" />
+    <Project Path="src/WorkThrough.EntityFrameworkCore/WorkThrough.EntityFrameworkCore.csproj" />
     <Project Path="src/WorkThrough.Generators/WorkThrough.Generators.csproj" />
     <Project Path="src/WorkThrough.Hosting/WorkThrough.Hosting.csproj" />
     <Project Path="src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />
+    <Project Path="src/WorkThrough.Messaging/WorkThrough.Messaging.csproj" />
+    <Project Path="src/WorkThrough.Messaging.AzureServiceBus/WorkThrough.Messaging.AzureServiceBus.csproj" />
+    <Project Path="src/WorkThrough.Messaging.Kafka/WorkThrough.Messaging.Kafka.csproj" />
+    <Project Path="src/WorkThrough.Messaging.RabbitMQ/WorkThrough.Messaging.RabbitMQ.csproj" />
     <Project Path="src/WorkThrough.Migration.Hangfire/WorkThrough.Migration.Hangfire.csproj" />
+    <Project Path="src/WorkThrough.Migration.Quartz/WorkThrough.Migration.Quartz.csproj" />
     <Project Path="src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
     <Project Path="src/WorkThrough.Storage.Relational/WorkThrough.Storage.Relational.csproj" />
     <Project Path="src/WorkThrough.Storage.MySql/WorkThrough.Storage.MySql.csproj" />
     <Project Path="src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
     <Project Path="src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
-    <Project Path="src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
     <Project Path="src/WorkThrough.Testing/WorkThrough.Testing.csproj" />
     <Project Path="templates/WorkThrough.Templates.csproj" />
   </Folder>

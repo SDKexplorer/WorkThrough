@@ -130,11 +130,11 @@ public static class FlowPlanner
                     Attempt = 0,
                     Output = null,
                     Error = null,
-                    Payload = JsonSerializer.SerializeToElement(new JsonObject
+                    Payload = JobJson.ToElement(new JsonObject
                     {
                         ["input"] = JsonNode.Parse(done.Payload.GetRawText()),
                         ["output"] = done.Output is { } output ? JsonNode.Parse(output.GetRawText()) : null
-                    }, JobJson.Options)
+                    })
                 };
                 current[undoId] = undo;
                 added.Add(undo);
@@ -224,7 +224,7 @@ public static class FlowPlanner
                 Id = Guid.NewGuid(),
                 StepId = FlowFanOut.ItemStepId(step.Id, index),
                 Status = step.Child is null ? JobStatus.Queued : JobStatus.AwaitingSignal,
-                Payload = JsonSerializer.SerializeToElement(payload, JobJson.Options),
+                Payload = JobJson.ToElement(payload),
                 Attempt = 0,
                 Output = null,
                 Error = null
@@ -236,10 +236,10 @@ public static class FlowPlanner
     private static JobRecord Gather(JobRecord group, JobRecord[] items) => group with
     {
         Status = JobStatus.Succeeded,
-        Output = JsonSerializer.SerializeToElement(new JsonObject
+        Output = JobJson.ToElement(new JsonObject
         {
             [FlowFanOut.ItemsProperty] = new JsonArray([.. items.Select(item => item.Output is { } output ? JsonNode.Parse(output.GetRawText()) : null)])
-        }, JobJson.Options)
+        })
     };
 
     /// <summary>The item steps of a fan-out step, in item order.</summary>
@@ -305,16 +305,16 @@ public static class FlowPlanner
             payload![binding.TargetProperty] = JsonNode.Parse(Read(source, binding.SourceProperty).GetRawText());
         }
 
-        return JsonSerializer.SerializeToElement(payload, JobJson.Options);
+        return JobJson.ToElement(payload);
     }
 
     /// <summary>A failure branch's input: its bound input plus the step that failed and its error.</summary>
     private static JsonElement WithFailure(JsonElement payload, JobRecord failed)
     {
         var input = JsonNode.Parse(payload.GetRawText())!;
-        input[FlowFailure.Property] = JsonSerializer.SerializeToNode(new FlowFailure(failed.StepId!, failed.Error), JobJson.Options);
+        input[FlowFailure.Property] = JobJson.ToNode(new FlowFailure(failed.StepId!, failed.Error));
 
-        return JsonSerializer.SerializeToElement(input, JobJson.Options);
+        return JobJson.ToElement(input);
     }
 
     /// <summary>

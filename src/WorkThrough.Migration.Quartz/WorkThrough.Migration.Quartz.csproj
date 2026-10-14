@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Moves Quartz.NET jobs and their cron, simple and calendar-interval triggers into WorkThrough schedules.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../WorkThrough.Core/WorkThrough.Core.csproj" />
+    <PackageReference Include="Quartz" Version="3.22.2" />
+  </ItemGroup>
+</Project>

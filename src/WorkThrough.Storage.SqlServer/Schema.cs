@@ -387,6 +387,13 @@ public sealed partial class SqlServerJobStore
                 CHECK(DATALENGTH(schedule_key)=DATALENGTH(RTRIM(schedule_key))),
                 CHECK(DATALENGTH(job_id)=DATALENGTH(RTRIM(job_id)))
             );
+        IF OBJECT_ID(N'dj_calendars',N'U') IS NULL
+            CREATE TABLE dj_calendars (
+                name nvarchar(120) COLLATE Latin1_General_100_BIN2 PRIMARY KEY,
+                definition nvarchar(max) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                revision int NOT NULL,
+                CHECK(DATALENGTH(name)=DATALENGTH(RTRIM(name)))
+            );
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ux_dj_jobs_idempotency' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE UNIQUE INDEX ux_dj_jobs_idempotency ON dj_jobs(idempotency_key) WHERE idempotency_key IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ux_dj_outbox_idempotency' AND object_id=OBJECT_ID(N'dj_outbox')) CREATE UNIQUE INDEX ux_dj_outbox_idempotency ON dj_outbox(idempotency_key) WHERE idempotency_key IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ux_dj_jobs_step' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE UNIQUE INDEX ux_dj_jobs_step ON dj_jobs(workflow_run_id,step_id) WHERE workflow_run_id IS NOT NULL AND step_id IS NOT NULL;
@@ -450,12 +457,17 @@ public sealed partial class SqlServerJobStore
             );
         """;
 
-    // A separate batch: SQL Server compiles a batch before its ALTER TABLE adds the indexed columns.
+    // A separate batch: SQL Server compiles a batch before its ALTER TABLE adds the indexed columns. The run, lease and expiry indexes
+    // keep per-run reads and the worker's maintenance probe from scanning history: SQL Server cannot seek the filtered step index for
+    // a run alone, and it scanned the active index for lease checks.
     private const string SqlServerAdmissionIndexes = """
         IF NOT EXISTS(SELECT 1 FROM dj_queue_clock WHERE id=1) INSERT INTO dj_queue_clock(id,value) VALUES (1,0);
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_partition' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_partition ON dj_jobs(partition_key,status,lease_expires_at) WHERE partition_key IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_tenant' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_tenant ON dj_jobs(tenant_id,status,lease_expires_at) WHERE tenant_id IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_flows_bounded' AND object_id=OBJECT_ID(N'dj_flows')) CREATE INDEX ix_dj_flows_bounded ON dj_flows(status) WHERE max_parallel IS NOT NULL;
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_lease' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_lease ON dj_jobs(lease_expires_at) WHERE status='Running';
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_expiry' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_expiry ON dj_jobs(expires_at) WHERE status='Queued' AND expires_at IS NOT NULL;
+        IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_jobs_run' AND object_id=OBJECT_ID(N'dj_jobs')) CREATE INDEX ix_dj_jobs_run ON dj_jobs(workflow_run_id) WHERE workflow_run_id IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_flows_parent' AND object_id=OBJECT_ID(N'dj_flows')) CREATE INDEX ix_dj_flows_parent ON dj_flows(parent_run_id) WHERE parent_run_id IS NOT NULL;
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_rate_ledger' AND object_id=OBJECT_ID(N'dj_rate_ledger')) CREATE INDEX ix_dj_rate_ledger ON dj_rate_ledger(job_key,key_scope,rate_key,started_at);
         IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name=N'ix_dj_rate_ledger_time' AND object_id=OBJECT_ID(N'dj_rate_ledger')) CREATE INDEX ix_dj_rate_ledger_time ON dj_rate_ledger(started_at);

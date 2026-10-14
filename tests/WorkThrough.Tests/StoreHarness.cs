@@ -1,6 +1,5 @@
 using System.Data.Common;
 using Microsoft.Data.SqlClient;
-using Microsoft.Data.Sqlite;
 using MySqlConnector;
 using Npgsql;
 using Oracle.ManagedDataAccess.Client;
@@ -10,7 +9,6 @@ namespace WorkThrough.Tests;
 
 internal sealed class StoreHarness : IAsyncDisposable
 {
-    private string? directory;
     private string? schema;
     private string? adminConnection;
     private string? database;
@@ -58,7 +56,6 @@ internal sealed class StoreHarness : IAsyncDisposable
         OracleJobStore => new OracleConnection(ConnectionString),
         SqlServerJobStore => new SqlConnection(ConnectionString),
         PostgresJobStore => new NpgsqlConnection(ConnectionString),
-        SqliteJobStore => new SqliteConnection(ConnectionString),
         MySqlJobStore => new MySqlConnection(ConnectionString),
         _ => throw new InvalidOperationException("Unknown test provider.")
     };
@@ -68,7 +65,6 @@ internal sealed class StoreHarness : IAsyncDisposable
         OracleJobStore => builder.UseOracle(ConnectionString),
         SqlServerJobStore => builder.UseSqlServer(ConnectionString),
         PostgresJobStore => builder.UsePostgreSql(ConnectionString),
-        SqliteJobStore => builder.UseSqlite(ConnectionString),
         MySqlJobStore => builder.UseMySql(ConnectionString),
         _ => throw new InvalidOperationException("Unknown test provider.")
     };
@@ -125,7 +121,7 @@ internal sealed class StoreHarness : IAsyncDisposable
         else if (provider == "postgres")
         {
             var admin = Environment.GetEnvironmentVariable("DURABLEJOBS_POSTGRES")
-                ?? throw new InvalidOperationException("PostgreSQL tests require a disposable database connection.");
+                ?? throw new InvalidOperationException("The tests require DURABLEJOBS_POSTGRES: a disposable PostgreSQL database where they create schemas.");
             var schema = "dj_test_" + Guid.NewGuid().ToString("N");
             await using var connection = new NpgsqlConnection(admin);
             await connection.OpenAsync();
@@ -158,18 +154,6 @@ internal sealed class StoreHarness : IAsyncDisposable
                 adminConnection = admin,
                 ConnectionString = cs,
                 NewStore = () => new MySqlJobStore(cs)
-            };
-        }
-        else if (provider == "sqlite")
-        {
-            var directory = Path.Combine(Path.GetTempPath(), "durablejobs-tests", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(directory);
-            var cs = new SqliteConnectionStringBuilder { DataSource = Path.Combine(directory, "jobs.db"), DefaultTimeout = 10 }.ToString();
-            harness = new()
-            {
-                directory = directory,
-                ConnectionString = cs,
-                NewStore = () => new SqliteJobStore(cs)
             };
         }
         else
@@ -304,12 +288,6 @@ internal sealed class StoreHarness : IAsyncDisposable
             await using var command = new MySqlCommand($"DROP DATABASE {mySqlDatabase}" +
                 (ReadOnlyConnectionString is null ? "" : $"; DROP USER '{MySqlReader}'@'%'"), connection);
             await command.ExecuteNonQueryAsync();
-        }
-
-        if (directory is not null)
-        {
-            SqliteConnection.ClearPool(new SqliteConnection(ConnectionString));
-            Directory.Delete(directory, true);
         }
     }
     private static async Task DropOracleUserAsync(OracleConnection connection, string user)

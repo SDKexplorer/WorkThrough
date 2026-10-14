@@ -311,9 +311,17 @@ public sealed partial class OracleJobStore
             """, Column: "FORKED_FROM_RUN_ID"),
     ];
 
+    /// <summary>Schema 11 additions: named calendars (ADR-032).</summary>
+    private static readonly SchemaStep[] OracleCalendarSchema =
+    [
+        new("DJ_CALENDARS", false, """
+            CREATE TABLE dj_calendars (name VARCHAR2(120 CHAR) PRIMARY KEY,definition CLOB NOT NULL,revision NUMBER(10) NOT NULL) SEGMENT CREATION IMMEDIATE
+            """),
+    ];
+
     private static readonly SchemaStep[] OracleSchemaSteps =
         [.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema, .. OracleCorrectionSchema,
-            .. OracleForkSchema];
+            .. OracleForkSchema, .. OracleCalendarSchema];
 
     /// <summary>Identifies the installed step list; any edit to a step's SQL changes it.</summary>
     private static readonly string SchemaFingerprint = Fingerprint(OracleSchemaSteps);
@@ -332,7 +340,11 @@ public sealed partial class OracleJobStore
         (9, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length + OracleLimitLockSchema.Length + OracleChildFlowSchema.Length
             + OracleCorrectionSchema.Length,
             Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema,
-                .. OracleCorrectionSchema]))
+                .. OracleCorrectionSchema])),
+        (10, OracleSchema.Length + OracleAdmissionSchema.Length + OracleCompatibilitySchema.Length + OracleLimitLockSchema.Length + OracleChildFlowSchema.Length
+            + OracleCorrectionSchema.Length + OracleForkSchema.Length,
+            Fingerprint([.. OracleSchema, .. OracleAdmissionSchema, .. OracleCompatibilitySchema, .. OracleLimitLockSchema, .. OracleChildFlowSchema,
+                .. OracleCorrectionSchema, .. OracleForkSchema]))
     ];
 
     private static string Fingerprint(IEnumerable<SchemaStep> steps) => Convert.ToHexString(SHA256.HashData(

@@ -57,6 +57,14 @@ public sealed partial class MySqlJobStore
             await ExecuteAsync(connection, null, "INSERT INTO dj_schema(version,status,step,definition_hash) VALUES(@version,@status,0,@hash)", ct,
                 ("version", SchemaVersion), ("status", MigrationInstalling), ("hash", SchemaFingerprint));
         }
+        else if (state.IsCompletedPredecessor)
+        {
+            await ExecuteAsync(connection, null, """
+                UPDATE dj_schema SET version=@version,status=@status,definition_hash=@hash WHERE version=@previous AND status=@ready
+                """, ct, ("version", SchemaVersion), ("status", MigrationInstalling), ("hash", SchemaFingerprint), ("previous", state.Version),
+                ("ready", MigrationReady));
+            checkpoint = state.Step;
+        }
         else if (state.Version > SchemaVersion)
         {
             await UsesNewerSchemaAsync(connection, null, state.Version, ct);
@@ -129,7 +137,11 @@ public sealed partial class MySqlJobStore
         return mariaDb ? "utf8mb4_nopad_bin" : "utf8mb4_0900_bin";
     }
 
-    private sealed record MigrationState(int Version, string Status, int Step, string Fingerprint);
+    private sealed record MigrationState(int Version, string Status, int Step, string Fingerprint)
+    {
+        /// <summary>A finished earlier installation, which this schema extends by resuming after its last step.</summary>
+        public bool IsCompletedPredecessor => Status == MigrationReady && Predecessors.Contains((Version, Step, Fingerprint));
+    }
 
     private async Task<MigrationState?> ReadMigrationStateAsync(MySqlConnection connection, CancellationToken ct)
     {

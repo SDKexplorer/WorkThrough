@@ -2,7 +2,7 @@
 
 Implemented in the local alpha. Use `IJob<TInput>` for normal application code; use `IJob<string>` when the application deliberately owns an opaque JSON/string contract. Processor identity is independent of either choice.
 
-A job is either a class implementing `IJob<TInput>`, or a delegate bound to an explicit address with `AddJob(definition, job => ...)`; both run through the same pipeline, middleware and retry policy. The [Shop sample](../samples/README.md) shares typed definitions (`ShopJobs`) between producers and workers, and its checkout flow uses named steps and typed selectors: only resolved JSON property names enter the saved graph, never expressions or delegates. Renaming a serialized property still changes its data contract; use `JsonPropertyName` or a new contract version when required.
+A job is either a class implementing `IJob<TInput>`, or a delegate bound to an explicit address with `Job(definition, job => job.Run(...))`; both run through the same pipeline, middleware and retry policy. `Job(...)` also seeds the job's schedules and limits. The [Shop sample](../samples/README.md) shares typed definitions (`ShopJobs`) between producers and workers, and its checkout flow uses named steps and typed selectors: only resolved JSON property names enter the saved graph, never expressions or delegates. Renaming a serialized property still changes its data contract; use `JsonPropertyName` or a new contract version when required.
 
 ## State and extension points
 

@@ -16,7 +16,7 @@ public sealed class ObservabilityTests
     [Fact]
     public async Task An_attempt_continues_the_trace_that_enqueued_it()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var attempts = new ConcurrentQueue<Activity>();
         using var listener = new ActivityListener
         {
@@ -51,7 +51,7 @@ public sealed class ObservabilityTests
     [Fact]
     public async Task Health_checks_report_storage_and_failing_acquisition()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         using (var healthy = Host(harness, harness.Store))
         {
             await healthy.StartAsync();
@@ -79,7 +79,7 @@ public sealed class ObservabilityTests
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
-        builder.Services.AddWorkThrough().UseSqlite(harness.ConnectionString).AddJob<Alpha, EchoHandler>()
+        builder.Services.AddWorkThrough().UsePostgreSql(harness.ConnectionString).AddJob<Alpha, EchoHandler>()
             .AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
         builder.Services.AddSingleton(store);
         builder.Services.AddHealthChecks().AddWorkThrough();

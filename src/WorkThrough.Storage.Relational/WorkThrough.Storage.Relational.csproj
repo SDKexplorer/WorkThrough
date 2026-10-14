@@ -1,3 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
   <ItemGroup><ProjectReference Include="../WorkThrough.Core/WorkThrough.Core.csproj" /></ItemGroup>
 </Project>

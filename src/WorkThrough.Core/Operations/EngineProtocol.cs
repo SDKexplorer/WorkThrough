@@ -36,8 +36,17 @@ public static class EngineProtocol
     /// <summary>Steps that run when a predecessor fails, which handles that failure (<see cref="FlowStep.OnFailureOf"/>).</summary>
     public const int FailureBranches = 8;
 
+    /// <summary>
+    /// Schedules with seconds, fixed intervals, start and end bounds or excluded dates. Older schedulers would ignore those fields and
+    /// fire at the wrong times.
+    /// </summary>
+    public const int RichSchedules = 9;
+
+    /// <summary>Schedules that skip the times of named, runtime-editable calendars. Older schedulers would ignore the names.</summary>
+    public const int NamedCalendars = 10;
+
     /// <summary>The highest level this build understands.</summary>
-    public const int Supported = FailureBranches;
+    public const int Supported = NamedCalendars;
 }
 
 /// <summary>A store's active protocol and, while a higher level waits, the workers that block it.</summary>

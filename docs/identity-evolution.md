@@ -1,4 +1,4 @@
-# Stable identity and deliberate renames
+# Job addresses: stable identity and deliberate renames
 
 Implemented in the local alpha. `IdentityTests` runs on every provider, and `scripts/check-refactor.sh` uses separately published applications with the original processor DLL removed.
 

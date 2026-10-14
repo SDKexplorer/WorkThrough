@@ -5,9 +5,8 @@ public sealed class ShopSettings
 {
     public const string SectionName = "Shop";
 
-    /// <summary>Used unless <see cref="PostgreSql"/> is set. Separate local processes need the same absolute file path.</summary>
-    public string Sqlite { get; init; } = "Data Source=shop.db";
-    public string? PostgreSql { get; init; }
+    /// <summary>The store every shop process shares; by default the samples' local database (samples/compose.yaml).</summary>
+    public string PostgreSql { get; init; } = "Host=127.0.0.1;Port=5432;Database=workthrough;Username=postgres;Password=workthrough;Search Path=shop";
     public int WorkerSlots { get; init; } = 4;
     public int FleetSlots { get; init; } = 12;
     public int ShippingSlots { get; init; } = 2;

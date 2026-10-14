@@ -93,6 +93,9 @@ public sealed partial class OracleJobStore : RelationalJobStore
 
     // ORA-08177 can surface wrapped in ORA-00604 when recursive dictionary SQL meets concurrent DDL.
     private const int SerializationConflict = 8177;
+    private const int OracleDeadlock = 60;
+
+    protected override bool IsDeadlockVictim(DbException error) => error is OracleException { Number: OracleDeadlock };
 
     protected override bool IsReadSnapshotConflict(DbException error) => error is OracleException oracle
         && (oracle.Number == SerializationConflict || oracle.Errors.Cast<OracleError>().Any(e => e.Number == SerializationConflict)
@@ -128,13 +131,7 @@ public sealed partial class OracleJobStore : RelationalJobStore
         var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
         try
         {
-            // This row belongs to this schema. No DBMS_LOCK privilege is required for runtime writers.
-            if (Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT id FROM dj_admission WHERE id=1 FOR UPDATE WAIT 5", cancellationToken)) != 1)
-            {
-                throw new InvalidOperationException("The Oracle admission row is missing; writes are refused.");
-            }
-
-            await RequireReadyAsync(connection, transaction, cancellationToken);
+            await LockAdmissionAsync(connection, transaction, cancellationToken);
 
             return transaction;
         }
@@ -143,6 +140,17 @@ public sealed partial class OracleJobStore : RelationalJobStore
             await transaction.DisposeAsync();
             throw;
         }
+    }
+
+    /// <summary>This row belongs to this schema. No DBMS_LOCK privilege is required for runtime writers.</summary>
+    protected override async Task LockAdmissionAsync(DbConnection connection, DbTransaction transaction, CancellationToken cancellationToken)
+    {
+        if (Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT id FROM dj_admission WHERE id=1 FOR UPDATE WAIT 5", cancellationToken)) != 1)
+        {
+            throw new InvalidOperationException("The Oracle admission row is missing; writes are refused.");
+        }
+
+        await RequireReadyAsync(connection, transaction, cancellationToken);
     }
 
     protected override string UpsertSql(string table, string columns, string values, string keys, string updates = "")

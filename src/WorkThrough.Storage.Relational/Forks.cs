@@ -10,7 +10,7 @@ public abstract partial class RelationalJobStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fromStep);
 
-        return AdminAsync(command, AuditActions.ForkRun, runId.ToString(), new { fromStep }, async (connection, transaction, ct) =>
+        return AdminAsync(command, AuditActions.ForkRun, runId.ToString(), Args(("fromStep", fromStep)), async (connection, transaction, ct) =>
         {
             await LockFlowAsync(connection, transaction, runId, skipLocked: false, ct);
             FlowDefinition definition;
@@ -34,7 +34,7 @@ public abstract partial class RelationalJobStore
                 }
 
                 input = Revealed(reader.GetString(0));
-                definition = JsonSerializer.Deserialize<FlowDefinition>(reader.GetString(1), JobJson.Options)!;
+                definition = JobJson.Deserialize<FlowDefinition>(reader.GetString(1))!;
                 correlation = reader.IsDBNull(2) ? null : reader.GetString(2);
                 maxParallel = reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3));
             }

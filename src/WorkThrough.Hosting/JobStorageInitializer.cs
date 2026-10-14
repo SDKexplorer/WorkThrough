@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -18,6 +16,9 @@ internal sealed class StorageInitialization
 internal sealed class JobStorageInitializer(IJobStore store, StorageInitialization initialization, ILogger<JobStorageInitializer> logger) : IHostedService
 {
     private static readonly OperationActor SeedActor = new("workthrough", "startup-seed", "Startup schedule seeding");
+
+    /// <summary>Part of every seeded command ID; changing it would let hosts of different releases seed the same schedule twice.</summary>
+    private const string SeedSource = "schedule-seed";
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -65,13 +66,7 @@ internal sealed class JobStorageInitializer(IJobStore store, StorageInitializati
                 continue;
             }
 
-            var draft = await schedules.SaveScheduleDraftAsync(definition, 0, Command(definition, "draft"), ct);
-            var published = draft.IsSuccess
-                ? await schedules.PublishScheduleAsync(definition.Key, definition.Version, draft.Value, Command(definition, "publish"), ct)
-                : draft;
-            var enabled = published.IsSuccess
-                ? await schedules.SetScheduleEnabledAsync(definition.Key, definition.Version, published.Value, true, Command(definition, "enable"), ct)
-                : published;
+            var enabled = await schedules.CreatePublishedAsync(definition, enable: true, SeedActor, SeedSource, "Seed schedule from host configuration", ct);
             if (enabled.Error is { Type: ErrorType.Conflict } conflict)
             {
                 logger.LogWarning("Seeded schedule {Key} v{Version} was left for an operator: {Reason}", definition.Key, definition.Version, conflict.Message);
@@ -84,12 +79,5 @@ internal sealed class JobStorageInitializer(IJobStore store, StorageInitializati
                 throw new InvalidOperationException($"Schedule {definition.Key} v{definition.Version} could not be seeded: {enabled.Error!.Message}");
             }
         }
-    }
-
-    private static AdministrativeCommand Command(ScheduleDefinition definition, string step)
-    {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"schedule-seed/{definition.Key}/{definition.Version}/{step}"));
-
-        return new(new Guid(hash.AsSpan(0, 16)), SeedActor, $"Seed schedule from host configuration ({step})");
     }
 }
