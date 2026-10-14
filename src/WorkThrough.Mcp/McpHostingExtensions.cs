@@ -68,7 +68,7 @@ public static class McpHostingExtensions
         {
             authorization.AddPolicy(EndpointPolicy, policy => policy.AddAuthenticationSchemes(AuthenticationScheme)
                 .RequireAuthenticatedUser().RequireClaim(McpClaims.Subject).RequireClaim(McpClaims.Issuer));
-            foreach (var permission in ReadPermissions)
+            foreach (var permission in ReadPermissions.Concat(options.Actions.Select(ActionTools.Permission)).Distinct())
             {
                 var name = OperationPermissions.Policy(permission);
                 if (authorization.GetPolicy(name) is null)
@@ -89,6 +89,7 @@ public static class McpHostingExtensions
             .WithTools<HistoryTools>(toolJson)
             .WithTools<RuntimeTools>(toolJson)
             .WithTools<RetentionTools>(toolJson)
+            .WithTools<ActionTools>(toolJson)
             .WithRequestFilters(filters =>
             {
                 filters.AddListToolsFilter(next => async (context, ct) =>

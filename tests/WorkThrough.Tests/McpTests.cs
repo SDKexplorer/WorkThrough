@@ -277,7 +277,8 @@ public sealed partial class McpTests
             IExecutionQueries? queries = null, int concurrentRequests = 16, Guid? deniedRun = null,
             bool includeInspection = true, IMcpDiagnosticRedactor? redactor = null, ILoggerProvider? loggerProvider = null,
             bool includeHistory = true, Guid? deniedArchive = null, bool includeRuntime = true, bool includeRetention = true,
-            ITenantAccessResolver? tenants = null)
+            ITenantAccessResolver? tenants = null, IReadOnlySet<McpAction>? actions = null, IMcpActionApprovals? approvals = null,
+            TimeSpan? approvalLifetime = null)
         {
             var key = RSA.Create(2048);
             var audit = new AccessRecorder();
@@ -318,6 +319,14 @@ public sealed partial class McpTests
                 builder.Services.AddSingleton(redactor);
             }
 
+            if (approvals is not null)
+            {
+                builder.Services.AddSingleton(approvals);
+                builder.Services.AddSingleton<IJobAdministration>(harness.Store);
+                builder.Services.AddSingleton<IExecutionOperations>(harness.Store);
+                builder.Services.AddSingleton<IJobQueries>(harness.Store);
+            }
+
             builder.Services.AddSingleton<IMcpAccessSink>(audit);
             if (tenants is not null)
             {
@@ -334,7 +343,9 @@ public sealed partial class McpTests
                 Environment = "tests",
                 EndpointPath = "/operations/mcp",
                 RequestsPerMinute = requestsPerMinute,
-                ConcurrentRequests = concurrentRequests
+                ConcurrentRequests = concurrentRequests,
+                Actions = actions ?? new HashSet<McpAction>(),
+                ApprovalLifetime = approvalLifetime ?? TimeSpan.FromMinutes(15)
             }, jwt =>
             {
                 jwt.Configuration = new OpenIdConnectConfiguration { Issuer = Issuer };
@@ -388,22 +399,23 @@ public sealed partial class McpTests
         }
 
         internal HttpClient Client(bool authenticated = true, bool permission = true, string subject = "operator", bool payloads = false,
-            bool audit = false, bool retention = false)
+            bool audit = false, bool retention = false, params string[] grants)
         {
             var client = app.GetTestClient();
             client.BaseAddress = new("https://localhost");
             if (authenticated)
             {
-                client.DefaultRequestHeaders.Authorization = new("Bearer", Token(permission: permission, subject: subject, payloads: payloads, audit: audit, retention: retention));
+                client.DefaultRequestHeaders.Authorization = new("Bearer", Token(permission: permission, subject: subject, payloads: payloads, audit: audit, retention: retention, grants: grants));
             }
 
             return client;
         }
 
         internal string Token(string audience = Resource, bool expired = false, string issuer = Issuer, bool permission = true, string subject = "operator", bool payloads = false,
-            bool audit = false, bool retention = false)
+            bool audit = false, bool retention = false, string[]? grants = null)
         {
             var claims = new List<Claim> { new("sub", subject), new("client_id", "integration-client") };
+            claims.AddRange((grants ?? []).Select(grant => new Claim(OperationPermissions.ClaimType, grant)));
             if (permission)
             {
                 claims.Add(new(OperationPermissions.ClaimType, OperationPermissions.ReadExecutions));

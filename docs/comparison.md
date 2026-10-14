@@ -14,7 +14,7 @@ This compares design choices, not marketing claims. It reflects public documenta
 | Concurrency and tenant controls | Fleet, per-type, per-key, per-tenant and rate limits; weighted queues | Per-server workers; throttling in Pro | Thread pool and misfire rules | Per-endpoint parallelism | Concurrency and rate limits per endpoint | Task-queue rate limits | Per-function concurrency |
 | Throughput | About 300–800 jobs/s per store; ~500/s with per-tenant quotas | High | High | Very high | Very high | Very high | High |
 | Dashboard | Built in, audited actions, tenant-scoped | Built in, mature | Third-party | Commercial add-on | No | Built in | Azure portal and tools |
-| AI assistant access | Read-only MCP endpoint | No | No | No | No | No | No |
+| AI assistant access | MCP endpoint: read-only, plus person-approved actions | No | No | No | No | No | No |
 | License | Not chosen yet | LGPL-3.0 core; Pro is paid | Apache-2.0 | MIT | Apache-2.0 up to v8; v9 is commercial | MIT server; Temporal Cloud paid | MIT |
 | Maturity | Alpha, unpublished | Over 10 years | Over 15 years | Mature | Mature | Mature | Mature |
 

@@ -1,4 +1,4 @@
-# Read-only MCP hosting
+# MCP hosting
 
 `WorkThrough.Mcp` is an optional NuGet package over `IExecutionQueries` and the optional `IExecutionInspectionQueries` / `IOperationHistoryQueries` / `IRuntimeQueries` / `IRetentionQueries`, using the official C# MCP SDK 2.2.0 and ASP.NET Core Streamable HTTP in stateless mode. It references neither Dashboard/Angular nor application processors. No model account or API key is needed on the server.
 
@@ -22,7 +22,7 @@ Search accepts a `query` object matching `ExecutionQuery`; enums use names such 
 
 Search can investigate failed attempts even after recovery, and follow correlation or flow IDs. Results include stable processor identities and causation/run references. They contain no input/output, exception/progress text, implementation names, effect keys or lease tokens. Stored labels remain untrusted business data. Metadata can itself be sensitive; grant access only to principals allowed to read all metadata in this store.
 
-Automatic-retention status is read-only. There are no administrative tools. A custom provider without any optional ports keeps the original four tools; unavailable inspection/history tools are hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
+Automatic-retention status is read-only. Administrative tools exist only when the host enrolls [controlled actions](#controlled-actions). A custom provider without any optional ports keeps the original four tools; unavailable inspection/history tools are hidden from discovery and direct calls return `capability_unavailable` after authorization. Context inventories configured capabilities; the permission-filtered tool list determines what this caller can invoke. See the remaining [MCP plan](../specs/mcp-operations.spec.md).
 
 ## Diagnostic and flow inspection
 
@@ -100,7 +100,48 @@ RFC 9728 metadata is mapped at `/.well-known/oauth-protected-resource` followed 
 
 Every tool call rechecks `WorkThrough.executions.read` with an `OperationResource` containing the configured endpoint/environment and the appropriate `ExecutionId`, `WorkflowRunId` or `ArchiveId`. Diagnostics additionally checks `payloads.read`; audit and cleanup preview additionally check `audit.read` and `retention.read`. Override policies after registration for host restrictions. Search access is store-wide unless the host registers an `ITenantAccessResolver`. Tenant-scoped principals list and call only the seven per-execution tools, see their tenants' executions only, and receive absent results for anything else ([ADR-019](adr/0019-tenant-access-isolation.md)). Flow access covers all nodes/events in that run. Correlation filters and cursors never grant authority. Dashboard policies still receive `DashboardResource`; permission constants are shared without replacing that compatibility hook.
 
+### Hosted identity providers
+
+Hosted providers do not issue `workthrough.permission` claims. Entra ID puts app roles in `roles`; Auth0 with RBAC puts API permissions in `permissions`. Map them in the host's JWT callback, as [Shop.Mcp](../samples/Shop.Mcp/Program.cs) does with `Mcp:RoleClaim` and `Mcp:RolePermissions` in [appsettings.json](../samples/Shop.Mcp/appsettings.json). Only mapped values grant anything.
+
+- **Entra ID:** register an API with an app ID URI equal to `Resource`. Define app roles and assign them to users or client applications. Set `requestedAccessTokenVersion` to 2 in the manifest, so the token issuer matches the `https://login.microsoftonline.com/<tenant>/v2.0` authority. Clients request `<app ID URI>/.default`. `RoleClaim` is `roles`.
+- **Auth0:** create an API whose identifier equals `Resource`, enable RBAC and "Add Permissions in the Access Token", and grant permissions to roles or machine-to-machine applications. The authority is `https://<domain>/`, and token requests pass the audience. `RoleClaim` is `permissions`.
+
+`scripts/check-hosted-idp.py` checks a deployment's provider with client-credentials tokens:
+- a role-mapped client sees and calls the read tools;
+- a token with a broken signature gets 401 with the resource metadata challenge;
+- a valid token without a mapped role sees no tools.
+
+It reads the provider settings from the environment (see its header) and creates nothing in the provider. `--local-keycloak` runs the same checks against Keycloak over HTTPS; that validates the script, not a hosted provider. Interactive dashboard sign-in through a hosted provider is still checked by hand.
+
 Discovery is permission-filtered; unregistered direct calls are rejected. Browser origins other than the configured resource origin are rejected, and the adapter does not enable cross-origin CORS. Native authenticated clients send no Origin header. Arbitrary cross-origin browser embedding is outside this release.
+
+## Controlled actions
+
+The endpoint is read-only unless the host enrolls actions ([ADR-031](adr/0031-mcp-controlled-actions.md)):
+
+```csharp
+builder.Services.AddSingleton<IMcpActionApprovals, ConsoleApprovals>(); // the host's approval workflow
+builder.Services.AddWorkThroughMcp(new()
+{
+    Authority = authority, Resource = resource, Environment = "production",
+    Actions = new HashSet<McpAction> { McpAction.RetryJob, McpAction.PauseQueue, McpAction.ResumeQueue },
+    ApprovalLifetime = TimeSpan.FromMinutes(15)
+});
+```
+
+`workthrough_prepare_action` takes an action, a target (job ID, queue or worker ID) and a reason. It checks the action's permission (`jobs.retry`, `jobs.cancel`, `flows.recover`, `queues.manage` or `workers.manage`) and binds the target's current attempt or revision. It hands the proposal to `IMcpActionApprovals.SubmitAsync` and returns it with status `awaiting-approval`. A person approves it in the host's workflow. `workthrough_execute_action` then takes only the proposal ID. It runs the approved copy through the existing audited operation, with the proposal ID as the command ID.
+
+| Status | Meaning |
+|---|---|
+| `succeeded` | The action ran, or a repeat returned the first result |
+| `not-approved` | No approval, or the proposal belongs to another caller or environment |
+| `expired` | Past `ApprovalLifetime` |
+| `forbidden` | The caller lacks the action's permission now |
+| `precondition-failed` | The target changed after preparation; nothing happened |
+| `not-found` | The job does not exist |
+
+Only `succeeded` changed engine state. Tenant-restricted principals cannot use actions. The endpoint needs write-capable `IJobAdministration`, `IExecutionOperations` and `IJobQueries`; without them, or without `IMcpActionApprovals`, the action tools are not listed.
 
 ## Access evidence and bounds
 
