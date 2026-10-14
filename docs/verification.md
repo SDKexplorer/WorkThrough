@@ -2,15 +2,17 @@
 
 This is a chronological evidence log. Earlier package counts and pending states describe their recorded revision. The summary below states the current position; each row points to its dated entry.
 
-## Current status — 2026-10-13
+## Current status — 2026-10-14
 
 | Area | Latest evidence | Still open |
 |---|---|---|
 | SQLite, PostgreSQL | Full suite on every change; PostgreSQL two-hour soak (233k jobs) and restore drill passed | — |
-| SQL Server, Oracle | Full suite in CI; 30-minute soaks passed (2026-10-12); Oracle two-hour soak passed (2026-10-13) | SQL Server two-hour soak |
-| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers, locally and in CI; drain 463 and 558 jobs/s (2026-10-13) | Soaks |
+| SQL Server, Oracle | Full suite; Oracle two-hour soak passed (2026-10-13); SQL Server history-growth slowdown fixed with indexes, 30-minute soak passed (2026-10-14) | SQL Server two-hour soak (running) |
+| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers; 30-minute soaks passed (2026-10-13) | — |
 | Multi-host | Container network-partition exercise passed (2026-10-13) | Separate physical machines |
-| Identity | OIDC against a local Keycloak 26.4 (2026-10-12) | Hosted providers (Entra ID, Auth0) |
+| Identity | OIDC against a local Keycloak 26.4 (2026-10-12); MCP bearer check script validated against Keycloak over HTTPS (2026-10-14) | Hosted providers (Entra ID, Auth0): `scripts/check-hosted-idp.py` |
+| Managed databases | Encryption gate and runner script (2026-10-14) | Azure SQL MI, RDS and others: `scripts/check-managed-db.sh` |
+| Native AOT | SQLite and PostgreSQL samples run as native binaries (2026-10-14) | Other providers, dashboard, MCP |
 | Packages | Package-only consumers on SDK 8 and 10; templates build with every provider | Publication, license |
 | Runtimes | .NET 8 and .NET 10 | .NET 9 is not claimed |
 
@@ -398,3 +400,27 @@ EF Core integration (2026-10-13): `db.Enqueue` with `SaveChangesAsync` committed
 
 Message brokers (2026-10-13): against RabbitMQ 4.1, Kafka 3.9.1 (KRaft) and the Azure Service Bus emulator in local containers, a message published through `jobs.Publish` arrived and ran as a job, and a message delivered twice with one message ID became one job. On RabbitMQ an unroutable publish failed its job instead of succeeding. Azure Service Bus itself is not yet verified.
 
+
+MySQL and MariaDB soaks (2026-10-13): 30 minutes each, with partition, tenant, rate and flow-parallelism limits. MySQL completed 57,289 jobs and MariaDB 58,332, each exactly once, with every per-minute window within its limits; worker memory held at 355–357 MiB ([MySQL](performance-results/2026-10-13-mysql-soak.json), [MariaDB](performance-results/2026-10-13-mariadb-soak.json)).
+
+SQL Server soak and indexes (2026-10-14):
+
+- **Finding:** the second two-hour SQL Server soak slowed as history grew; offers fell from 1,465 to about 830 a minute, and at minute 103 an enqueue exceeded the 30-second command timeout and stopped the producer. The harness only surfaced it at the end; it now fails in the minute the producer faults.
+- **Cause:** `SELECT * FROM dj_jobs WHERE workflow_run_id=@id` scanned the table, because SQL Server cannot seek the filtered unique `(workflow_run_id, step_id)` index for a run alone. Its reads grew from 135 to 982 pages per call. The worker's maintenance probe also scanned for expired leases and queued expiries.
+- **Fix:** `ix_dj_jobs_run`, and two filtered indexes holding only running leases and expiring queued jobs, created at every initialization. Live, the run lookup dropped from 982 to 15 logical reads and from 6 ms to 0.09 ms.
+- **Check:** a 30-minute soak with the indexes added mid-run completed 57,419 jobs exactly once within limits, offering 44,162, level with MySQL ([results](performance-results/2026-10-14-sqlserver-soak-index-fix.json)). A new two-hour run is recorded below when it ends.
+
+Native AOT (2026-10-14):
+
+- `samples/NativeAot` published with `PublishAot` on .NET 10 (osx-arm64) with no trimming or AOT warnings. The binary ran a two-step flow and a one-second schedule against SQLite, and again against an existing database.
+- A PostgreSQL variant of the same program ran the flow and schedule against a throwaway schema. SQL Server, Oracle, MySQL, EF Core, the dashboard and MCP are not AOT-compatible.
+- With `JsonSerializerIsReflectionEnabledByDefault=false`, the suite's remaining JSON failures were test-owned types; the engine gaps it found (`ProcessorAliasMapping[]`, audit results by runtime type) were fixed.
+- Fingerprint compatibility tests show that job receipts, flow starts and operator commands hash exactly as the anonymous objects they replaced, including timestamps with offsets.
+
+Controlled MCP actions, named calendars and verification tooling (2026-10-14):
+
+- **MCP actions (ADR-031):** on all six providers, an approved retry ran once and a repeated execute returned the first result with one audit entry. On SQLite: a target changed after approval was not acted on; another caller, an expired proposal and a revoked permission were refused; a queue pause ran through approval; unenrolled actions and a read-only endpoint refused action calls.
+- **Named calendars (ADR-032):** on all six providers, editing a calendar moved and restored the next occurrence of a schedule naming it; publish and enable needed the calendar; delete was refused while a draft or enabled schedule named it; schedules naming calendars waited for protocol 10. Oracle, MySQL and MariaDB stores set back to schema 10 upgraded in place. The console saved and listed a calendar.
+- **Suites:** 1,085 passed across SQLite, PostgreSQL, SQL Server, Oracle, MySQL and MariaDB. The three failures were the broker tests, whose containers were stopped to free memory for the databases.
+- **Hosted identity tooling:** `scripts/check-hosted-idp.py --local-keycloak` passed against Keycloak 26.4 over HTTPS with client-credentials tokens: a role-mapped client listed 9 read tools and searched executions; a broken signature got 401 with the resource metadata challenge; an unmapped client saw no tools. No hosted provider has been run.
+- **Managed database tooling:** with `WT_REQUIRE_TLS=1`, the encryption check passed on SQL Server (encrypted by default) and failed on the local PostgreSQL container, which does not use TLS. No managed server has been run.
