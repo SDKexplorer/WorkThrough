@@ -72,12 +72,19 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: dashboard-ui/package-lock.json
-      - run: ./scripts/verify.sh
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      # Pull requests run the quick gate; merges to main/develop and manual runs run the full release gate.
+      - run: ./scripts/verify.sh ${{ github.event_name == 'pull_request' && '--quick' || '' }}
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: performance-smoke
           path: artifacts/performance/*.json
+          if-no-files-found: ignore
   oracle:
     # Separate runner: Oracle and SQL Server would compete for a single runner's memory.
     runs-on: ubuntu-latest
@@ -138,12 +145,19 @@ jobs:
           GRANT EXECUTE ON SYS.DBMS_LOCK TO SYSTEM WITH GRANT OPTION;
           EXIT;
           SQL
-      - run: ./scripts/verify.sh
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      # Pull requests run the quick gate; merges to main/develop and manual runs run the full release gate.
+      - run: ./scripts/verify.sh ${{ github.event_name == 'pull_request' && '--quick' || '' }}
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: oracle-performance-smoke
           path: artifacts/performance/*.json
+          if-no-files-found: ignore
   mysql:
     # MySQL, MariaDB and the brokers share a runner; together they use less memory than Oracle or SQL Server.
     runs-on: ubuntu-latest
@@ -222,9 +236,16 @@ jobs:
         run: |
           docker exec "$MYSQL_CONTAINER" mysql -uroot -pWorkThrough_MySql_2026 -e "SET GLOBAL max_connections=2000"
           docker exec "$MARIADB_CONTAINER" mariadb -uroot -pWorkThrough_MariaDb_2026 -e "SET GLOBAL max_connections=2000"
-      - run: ./scripts/verify.sh
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      # Pull requests run the quick gate; merges to main/develop and manual runs run the full release gate.
+      - run: ./scripts/verify.sh ${{ github.event_name == 'pull_request' && '--quick' || '' }}
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: mysql-performance-smoke
           path: artifacts/performance/*.json
+          if-no-files-found: ignore

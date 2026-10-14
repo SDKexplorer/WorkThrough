@@ -267,10 +267,11 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 Repository builds need .NET SDK 10, a .NET 8 runtime for the compatibility gate, and Node 24 for the console assets. Package consumers need neither Node nor SDK 10.
 
 ```sh
-./scripts/verify.sh
+./scripts/verify.sh           # the full release gate
+./scripts/verify.sh --quick   # build, format and test suites; what pull requests run
 ```
 
-The script:
+The full gate:
 
 - builds the console and libraries;
 - runs the test suite on .NET 10 and .NET 8;
@@ -281,7 +282,7 @@ The script:
 - runs the Shop sample's smoke test and preflight, and the quick-start and Hangfire migration samples;
 - runs process-kill and load smoke exercises.
 
-Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVER`, `DURABLEJOBS_ORACLE`, `DURABLEJOBS_MYSQL` or `DURABLEJOBS_MARIADB` point at disposable databases ([providers](docs/providers.md)). Set `WORKTHROUGH_DOTNET8` when .NET 8 lives elsewhere. `scripts/format.sh` applies the code style that CI enforces.
+`DURABLEJOBS_POSTGRES` must point at a disposable PostgreSQL database; SQL Server, Oracle, MySQL and MariaDB are included when `DURABLEJOBS_SQLSERVER`, `DURABLEJOBS_ORACLE`, `DURABLEJOBS_MYSQL` or `DURABLEJOBS_MARIADB` point at disposable databases ([providers](docs/providers.md)). Set `WORKTHROUGH_DOTNET8` when .NET 8 lives elsewhere. `scripts/format.sh` applies the code style that CI enforces.
 
 ## Release boundaries
 

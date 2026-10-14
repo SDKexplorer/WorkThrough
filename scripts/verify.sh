@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
+# Full release gate by default. --quick, for pull requests: build, format and the test suites only; packages, consumers,
+# templates, samples, the relocation proof and the smoke campaigns run on merges and before a release.
 set -euo pipefail
+quick=false
+if [[ "${1:-}" == --quick ]]; then quick=true; fi
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_dir"
 mkdir -p artifacts/packages
@@ -15,6 +19,10 @@ dotnet build WorkThrough.slnx -c Release --no-restore -m:1 -nr:false -p:UseShare
 ./scripts/format.sh --check
 dotnet test tests/WorkThrough.Tests -c Release -f net10.0 --no-build --no-restore -m:1 -nr:false
 dotnet test samples/Shop.Tests -c Release --no-build --no-restore -m:1 -nr:false
+if [[ "$quick" == true ]]; then
+  echo 'PASS: quick verification (build, format and test suites).'
+  exit 0
+fi
 sdk8_dir="$(mktemp -d "$repo_dir/artifacts/consumer-sdk8-XXXXXXXX")"
 cp tests/PackageConsumer/PackageConsumer.csproj tests/PackageConsumer/*.cs "$sdk8_dir/"
 cat > "$sdk8_dir/global.json" <<'JSON'
