@@ -24,6 +24,8 @@ public sealed partial class SqlServerJobStore : RelationalJobStore
         this.connectionString = settings.ConnectionString;
     }
 
+    protected override bool IsDeadlockVictim(DbException error) => error is SqlException { Number: 1205 };
+
     protected override DbConnection CreateConnection() => new SqlConnection(connectionString);
     protected override string ClockSql => "SELECT DATEDIFF_BIG(millisecond,CONVERT(datetime2,'19700101',112),SYSUTCDATETIME())";
     protected override string PageSql(string limit, string offset = "0") => $"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY";

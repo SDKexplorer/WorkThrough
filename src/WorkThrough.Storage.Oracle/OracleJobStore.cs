@@ -93,6 +93,9 @@ public sealed partial class OracleJobStore : RelationalJobStore
 
     // ORA-08177 can surface wrapped in ORA-00604 when recursive dictionary SQL meets concurrent DDL.
     private const int SerializationConflict = 8177;
+    private const int OracleDeadlock = 60;
+
+    protected override bool IsDeadlockVictim(DbException error) => error is OracleException { Number: OracleDeadlock };
 
     protected override bool IsReadSnapshotConflict(DbException error) => error is OracleException oracle
         && (oracle.Number == SerializationConflict || oracle.Errors.Cast<OracleError>().Any(e => e.Number == SerializationConflict)

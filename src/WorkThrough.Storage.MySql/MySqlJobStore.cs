@@ -31,6 +31,8 @@ public sealed partial class MySqlJobStore : RelationalJobStore
         this.connectionString = settings.ConnectionString;
     }
 
+    protected override bool IsDeadlockVictim(DbException error) => error is MySqlException { ErrorCode: MySqlErrorCode.LockDeadlock };
+
     protected override DbConnection CreateConnection() => new MySqlConnection(connectionString);
 
     // UTC_TIMESTAMP does not depend on the session time zone, so the clock has no daylight-saving gaps.

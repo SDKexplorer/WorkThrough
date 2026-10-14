@@ -25,6 +25,8 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
         """;
     protected override string AuditActorValueSql(string field) =>
         $"((CASE WHEN LENGTH(a.actor)<=16384 THEN a.actor ELSE '{{}}' END)::jsonb->>'{field}')";
+    protected override bool IsDeadlockVictim(DbException error) => error is PostgresException { SqlState: PostgresErrorCodes.DeadlockDetected };
+
     protected override DbConnection CreateConnection() => new NpgsqlConnection(connectionString);
     protected override string ColumnExistsSql =>
         "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=@table AND column_name=@column";

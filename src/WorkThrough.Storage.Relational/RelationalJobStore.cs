@@ -342,7 +342,17 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
         var exclusions = new ClaimExclusions();
         for (var attempt = 1; ; attempt++)
         {
-            var claimed = await ClaimWithRowLocksOnceAsync(request, exclusions, cancellationToken);
+            IReadOnlyList<JobRecord>? claimed;
+            try
+            {
+                claimed = await ClaimWithRowLocksOnceAsync(request, exclusions, cancellationToken);
+            }
+            catch (DbException error) when (attempt < MaximumClaimRestarts && IsDeadlockVictim(error))
+            {
+                // The database rolled the whole claim back, so it leased nothing and can run again.
+                continue;
+            }
+
             if (!exclusions.Restart || attempt == MaximumClaimRestarts)
             {
                 return claimed;
@@ -1094,6 +1104,9 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             }
         }
     }
+
+    /// <summary>The database chose this transaction as a deadlock victim and rolled it back.</summary>
+    protected virtual bool IsDeadlockVictim(DbException error) => false;
 
     /// <summary>A read failure that a new snapshot can resolve, such as Oracle's ORA-08177 after concurrent dictionary DDL.</summary>
     protected virtual bool IsReadSnapshotConflict(DbException error) => false;
