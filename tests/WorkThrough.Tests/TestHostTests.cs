@@ -42,10 +42,17 @@ public sealed class TestHostTests
     private static Task<WorkThroughTestHost> StartAsync() =>
         WorkThroughTestHost.StartAsync(workthrough => workthrough.AddJob<Greet, GreetJob>(), services => services.AddSingleton<Attempts>());
 
+    /// <summary>Retries an hour later, so a retry falls due only when the test moves the clock, however slow the machine is.</summary>
+    private sealed class HourlyRetry : IJobRetryPolicy
+    {
+        public RetryDecision Decide(JobRecord job, Exception exception) => RetryDecision.After(TimeSpan.FromHours(1));
+    }
+
     [Fact]
     public async Task Advancing_the_clock_runs_delayed_work_and_retries_without_waiting()
     {
-        await using var host = await StartAsync();
+        await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough.AddJob<Greet, GreetJob>().UseRetryPolicy<HourlyRetry>(),
+            services => services.AddSingleton<Attempts>());
         var later = await host.Jobs.EnqueueAsync(new Greet("later"), new(NotBefore: host.UtcNow.AddHours(1)));
         var flaky = await host.Jobs.EnqueueAsync(new Greet("flaky"));
 
