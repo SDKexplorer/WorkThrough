@@ -63,6 +63,11 @@ internal static class SoakSuite
                         worker.CheckAlive();
                     }
 
+                    if (producing.IsFaulted)
+                    {
+                        await producing;
+                    }
+
                     var windowEnd = await DatabaseNowAsync(database);
                     var sample = await MeasureWindowAsync(database, workers, minute, windowStart, windowEnd, producer.Offered);
                     minutesSeries.Add(sample);
