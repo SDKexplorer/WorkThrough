@@ -14,7 +14,7 @@ Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite
 - **Honest delivery:** at least once, with fenced leases, so a stale worker can never settle an attempt. Crashes neither lose work nor manufacture success. Transactional enqueue and an outbox commit work together with business data.
 - **Flows:** persisted graphs with bindings, conditions, joins, fan-out, child flows, loops, failure branches, compensation, durable signals, idempotent starts, incident recovery and immutable, versioned definitions.
 - **Admission control:** fleet and per-type limits, per-key concurrency (serialize a customer), tenant quotas, sliding-window rate limits, bounded flow fan-out and weighted fair queues. All are exact across hosts.
-- **Operations:** an embedded Angular console with audited commands, tenant-scoped access, retention with holds, deployment preflight, payload encryption at rest, a read-only MCP endpoint for AI assistants, and OpenTelemetry traces and metrics.
+- **Operations:** an embedded Angular console with audited commands, tenant-scoped access, retention with holds, deployment preflight, payload encryption at rest, an MCP endpoint for AI assistants, and OpenTelemetry traces and metrics.
 - **Testable and easy to adopt:** a test host runs flows on the real engine with stubbed jobs, `dotnet new` templates start a worker, a web app or a test project, and importers move existing Hangfire and Quartz.NET jobs and schedules ([Hangfire](docs/migrating-from-hangfire.md), [Quartz.NET](docs/migrating-from-quartz.md)).
 
 ## Quick start
@@ -145,6 +145,20 @@ builder.Services.AddWorkThrough()
 await jobs.EnqueueAsync(InvoiceJobs.Generate, new GenerateInvoice("INV-42"), cancellationToken: ct);
 ```
 
+### Native AOT
+
+Register jobs explicitly with `AddJob` or the source generator; `AddJobs(assembly)` scans by reflection and is marked as such. Job inputs and outputs serialize through a `JsonSerializerContext` the application registers once, before the host starts:
+
+```csharp
+JobJson.AddContext(InvoiceJsonContext.Default);
+
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+[JsonSerializable(typeof(GenerateInvoice))]
+internal sealed partial class InvoiceJsonContext : JsonSerializerContext;
+```
+
+A type with no registered metadata fails with an error naming it, instead of falling back to reflection. [samples/NativeAot](samples/NativeAot/Program.cs) runs a flow and a schedule as a native binary.
+
 ## Concepts
 
 ### Addresses and relocation
@@ -222,7 +236,7 @@ await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, Partitio
 - **Payload protection:** `ProtectPayloads("2026-10", keys)` encrypts job inputs and outputs, flow inputs and signals at rest with AES-256-GCM and a rotating key ring. Handlers and the console see plain JSON; database readers, backups and archives see ciphertext. Schedule inputs, failure text and fingerprints are not encrypted ([ADR-027](docs/adr/0027-payload-protection.md)).
 - **Tenant scoping:** register an `ITenantAccessResolver` to scope users to their tenants ([ADR-019](docs/adr/0019-tenant-access-isolation.md)).
 - **Data operations:** [operations and retention](docs/operations-and-retention.md) covers queue pause, worker drain, replay, archives, retention with holds and verified exports, and event subscriptions.
-- **MCP:** the [MCP endpoint](docs/mcp.md) gives AI assistants bounded, read-only, audited investigation tools behind bearer authentication.
+- **MCP:** the [MCP endpoint](docs/mcp.md) gives AI assistants bounded, audited investigation tools behind bearer authentication. A host can also enroll a few actions (retry, cancel, recover, queue pause, worker drain), each of which a person approves before it runs.
 - **OpenTelemetry:** subscribe to the `WorkThrough` ActivitySource and Meter. An attempt continues the trace that enqueued it, including through flows and the outbox. Job IDs are trace attributes, never metric labels.
 - **Health checks:** `services.AddHealthChecks().AddWorkThrough()` reports storage reachability and, in worker hosts, repeated acquisition failures.
 - **Rolling upgrades:** from schema 6, compatible schema changes and new engine semantics deploy while workers keep running. Older hosts refuse work they could misread ([ADR-021](docs/adr/0021-rolling-upgrades.md)).
@@ -272,9 +286,9 @@ Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVE
 
 - Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation runs only the undo jobs an application declares.
 - Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
-- OIDC sign-in, role permissions and tenant scoping are verified against a local Keycloak 26.4 (`scripts/check-oidc.py`), not yet against a hosted provider such as Entra ID or Auth0.
+- OIDC sign-in, role permissions and tenant scoping are verified against a local Keycloak 26.4 (`scripts/check-oidc.py`), not yet against a hosted provider such as Entra ID or Auth0. `scripts/check-hosted-idp.py` checks MCP bearer authorization against a hosted provider once one is configured, and `scripts/check-managed-db.sh` qualifies a managed database server.
 - Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL and SQLite without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits; MySQL reached 460/s and MariaDB 560/s. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.
-- There is no production certification and no Native AOT support. Performance figures describe the documented test host.
+- There is no production certification. Native AOT runs with SQLite or PostgreSQL storage, explicit job registration and a source-generated JSON context for job data ([samples/NativeAot](samples/NativeAot/Program.cs)); the dashboard, MCP, EF Core and the SQL Server, Oracle and MySQL providers are not AOT-compatible. Performance figures describe the documented test host.
 - Package publication and the project license are pending maintainer decisions.
 
 Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Security reports: [SECURITY.md](SECURITY.md). Branching and releases: [branching and release](docs/branching-and-release.md).

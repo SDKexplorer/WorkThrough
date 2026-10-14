@@ -4,6 +4,7 @@
 |---|---|
 | [QuickStart](QuickStart/Program.cs) | The smallest program: one job, SQLite, an in-process worker. It runs the job and exits. |
 | [QuickStart.Web](QuickStart.Web/Program.cs) | An API that enqueues jobs, with idempotent requests, a delayed job, the worker and the console in one process. |
+| [NativeAot](NativeAot/Program.cs) | A native AOT binary: explicit job registration, a source-generated JSON context for job data, a flow and a schedule on SQLite. Publish with `dotnet publish samples/NativeAot -c Release`. |
 | [HangfireMigration](HangfireMigration/Program.cs) | Moves a Hangfire application's queued, delayed and recurring jobs into WorkThrough with the importer, then retires them in Hangfire. |
 | [QuartzMigration](QuartzMigration/Program.cs) | Moves Quartz.NET jobs with a holiday-calendar cron trigger and an interval trigger into WorkThrough schedules, then unschedules them in Quartz. |
 | [Shop](#shop-sample) | A system split into deployable hosts, with a flow, tenants, limits, schedules, an OIDC console and MCP. |

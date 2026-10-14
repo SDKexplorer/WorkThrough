@@ -37,6 +37,10 @@ echo 'PASS: the Hangfire migration sample imported, retired and ran its jobs.'
 (cd "$sample_dir" && "$runtime8" "$repo_dir/samples/QuartzMigration/bin/Release/net8.0/QuartzMigration.dll" > quartz-migration.log)
 grep -q "Imported 2, skipped 0" "$sample_dir/quartz-migration.log"
 echo 'PASS: the Quartz.NET migration sample imported its triggers as schedules and retired them.'
+dotnet publish samples/NativeAot -c Release -o "$sample_dir/native-aot" -m:1 -nr:false -p:UseSharedCompilation=false
+(cd "$sample_dir" && "$sample_dir/native-aot/NativeAot" > native-aot.log)
+grep -q "The scheduled stock count ran." "$sample_dir/native-aot.log"
+echo 'PASS: the native AOT sample ran a flow and a schedule without reflection-based JSON.'
 
 # Independent process termination and a bounded performance/correctness smoke campaign.
 WORKTHROUGH_DOTNET8="$runtime8" ./scripts/performance.sh --smoke
