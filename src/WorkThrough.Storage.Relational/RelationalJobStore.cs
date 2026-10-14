@@ -337,9 +337,28 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     /// again before each lease (ADR-022). Below engine protocol 3 this runs only while no limit exists, for one queue; it returns
     /// null, for the serialized path, when that no longer holds.
     /// </summary>
-    private Task<IReadOnlyList<JobRecord>?> ClaimWithRowLocksAsync(ClaimRequest request, CancellationToken cancellationToken) =>
+    private async Task<IReadOnlyList<JobRecord>?> ClaimWithRowLocksAsync(ClaimRequest request, CancellationToken cancellationToken)
+    {
+        var exclusions = new ClaimExclusions();
+        for (var attempt = 1; ; attempt++)
+        {
+            var claimed = await ClaimWithRowLocksOnceAsync(request, exclusions, cancellationToken);
+            if (!exclusions.Restart || attempt == MaximumClaimRestarts)
+            {
+                return claimed;
+            }
+        }
+    }
+
+    /// <summary>
+    /// One claim transaction. A page after the first must not wait for limit locks while this transaction holds others, so when it
+    /// cannot take them and nothing is leased yet, the claim asks to restart: ending the transaction releases the candidates it held,
+    /// which other claims skipped meanwhile, and the next attempt keeps what it learned about rejected jobs and full flows.
+    /// </summary>
+    private Task<IReadOnlyList<JobRecord>?> ClaimWithRowLocksOnceAsync(ClaimRequest request, ClaimExclusions exclusions, CancellationToken cancellationToken) =>
         RowLockedWriteAsync<IReadOnlyList<JobRecord>?>(async (connection, transaction, ct) =>
         {
+            exclusions.Restart = false;
             var settings = await ReadClaimSettingsAsync(connection, transaction, request.WorkerId, ct);
             settings.RequireClaimable(request);
             if (settings.Draining)
@@ -362,8 +381,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
             var budgets = new LocalBudgets(request.Budgets);
             var leased = new List<JobRecord>();
-            var rejected = new HashSet<Guid>();
-            var fullFlows = new HashSet<Guid>();
+            var rejected = exclusions.Rejected;
+            var fullFlows = exclusions.FullFlows;
             var fruitless = 0;
             var holdsLimitLocks = false;
             while (leased.Count < request.MaximumJobs && fruitless < MaximumFruitlessPages)
@@ -398,6 +417,8 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
                     var rows = candidates.SelectMany(candidate => LimitScopes(candidate, Admitting(candidate, settings), policies)).Select(LimitLockRow).ToArray();
                     if (!await LockLimitRowsAsync(connection, transaction, rows, wait: !holdsLimitLocks, ct))
                     {
+                        exclusions.Restart = leased.Count == 0;
+
                         break;
                     }
 
@@ -524,6 +545,17 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
     /// <summary>Pages in a row whose every candidate failed the exact admission check before a claim gives up for this poll.</summary>
     private const int MaximumFruitlessPages = 3;
+
+    /// <summary>Claim transactions one poll may use; see <see cref="ClaimWithRowLocksOnceAsync"/>.</summary>
+    private const int MaximumClaimRestarts = 3;
+
+    /// <summary>What one poll's claim attempts learned: jobs the exact check refused and flows at their step bound.</summary>
+    private sealed class ClaimExclusions
+    {
+        public HashSet<Guid> Rejected { get; } = [];
+        public HashSet<Guid> FullFlows { get; } = [];
+        public bool Restart { get; set; }
+    }
 
     /// <summary>Ready jobs of the given contracts in queue @queue as of @now, whose queue is not paused and whose flow is running.</summary>
     private static string ReadyJobSql(IEnumerable<JobContractId> contracts, List<(string, object?)> parameters)
