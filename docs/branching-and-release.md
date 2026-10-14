@@ -41,12 +41,12 @@ A public alpha can invite contributors and feedback while keeping the support cl
 
 Before changing visibility:
 
-- [ ] Choose and add a maintainer-approved license; inspect third-party notices and assets.
-- [ ] Review the complete reachable Git history, branches, release artifacts and examples for credentials/private data. Rotate any exposed real secret; deleting its latest copy is insufficient. This review has not been run by the planning task.
-- [ ] Establish a private security-reporting channel and enable the applicable GitHub security controls; update `SECURITY.md`.
+- [x] License: MIT (2026-10-14). The console package ships the Angular build's third-party notices as `THIRD-PARTY-NOTICES.txt`.
+- [x] Reachable history scanned for credentials and keys (2026-10-14): only throwaway passwords for local and CI test containers.
+- [ ] After making the repository public, enable private vulnerability reporting (Settings → Code security); `SECURITY.md` already points to it.
 - [ ] Apply and verify branch protection, including the solo-maintainer approval policy.
 - [x] Document the verified provider/runtime matrix and alpha limitations; distinguish read-only MCP and implemented providers from planned controlled actions and sustained qualification.
-- [ ] Decide package ownership, release versioning and artifact provenance before publishing to NuGet.
+- [ ] Versioning decided: after merging to `main`, set the version to 1.0.0-rc.1 there and publish from `main`; 1.0.0 follows. Still open: the nuget.org account that owns the `WorkThrough.*` package IDs.
 - [ ] Verify clean public-consumer setup, examples and links; add contribution/issue guidance suitable for outside users.
 
 Changing visibility makes repository content and history publicly accessible. The maintainer must explicitly decide that action after reviewing this checklist. Keeping the repository private and upgrading the account plan is a separate way to enable protection.

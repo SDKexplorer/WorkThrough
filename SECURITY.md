@@ -11,4 +11,4 @@ This alpha has not undergone an independent security assessment and is not produ
 - NuGet audit warnings are build errors. Do not silence vulnerability warnings to make CI pass.
 - The OIDC sample signs in against a local Keycloak in `scripts/check-oidc.py`; hosted identity providers such as Entra ID or Auth0 are not yet verified. See [sign-in and permissions](docs/sign-in.md), [console security](docs/dashboard-security.md) and [ADR-007](docs/adr/0007-dashboard-access-and-audit.md).
 
-There is no hosted disclosure contact yet. Before public release, maintainers must establish a private reporting channel, license, and supported-version policy.
+Report vulnerabilities privately through GitHub: the repository's **Security** tab, **Report a vulnerability**. Do not open a public issue. The latest release receives security fixes.
