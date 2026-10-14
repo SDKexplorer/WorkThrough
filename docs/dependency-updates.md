@@ -28,6 +28,8 @@ The old setup-node and SQLite failures were in the non-cooperative execution-dea
 
 `WorkThrough.Migration.Hangfire` references Newtonsoft.Json 13.0.3 directly, because Hangfire.Core accepts 11.0.1, which has a known high-severity vulnerability. Keep the direct reference at a patched version until Hangfire.Core requires one itself.
 
+`WorkThrough.Storage.SqlServer` and `WorkThrough.Storage.Oracle` reference System.Security.Cryptography.Pkcs 9.0.21 directly, because Microsoft.Data.SqlClient and Oracle.ManagedDataAccess.Core accept 8.0.1 and 9.0.18, which has high-severity vulnerabilities (GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7). Remove the references once the drivers require a patched version.
+
 ## Automation boundaries
 
 Dependabot groups routine minor/patch updates by ecosystem, keeps Angular packages together, and limits each ecosystem to three open version-update PRs. Major upgrades remain separate review decisions. TypeScript versions outside the current Angular range and Roslyn minor/major upgrades are excluded explicitly. Revisit those constraints when intentionally changing Angular or the minimum supported compiler, including any security-driven upgrade; these are compatibility boundaries, not permanent exemptions from maintenance.
