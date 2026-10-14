@@ -18,7 +18,7 @@ The inventory includes queued (including future work), running, and waiting jobs
 
 The report includes outstanding and currently eligible job counts and the earliest eligible timestamp. Waiting dependencies, future-due jobs, and paused/incident runs are excluded from ready counts. Capacity limits do not change eligibility. Flow successor activation now records its eligibility time when dependencies resolve; historical rows created before this change may retain their original creation-based available_at timestamp. Time spent behind capacity limits or an intervening pause is included in wall-clock backlog age; this is not an execution-duration metric.
 
-The inventory reads one snapshot (SQLite deferred, PostgreSQL and MySQL/MariaDB Repeatable Read, SQL Server Snapshot, Oracle Serializable). It takes no admission lock and changes no jobs. Query output is bounded to 1,000 processor/queue groups and 1,000 enabled schedules. The report explicitly marks truncation and refuses complete-coverage confirmation. Grouped counts may still scan outstanding rows; measure store overhead before polling at high frequency.
+The inventory reads one snapshot (PostgreSQL and MySQL/MariaDB Repeatable Read, SQL Server Snapshot, Oracle Serializable). It takes no admission lock and changes no jobs. Query output is bounded to 1,000 processor/queue groups and 1,000 enabled schedules. The report explicitly marks truncation and refuses complete-coverage confirmation. Grouped counts may still scan outstanding rows; measure store overhead before polling at high frequency.
 
 The dashboard's **Workers & capacity → Processor coverage** view compares requirements with stored heartbeats seen within 60 seconds. That is an observation of the current fleet, not a declaration of the next deployment. It exposes metadata through `executions.read`, without payloads or implementation assemblies. Busy, paused-by-policy, and semantically incompatible workers can still advertise identity coverage: the report is not a throughput, code correctness, or transaction compatibility guarantee.
 
@@ -29,7 +29,7 @@ The dashboard's **Workers & capacity → Processor coverage** view compares requ
 dotnet run --project samples/Shop.Worker -- --describe-worker
 
 # Read an existing initialized store and exit 0 for complete coverage, 2 otherwise:
-Shop__Sqlite='Data Source=/absolute/path/shop.db' \
+Shop__PostgreSql='Host=...;Database=...;Search Path=shop' \
   dotnet run --project samples/Shop.Worker -- --preflight
 ```
 

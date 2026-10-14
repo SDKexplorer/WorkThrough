@@ -15,7 +15,8 @@ WT_IDP_ROLE (an Entra app role, or an Auth0 permission), one granted nothing.
     WT_IDP_AUDIENCE_PARAM   set to 1 for providers that take the audience as a token request parameter (Auth0)
 
 --local-keycloak runs the same checks against Keycloak in Docker over HTTPS with tests/Oidc/workthrough-realm.json, using the
-ASP.NET Core development certificate; it validates this script, not a hosted provider. Requires docker and dotnet.
+ASP.NET Core development certificate; it validates this script, not a hosted provider. Requires docker, dotnet and a disposable
+DURABLEJOBS_POSTGRES database for the shop store.
 """
 import base64
 import json
@@ -178,7 +179,8 @@ def start_keycloak(work):
 def main():
     local = "--local-keycloak" in sys.argv[1:]
     work = tempfile.mkdtemp(prefix="workthrough-idp-")
-    environment = {**os.environ, "Shop__Sqlite": f"Data Source={os.path.join(work, 'shop.db')}"}
+    database = os.environ.get("DURABLEJOBS_POSTGRES") or fail("set DURABLEJOBS_POSTGRES to a disposable PostgreSQL database")
+    environment = {**os.environ, "Shop__PostgreSql": f"{database};Search Path=wt_idp_{int(time.time())}_{os.getpid()}"}
     mcp = None
     try:
         settings = start_keycloak(work) if local else hosted_settings()

@@ -7,9 +7,7 @@ var connectionString = builder.Configuration.GetConnectionString("WorkThrough")
 
 // Run as many copies of this worker as you need against the same database; they share the work.
 builder.Services.AddWorkThrough()
-#if (UseSqlite)
-    .UseSqlite(connectionString)
-#elif (UsePostgreSql)
+#if (UsePostgreSql)
     .UsePostgreSql(connectionString)
 #elif (UseSqlServer)
     .UseSqlServer(connectionString)

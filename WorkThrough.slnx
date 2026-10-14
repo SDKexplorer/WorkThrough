@@ -31,7 +31,6 @@
     <Project Path="src/WorkThrough.Storage.MySql/WorkThrough.Storage.MySql.csproj" />
     <Project Path="src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
     <Project Path="src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
-    <Project Path="src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
     <Project Path="src/WorkThrough.Testing/WorkThrough.Testing.csproj" />
     <Project Path="templates/WorkThrough.Templates.csproj" />
   </Folder>

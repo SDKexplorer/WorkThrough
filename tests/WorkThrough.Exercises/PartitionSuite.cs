@@ -37,7 +37,7 @@ internal static class PartitionSuite
             {
                 var effects = Directory.CreateDirectory(Path.Combine(database.DirectoryPath, worker)).FullName;
                 await Docker.RunAsync($"run -d --name {worker} --network {Network} -v {AppContext.BaseDirectory}:/app:ro -v {effects}:/effects " +
-                    $"-e WT_EXERCISE_PROVIDER=postgres -e \"WT_EXERCISE_CONNECTION={inside}\" -e WT_EXERCISE_EFFECTS=/effects/effects.db " +
+                    $"-e WT_EXERCISE_PROVIDER=postgres -e \"WT_EXERCISE_CONNECTION={inside}\" -e WT_EXERCISE_EFFECTS=/effects/effects " +
                     $"-e WT_EXERCISE_CRASH=1 -e WT_EXERCISE_WORKER_ID={worker} -e WT_EXERCISE_SLOTS=4 {Image} dotnet /app/WorkThrough.Exercises.dll worker");
             }
 

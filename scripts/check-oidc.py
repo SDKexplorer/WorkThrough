@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Signs in to the Shop.Dashboard console through a real Keycloak and checks role permissions and tenant scoping.
 
-Starts Keycloak in Docker with tests/Oidc/workthrough-realm.json, fills a SQLite store with the Shop smoke orders (tenant-a and
+Starts Keycloak in Docker with tests/Oidc/workthrough-realm.json, fills a fresh schema of DURABLEJOBS_POSTGRES with the Shop smoke orders (tenant-a and
 tenant-b), runs Shop.Dashboard over HTTPS with the ASP.NET Core development certificate, and walks the authorization-code flow
 as a browser would: the login form, the form_post callback, and the session cookie. Requires docker and dotnet.
 """
@@ -19,6 +19,12 @@ import urllib.parse
 import urllib.request
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def shop_store():
+    """A fresh schema of the disposable test database; the shop's initialization creates it."""
+    database = os.environ.get("DURABLEJOBS_POSTGRES") or sys.exit("FAIL: set DURABLEJOBS_POSTGRES to a disposable PostgreSQL database")
+    return f"{database};Search Path=wt_oidc_{int(time.time())}_{os.getpid()}"
 KEYCLOAK = "http://127.0.0.1:18080"
 DASHBOARD = "https://127.0.0.1:5297"
 CONTAINER = "workthrough-oidc-check"
@@ -108,8 +114,7 @@ def api(browser, path):
 
 def main():
     work = tempfile.mkdtemp(prefix="workthrough-oidc-")
-    database = os.path.join(work, "shop.db")
-    environment = {**os.environ, "Shop__Sqlite": f"Data Source={database}"}
+    environment = {**os.environ, "Shop__PostgreSql": shop_store()}
     subprocess.run(["docker", "rm", "-f", CONTAINER], capture_output=True)
     subprocess.run(["docker", "run", "-d", "--name", CONTAINER, "-p", "18080:8080",
                     "-e", "KC_BOOTSTRAP_ADMIN_USERNAME=admin", "-e", "KC_BOOTSTRAP_ADMIN_PASSWORD=admin",

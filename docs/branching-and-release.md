@@ -9,7 +9,7 @@
 
 An additional staging branch is unnecessary until a distinct deployment requires it. Use version tags and immutable package artifacts for a release. Do not publish NuGet packages automatically as part of ordinary branch CI.
 
-The workflow change in this proposal verifies PRs and pushes to both long-lived branches. Its jobs are `console`, `verify` (SQLite, PostgreSQL and SQL Server), `oracle` and `mysql` (MySQL and MariaDB). Dependabot version updates target `develop` after the configuration is promoted to the default branch; GitHub security updates still target the default branch. Existing bot PRs are not silently merged or closed. See [Dependabot target-branch semantics](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch).
+The workflow change in this proposal verifies PRs and pushes to both long-lived branches. Its jobs are `console`, `verify` (PostgreSQL and SQL Server), `oracle` and `mysql` (MySQL and MariaDB). Dependabot version updates target `develop` after the configuration is promoted to the default branch; GitHub security updates still target the default branch. Existing bot PRs are not silently merged or closed. See [Dependabot target-branch semantics](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch).
 
 ## Protection policy and actual enforcement
 

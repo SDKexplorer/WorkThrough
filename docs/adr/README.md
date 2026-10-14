@@ -37,5 +37,6 @@ Each record states a decision, why it was made and what it costs. Records are no
 | [030](0030-richer-schedules-and-quartz-import.md) | Seconds, intervals, bounds and excluded dates; Quartz.NET import; protocol 9 | Implemented |
 | [031](0031-mcp-controlled-actions.md) | MCP controlled actions: prepare, person approves, execute | Implemented |
 | [032](0032-named-calendars.md) | Named calendars edited at runtime; schema 11, protocol 10 | Implemented |
+| [033](0033-remove-sqlite.md) | Remove the SQLite provider; PostgreSQL for tests, samples and templates | Implemented |
 
 Two records share the number 010; both are kept as written because other documents link to them.

@@ -7,9 +7,7 @@ var connectionString = builder.Configuration.GetConnectionString("WorkThrough")
 
 // This process accepts requests and runs jobs. Move AddWorker into a separate worker host when the work outgrows it.
 builder.Services.AddWorkThrough()
-#if (UseSqlite)
-    .UseSqlite(connectionString)
-#elif (UsePostgreSql)
+#if (UsePostgreSql)
     .UsePostgreSql(connectionString)
 #elif (UseSqlServer)
     .UseSqlServer(connectionString)

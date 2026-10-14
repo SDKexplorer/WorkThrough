@@ -10,7 +10,7 @@ public sealed class CoreTests
         var dependencies = typeof(JobClient).Assembly.GetReferencedAssemblies();
         Assert.DoesNotContain(dependencies, x => x.Name!.StartsWith("Microsoft.Extensions", StringComparison.Ordinal)
             || x.Name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal)
-            || x.Name.Contains("Sqlite", StringComparison.Ordinal) || x.Name == "Npgsql");
+            || x.Name == "Npgsql" || x.Name == "Microsoft.Data.SqlClient");
     }
 
     [Fact]

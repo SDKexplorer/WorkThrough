@@ -83,6 +83,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
+      postgres:
+        # PostgreSQL is the default store of the suite and the samples.
+        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: durablejobs-test
+          POSTGRES_DB: durablejobs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d durablejobs"
+          --health-interval 5s --health-timeout 5s --health-retries 10
       oracle:
         image: container-registry.oracle.com/database/free:23.26.3.0-lite-amd64@sha256:770ca58ab319d8cfde610b0db25c06899ce0af9591c4addfa10d2cb8f0318e65
         env:
@@ -94,6 +106,7 @@ jobs:
           --health-cmd "/opt/oracle/checkDBStatus.sh"
           --health-interval 10s --health-timeout 10s --health-retries 30
     env:
+      DURABLEJOBS_POSTGRES: Host=127.0.0.1;Port=5432;Database=durablejobs;Username=postgres;Password=durablejobs-test
       DURABLEJOBS_ORACLE: User Id=system;Password=WorkThrough_Oracle_2026;Data Source=127.0.0.1:1521/FREEPDB1
     steps:
       - uses: actions/checkout@v7
@@ -136,6 +149,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     services:
+      postgres:
+        # PostgreSQL is the default store of the suite and the samples.
+        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: durablejobs-test
+          POSTGRES_DB: durablejobs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d durablejobs"
+          --health-interval 5s --health-timeout 5s --health-retries 10
       mysql:
         image: public.ecr.aws/docker/library/mysql:8.4@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
         env:
@@ -155,6 +180,7 @@ jobs:
           --health-cmd "healthcheck.sh --connect --innodb_initialized"
           --health-interval 5s --health-timeout 5s --health-retries 30
     env:
+      DURABLEJOBS_POSTGRES: Host=127.0.0.1;Port=5432;Database=durablejobs;Username=postgres;Password=durablejobs-test
       DURABLEJOBS_MYSQL: Server=127.0.0.1;Port=3306;User ID=root;Password=WorkThrough_MySql_2026
       DURABLEJOBS_MARIADB: Server=127.0.0.1;Port=3307;User ID=root;Password=WorkThrough_MariaDb_2026
       WORKTHROUGH_RABBITMQ: amqp://guest:guest@127.0.0.1:5673/

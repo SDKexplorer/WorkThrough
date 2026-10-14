@@ -39,7 +39,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task A_target_that_changed_after_approval_is_not_acted_on()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var failed = await FailedJobAsync(harness);
         var approvals = new TestApprovals();
         await using var server = await McpTestHost.CreateAsync(harness, actions: JobAndQueueActions, approvals: approvals);
@@ -58,7 +58,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Approval_binds_the_caller_the_lifetime_and_the_permission()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var failed = await FailedJobAsync(harness);
         var approvals = new TestApprovals();
         await using var server = await McpTestHost.CreateAsync(harness, actions: JobAndQueueActions, approvals: approvals,
@@ -82,7 +82,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Queue_pause_runs_through_approval_and_unenrolled_actions_are_refused()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var approvals = new TestApprovals();
         await using var server = await McpTestHost.CreateAsync(harness, actions: JobAndQueueActions, approvals: approvals);
         await using var client = await ClientAsync(server, OperationPermissions.ManageQueues, OperationPermissions.CancelJobs);
@@ -101,7 +101,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task A_read_only_endpoint_lists_no_action_tools_and_refuses_them()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var failed = await FailedJobAsync(harness);
         await using var server = await McpTestHost.CreateAsync(harness);
         await using var client = await ClientAsync(server, OperationPermissions.RetryJobs);

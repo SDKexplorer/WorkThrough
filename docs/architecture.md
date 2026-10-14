@@ -9,7 +9,7 @@ flowchart TD
     Sample[Application composition root] --> Hosting
     Sample --> Dashboard
     Sample --> Mcp[Optional MCP adapter]
-    Sample --> Provider[SQLite, PostgreSQL, SQL Server, Oracle or MySQL/MariaDB provider]
+    Sample --> Provider[PostgreSQL, SQL Server, Oracle or MySQL/MariaDB provider]
     Provider --> Relational[Relational persistence mechanics]
     Tests[Application tests] --> Testing[WorkThrough.Testing]
     Testing --> Hosting

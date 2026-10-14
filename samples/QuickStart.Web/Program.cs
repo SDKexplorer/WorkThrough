@@ -4,7 +4,8 @@ using WorkThrough;
 //   curl -X POST http://127.0.0.1:5296/signups -H 'Content-Type: application/json' -d '{"email":"ada@example.com"}'
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=quickstart-web.db")
+    .UsePostgreSql(Environment.GetEnvironmentVariable("WORKTHROUGH_POSTGRES")
+        ?? "Host=127.0.0.1;Port=5432;Database=workthrough;Username=postgres;Password=workthrough;Search Path=quickstart_web")
     .AddJobs(typeof(SendWelcomeEmail).Assembly)
     .AddWorker();
 builder.Services.AddWorkThroughDashboard();

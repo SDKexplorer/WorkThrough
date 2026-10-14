@@ -39,7 +39,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
 
     /// <summary>
     /// Takes the lock that serializes writes which admit work, inside a transaction already open on <paramref name="connection"/>. The
-    /// default takes none: SQLite's immediate transactions already exclude other writers.
+    /// default takes none; providers that need one override it.
     /// </summary>
     protected virtual Task LockAdmissionAsync(DbConnection connection, DbTransaction transaction, CancellationToken cancellationToken) => Task.CompletedTask;
 

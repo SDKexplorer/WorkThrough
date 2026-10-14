@@ -124,7 +124,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Http_limits_and_failing_access_sink_do_not_leak_successful_results()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         await using var server = await McpTestHost.CreateAsync(harness, requestsPerMinute: 3);
         using var client = server.Client();
         using var huge = new StringContent(new string('x', 17000));
@@ -142,7 +142,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Oversized_result_is_an_explicit_error_and_can_be_read_with_smaller_pages()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var jobs = new JobClient(harness.Store);
         for (var index = 0; index < 40; index++)
         {
@@ -162,7 +162,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Concurrent_queries_are_bounded_and_disconnect_cancels_the_query()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var queries = new WaitingQueries(harness.Store);
         await using var server = await McpTestHost.CreateAsync(harness, queries: queries, concurrentRequests: 1);
         using var client = server.Client();
@@ -182,7 +182,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Query_deadline_returns_an_error_without_fabricating_an_empty_history()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var queries = new WaitingQueries(harness.Store);
         await using var server = await McpTestHost.CreateAsync(harness, queries: queries);
         using var client = server.Client();
@@ -380,15 +380,6 @@ public sealed partial class McpTests
             if (harness.Store is MySqlJobStore)
             {
                 return new MySqlJobStore(harness.ReadOnlyConnectionString!);
-            }
-
-            if (harness.Store is SqliteJobStore)
-            {
-                return new SqliteJobStore(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(harness.ConnectionString)
-                {
-                    Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly,
-                    Pooling = false
-                }.ToString());
             }
 
             return new PostgresJobStore(new Npgsql.NpgsqlConnectionStringBuilder(harness.ConnectionString)

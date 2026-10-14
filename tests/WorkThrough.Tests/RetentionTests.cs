@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using Npgsql;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,7 +11,7 @@ namespace WorkThrough.Tests;
 public sealed class RetentionTests
 {
     public static IEnumerable<object[]> Providers() => StorageConformanceTests.Providers();
-    public static IEnumerable<object[]> LegacyProviders() => Providers().Where(row => (string)row[0] is "sqlite" or "postgres");
+    public static IEnumerable<object[]> LegacyProviders() => Providers().Where(row => (string)row[0] is "postgres");
     private static readonly JobDefinition<string> Invoice = new("retention.invoice");
     private static readonly OperationActor Actor = new("tests", "maintenance");
     private static AdministrativeCommand Command() => new(Guid.NewGuid(), new("tests", "operator"), "retention fixture");
@@ -108,10 +107,6 @@ public sealed class RetentionTests
         {
             "oracle" => "CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN UPDATE dj_maintenance SET lease_expires_at=0; END;",
             "sqlserver" => "CREATE TRIGGER expire_batch ON dj_archives AFTER INSERT AS UPDATE dj_maintenance SET lease_expires_at=0;",
-            "sqlite" => """
-                CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives BEGIN
-                  UPDATE dj_maintenance SET lease_expires_at=0; END
-                """,
             "mysql" or "mariadb" => "CREATE TRIGGER expire_batch AFTER INSERT ON dj_archives FOR EACH ROW UPDATE dj_maintenance SET lease_expires_at=0",
             _ => """
                 CREATE FUNCTION expire_batch() RETURNS trigger AS $$ BEGIN
@@ -284,7 +279,7 @@ public sealed class RetentionTests
     [Fact]
     public async Task File_export_is_immutable_verified_and_reusable_after_a_lost_receipt()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var id = await CompletedAsync(harness);
         await harness.Store.ArchiveCompletedAsync(new(DateTimeOffset.UtcNow.AddDays(1)), Command()).SucceedsAsync();
         var archive = (await harness.Store.ExportArchiveAsync(id))!;
@@ -314,11 +309,11 @@ public sealed class RetentionTests
     [Fact]
     public async Task Optional_background_service_runs_configured_policy_and_stops_cleanly()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var id = await CompletedAsync(harness);
         await harness.Store.ConfigureRetentionAsync(Policy(), 0, Command()).SucceedsAsync();
         using var host = Host.CreateDefaultBuilder().ConfigureLogging(logging => logging.ClearProviders())
-            .ConfigureServices(services => services.AddWorkThrough().UseSqlite(harness.ConnectionString)
+            .ConfigureServices(services => services.AddWorkThrough().UsePostgreSql(harness.ConnectionString)
                 .InitializeStorageOnStart(false).AddRetentionMaintenance(options => options.PollInterval = TimeSpan.FromSeconds(1))).Build();
         await host.StartAsync();
         try

@@ -104,7 +104,7 @@ public sealed partial class McpTests
     [Fact]
     public async Task Missing_history_port_hides_tools_and_rejects_direct_calls_with_explicit_coverage()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         await using var server = await McpTestHost.CreateAsync(harness, includeHistory: false);
         using var client = server.Client(payloads: true, audit: true, retention: true);
         var listed = await ResultAsync(await CallAsync(client, "tools/list"));

@@ -34,7 +34,7 @@ public sealed class TenantIsolationTests
     [Fact]
     public async Task Dashboard_scopes_reads_and_commands_to_the_principals_tenants()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var client = new JobClient(harness.Store);
         var own = await client.EnqueueAsync(new Alpha("own"), new(TenantId: "tenant-a"));
         var foreign = await client.EnqueueAsync(new Alpha("foreign"), new(TenantId: "tenant-b"));

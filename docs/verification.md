@@ -6,13 +6,13 @@ This is a chronological evidence log. Earlier package counts and pending states 
 
 | Area | Latest evidence | Still open |
 |---|---|---|
-| SQLite, PostgreSQL | Full suite on every change; PostgreSQL two-hour soak (233k jobs) and restore drill passed | — |
+| PostgreSQL | Full suite on every change; two-hour soak (233k jobs) and restore drill passed. SQLite was removed (ADR-033) | — |
 | SQL Server, Oracle | Full suite; Oracle two-hour soak passed (2026-10-13); SQL Server two-hour soak passed after the index fix (2026-10-14) | — |
 | MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers; 30-minute soaks passed (2026-10-13) | — |
 | Multi-host | Container network-partition exercise passed (2026-10-13) | Separate physical machines |
 | Identity | OIDC against a local Keycloak 26.4 (2026-10-12); MCP bearer check script validated against Keycloak over HTTPS (2026-10-14) | Hosted providers (Entra ID, Auth0): `scripts/check-hosted-idp.py` |
 | Managed databases | Encryption gate and runner script (2026-10-14) | Azure SQL MI, RDS and others: `scripts/check-managed-db.sh` |
-| Native AOT | SQLite and PostgreSQL samples run as native binaries (2026-10-14) | Other providers, dashboard, MCP |
+| Native AOT | PostgreSQL sample runs as a native binary (2026-10-14) | Other providers, dashboard, MCP |
 | Packages | Package-only consumers on SDK 8 and 10; templates build with every provider | Publication, license |
 | Runtimes | .NET 8 and .NET 10 | .NET 9 is not claimed |
 
@@ -426,3 +426,5 @@ Controlled MCP actions, named calendars and verification tooling (2026-10-14):
 - **Managed database tooling:** with `WT_REQUIRE_TLS=1`, the encryption check passed on SQL Server (encrypted by default) and failed on the local PostgreSQL container, which does not use TLS. No managed server has been run.
 
 SQL Server two-hour soak (2026-10-14): with the run, lease and expiry indexes from the start, 231,845 jobs (178,328 offered, 17,839 flows) succeeded exactly once, none retried, and every per-minute window stayed within its partition, tenant, rate and flow-parallelism limits. Offers held at about 1,490 a minute and completions at about 1,950 through minute 120, with queue-wait p95 between 370 and 620 ms; worker memory stayed between 376 and 380 MiB after warm-up ([results](performance-results/2026-10-14-sqlserver-soak-120.json)).
+
+SQLite removed (2026-10-14, ADR-033): the provider and its tests are gone; the test host, samples, templates, relocation proof, exercises and CI use PostgreSQL. With only `DURABLEJOBS_POSTGRES` set, the shared suite passed 274 tests; the 3 failures were the broker tests, whose containers were stopped. Earlier SQLite evidence above is history.

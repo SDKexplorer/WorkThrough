@@ -12,7 +12,7 @@ public static class ShopSetup
 
     /// <summary>Every shop process points at the same store; nothing else about it is shared.</summary>
     public static WorkThroughBuilder UseShopStorage(this WorkThroughBuilder builder, ShopSettings settings) =>
-        settings.PostgreSql is { Length: > 0 } postgres ? builder.UsePostgreSql(postgres) : builder.UseSqlite(settings.Sqlite);
+        builder.UsePostgreSql(settings.PostgreSql);
 
     /// <summary>
     /// Starting values for the fleet-wide policies. They are created once; operators change them afterwards in the dashboard, and

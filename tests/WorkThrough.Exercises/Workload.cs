@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -36,13 +35,9 @@ internal static class Workload
         {
             jobs.UsePostgreSql(connection);
         }
-        else if (provider is "mysql" or "mariadb")
-        {
-            jobs.UseMySql(connection);
-        }
         else
         {
-            jobs.UseSqlite(connection);
+            jobs.UseMySql(connection);
         }
 
         jobs.InitializeStorageOnStart(false)
@@ -94,36 +89,24 @@ internal static class Workload
 
 internal sealed record WorkItem(int Index, int DelayMs = 10, bool CrashAfterEffect = false);
 
-// A separate business database models an idempotent external effect, outside the engine transaction.
+// A separate business system models an idempotent external effect, outside the engine transaction: one marker file per effect key.
 internal sealed class EffectStore(string path)
 {
-    public async Task ApplyAsync(string key, CancellationToken ct)
+    public Task ApplyAsync(string key, CancellationToken ct)
     {
-        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
-        await connection.OpenAsync(ct);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "CREATE TABLE IF NOT EXISTS effects(id TEXT PRIMARY KEY); INSERT INTO effects(id) VALUES (@id) ON CONFLICT DO NOTHING";
-        command.Parameters.AddWithValue("@id", key);
-        await command.ExecuteNonQueryAsync(ct);
-    }
-    public async Task<long> CountAsync()
-    {
-        if (!File.Exists(path))
-        {
-            return 0;
-        }
-
-        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM effects";
+        ct.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(path);
         try
         {
-            return (long)(await command.ExecuteScalarAsync())!;
+            using var _ = new FileStream(Path.Combine(path, Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(key))), FileMode.CreateNew);
         }
-        catch (SqliteException e) when (e.SqliteErrorCode == 1)
+        catch (IOException) when (File.Exists(Path.Combine(path, Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(key)))))
         {
-            return 0;
+            // Applied before: the effect is idempotent.
         }
+
+        return Task.CompletedTask;
     }
+
+    public Task<long> CountAsync() => Task.FromResult(Directory.Exists(path) ? (long)Directory.GetFiles(path).Length : 0);
 }

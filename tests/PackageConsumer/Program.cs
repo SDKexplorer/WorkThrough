@@ -2,10 +2,12 @@ using WorkThrough;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-var database = Path.Combine(Path.GetTempPath(), $"durablejobs-package-{Guid.NewGuid():N}.db");
+// A fresh schema of the disposable test database; initialization creates it.
+var database = (Environment.GetEnvironmentVariable("DURABLEJOBS_POSTGRES")
+    ?? throw new InvalidOperationException("Set DURABLEJOBS_POSTGRES to a disposable PostgreSQL database.")) + $";Search Path=wt_package_{Guid.NewGuid():N}";
 var manualDefinition = new JobDefinition<InvoiceInput>("smoke.manual", displayName: "Explicit invoice");
 var builder = Host.CreateApplicationBuilder();
-builder.Services.AddWorkThrough().UseSqlite($"Data Source={database};Pooling=False")
+builder.Services.AddWorkThrough().UsePostgreSql(database)
     .AddGeneratedJobs(typeof(Program).Assembly).AddJob<InvoiceInput, ExplicitInvoiceProcessor>(manualDefinition).AddWorker(options => options.PollInterval = TimeSpan.FromMilliseconds(20));
 using var host = builder.Build();
 
@@ -91,7 +93,6 @@ try
 finally
 {
     await host.StopAsync();
-    File.Delete(database);
 }
 
 await TestingPackageSmoke.RunAsync();

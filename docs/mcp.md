@@ -84,9 +84,9 @@ app.MapWorkThroughMcp();
 await app.RunAsync();
 ```
 
-Initialize/upgrade storage through the deployment process before starting a read-only host. Disabling startup initialization prevents schema/index writes by this host. Give it read-only database credentials where possible. SQLite needs an absolute local file path; `Mode=ReadOnly` is supported. Tested PostgreSQL connections set `default_transaction_read_only=on`; that verifies query behavior, not a deployment's role grants.
+Initialize/upgrade storage through the deployment process before starting a read-only host. Disabling startup initialization prevents schema/index writes by this host. Give it read-only database credentials where possible. Tested PostgreSQL connections set `default_transaction_read_only=on`; that verifies query behavior, not a deployment's role grants.
 
-[Shop.Mcp](../samples/Shop.Mcp/Program.cs) uses `Mcp:Authority`, `Resource`, `Environment` and optional `EndpointPath`, plus the shop's `Shop:Sqlite` or `Shop:PostgreSql` store; environment variables use the `Mcp__` and `Shop__` prefixes. It registers the tenant-claim resolver and supplies no development credential, anonymous fallback, worker or initializer. Configure ASP.NET's listener/TLS as usual.
+[Shop.Mcp](../samples/Shop.Mcp/Program.cs) uses `Mcp:Authority`, `Resource`, `Environment` and optional `EndpointPath`, plus the shop's `Shop:PostgreSql` store; environment variables use the `Mcp__` and `Shop__` prefixes. It registers the tenant-claim resolver and supplies no development credential, anonymous fallback, worker or initializer. Configure ASP.NET's listener/TLS as usual.
 
 Register one WorkThrough MCP server per service collection. The host owns the public URI and maps the same path; use a dedicated host for independent stores. This release does not configure `UsePathBase` or proxy path rewriting. Behind a TLS-terminating proxy, configure trusted forwarded headers before authentication so ASP.NET observes HTTPS; never trust arbitrary forwarded headers. Resource and authority URIs require HTTPS. `AllowLoopbackHttp` is an explicit local-test exception only for a loopback resource URI; bind the development listener to loopback too.
 
@@ -149,7 +149,7 @@ Only `succeeded` changed engine state. Tenant-restricted principals cannot use a
 
 Enforced bounds:
 
-- Five-second cooperative tool/query cancellation, with disconnect propagation. SQLite's synchronous driver and host callbacks prevent a hard wall-clock SLA.
+- Five-second cooperative tool/query cancellation, with disconnect propagation. Host callbacks prevent a hard wall-clock SLA.
 - 16 KiB request bodies, request IDs up to 128 characters, no batch requests and a five-second body-read budget.
 - 48 KiB serialized tool results including structured content and compatibility text, reserving space below the 64 KiB response budget for protocol framing. Oversized results return `response_too_large` and guidance to lower page size; no broken JSON or silently partial page.
 - Host-wide concurrent HTTP admission (default 16), no waiting queue, and per-issuer/subject fixed-window admission (default 120 requests/minute). Rejections return 429 and `Retry-After: 60`. Fleet-wide limits need a gateway.

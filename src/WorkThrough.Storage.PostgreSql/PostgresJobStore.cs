@@ -1,13 +1,28 @@
 using System.Data.Common;
+using System.Text.RegularExpressions;
 using Npgsql;
 
 namespace WorkThrough.Storage;
 
+public sealed record PostgresStorageOptions
+{
+    /// <summary>
+    /// For tests: shifts the store's clock, which every delay, retry, deadline, schedule and lease reads. Leave unset in production.
+    /// </summary>
+    public Func<TimeSpan>? ClockOffset { get; init; }
+}
+
 /// <summary>PostgreSQL provider with a transaction-scoped admission lock.</summary>
 /// <remarks>The advisory lock is database-wide: WorkThrough stores in different schemas of one database share it.
 /// Its key is part of the cross-version admission contract and must not change.</remarks>
-public sealed class PostgresJobStore(string connectionString) : RelationalJobStore
+public sealed partial class PostgresJobStore(string connectionString, PostgresStorageOptions options) : RelationalJobStore
 {
+    private const string Clock = "CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)";
+
+    public PostgresJobStore(string connectionString) : this(connectionString, new PostgresStorageOptions())
+    {
+    }
+
     protected override string ReadinessWorkersSql => """
         WITH recent AS (
           SELECT id,seen_at,(CASE WHEN LENGTH(details)<=262144 THEN details ELSE '{}' END)::jsonb AS info
@@ -28,9 +43,33 @@ public sealed class PostgresJobStore(string connectionString) : RelationalJobSto
     protected override bool IsDeadlockVictim(DbException error) => error is PostgresException { SqlState: PostgresErrorCodes.DeadlockDetected };
 
     protected override DbConnection CreateConnection() => new NpgsqlConnection(connectionString);
+
+    /// <summary>
+    /// Creates the schema the connection's <c>Search Path</c> names first, when it is missing and a plain identifier, then the tables in it. One database can
+    /// hold several stores, each in its own schema.
+    /// </summary>
+    public override async Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        if (new NpgsqlConnectionStringBuilder(connectionString).SearchPath?.Split(',')[0].Trim() is { Length: > 0 } schema
+            && PlainIdentifier().IsMatch(schema))
+        {
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using var create = new NpgsqlCommand($"CREATE SCHEMA IF NOT EXISTS {schema}", connection);
+            await create.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await base.InitializeAsync(cancellationToken);
+    }
+
+    /// <summary>An unquoted name, which PostgreSQL folds to lower case in the search path and in DDL alike.</summary>
+    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,62}$")]
+    private static partial Regex PlainIdentifier();
     protected override string ColumnExistsSql =>
         "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=@table AND column_name=@column";
-    protected override string ClockSql => "SELECT CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)";
+    protected override string ClockSql => options.ClockOffset is { } offset
+        ? $"SELECT {Clock} + {(long)offset().TotalMilliseconds}"
+        : $"SELECT {Clock}";
     protected override string FlowDependencySql => """
         SELECT DISTINCT predecessor_job.id,successor_job.id
         FROM dj_flows f JOIN dj_definitions d ON d.flow_key=f.flow_key AND d.version=f.version

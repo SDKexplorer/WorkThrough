@@ -35,7 +35,6 @@ public sealed class EntityFrameworkTests
         var options = new DbContextOptionsBuilder<OrdersContext>();
         _ = provider switch
         {
-            "sqlite" => options.UseSqlite(harness.ConnectionString),
             "postgres" => options.UseNpgsql(harness.ConnectionString),
             "sqlserver" or StoreHarness.SqlServerVersionedReads => options.UseSqlServer(harness.ConnectionString),
             "oracle" => options.UseOracle(harness.ConnectionString),
@@ -108,8 +107,8 @@ public sealed class EntityFrameworkTests
     [Fact]
     public async Task A_context_without_WorkThrough_refuses_to_record_jobs()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
-        await using var context = new OrdersContext(new DbContextOptionsBuilder<OrdersContext>().UseSqlite(harness.ConnectionString).Options);
+        await using var harness = await StoreHarness.CreateAsync("postgres");
+        await using var context = new OrdersContext(new DbContextOptionsBuilder<OrdersContext>().UseNpgsql(harness.ConnectionString).Options);
 
         Assert.Throws<InvalidOperationException>(() => context.Enqueue(Confirm, new Alpha("x")));
     }

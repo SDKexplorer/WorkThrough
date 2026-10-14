@@ -3,10 +3,12 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using WorkThrough;
 
-// One process with a SQLite file: it stores a job, runs it on the in-process worker, and exits once the job has succeeded.
+// One process and a PostgreSQL database (samples/compose.yaml): it stores a job, runs it on the in-process worker, and exits once
+// the job has succeeded.
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=quickstart.db")
+    .UsePostgreSql(Environment.GetEnvironmentVariable("WORKTHROUGH_POSTGRES")
+        ?? "Host=127.0.0.1;Port=5432;Database=workthrough;Username=postgres;Password=workthrough;Search Path=quickstart")
     .AddJobs(typeof(SendWelcomeEmail).Assembly)
     .AddWorker();
 using var host = builder.Build();

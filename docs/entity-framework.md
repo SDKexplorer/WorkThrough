@@ -24,4 +24,4 @@ await db.SaveChangesAsync();
 - **Locking:** the transaction takes the store's admission lock when the jobs are written, so keep it short.
 - **Retrying execution strategies** cannot start their own transactions around a save. Run the whole unit in `strategy.ExecuteAsync` and begin the transaction yourself.
 
-Verified with EF Core 8 on SQLite, PostgreSQL (Npgsql), SQL Server, Oracle and MySQL/MariaDB (Pomelo). The package targets EF Core 8 and runs on later versions. `WorkThrough.Storage.PostgreSql` requires Npgsql 8.0.9 or later, so applications on EF Core 8 and its Npgsql 8 provider can use it.
+Verified with EF Core 8 on PostgreSQL (Npgsql), SQL Server, Oracle and MySQL/MariaDB (Pomelo). The package targets EF Core 8 and runs on later versions. `WorkThrough.Storage.PostgreSql` requires Npgsql 8.0.9 or later, so applications on EF Core 8 and its Npgsql 8 provider can use it.

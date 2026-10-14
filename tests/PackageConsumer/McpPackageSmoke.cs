@@ -23,7 +23,7 @@ internal static class McpPackageSmoke
         var resource = new Uri("http://127.0.0.1/operations/mcp");
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
-        builder.Services.AddWorkThrough().UseSqlite($"Data Source={database};Pooling=False").InitializeStorageOnStart(false);
+        builder.Services.AddWorkThrough().UsePostgreSql(database).InitializeStorageOnStart(false);
         builder.Services.AddWorkThroughMcp(new()
         {
             Resource = resource,

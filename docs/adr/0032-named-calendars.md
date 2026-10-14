@@ -19,7 +19,7 @@ Calendars are read in the same transaction as each schedule change:
 
 Names are 1 to 120 characters without surrounding spaces. A store holds at most 500 calendars.
 
-A scheduler from an earlier release would ignore `Calendars` and fire on excluded dates, so schedules naming calendars need engine protocol 10 (ADR-021). Calendars without such schedules need only schema 11. Oracle and MySQL upgrade schema-10 installations by resuming after their last step; SQLite, PostgreSQL and SQL Server create the table when missing.
+A scheduler from an earlier release would ignore `Calendars` and fire on excluded dates, so schedules naming calendars need engine protocol 10 (ADR-021). Calendars without such schedules need only schema 11. Oracle and MySQL upgrade schema-10 installations by resuming after their last step; PostgreSQL and SQL Server create the table when missing.
 
 ## Consequences
 

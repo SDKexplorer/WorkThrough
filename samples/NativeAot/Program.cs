@@ -12,7 +12,8 @@ var stockCounted = new TaskCompletionSource(TaskCreationOptions.RunContinuations
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=native-aot.db")
+    .UsePostgreSql(Environment.GetEnvironmentVariable("WORKTHROUGH_POSTGRES")
+        ?? "Host=127.0.0.1;Port=5432;Database=workthrough;Username=postgres;Password=workthrough;Search Path=native_aot")
     .AddJob<ReserveStock, ReserveStockJob>(OrderJobs.Reserve)
     .AddJob(OrderJobs.Ship, call =>
     {

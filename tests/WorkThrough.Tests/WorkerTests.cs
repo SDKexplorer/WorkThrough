@@ -11,7 +11,7 @@ public sealed class WorkerTests
     [Fact]
     public async Task Worker_applies_local_capacity_and_resolves_each_handler_in_its_own_scope()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var probe = new Probe();
         using var host = BuildHost(harness.ConnectionString, probe, maximum: 2);
         var client = new JobClient(harness.Store);
@@ -40,7 +40,7 @@ public sealed class WorkerTests
     [Fact]
     public async Task Host_shutdown_requeues_cooperatively_interrupted_work()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var probe = new Probe();
         using var host = BuildHost(harness.ConnectionString, probe, maximum: 1);
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("long"), new(MaxAttempts: 1));
@@ -54,7 +54,7 @@ public sealed class WorkerTests
     [Fact]
     public async Task A_transient_renewal_failure_does_not_abandon_a_healthy_attempt()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var probe = new Probe();
         var store = new FlakyRenewalStore(harness.Store);
         using var host = BuildHost(harness.ConnectionString, probe, maximum: 1, store);
@@ -79,11 +79,11 @@ public sealed class WorkerTests
     [Fact]
     public async Task Outbox_dispatch_drains_full_batches_within_one_tick()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var outbox = new FullBatchesOutbox(fullBatches: 3);
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
-        builder.Services.AddWorkThrough().UseSqlite(harness.ConnectionString).AddOutboxDispatcher(outbox);
+        builder.Services.AddWorkThrough().UsePostgreSql(harness.ConnectionString).AddOutboxDispatcher(outbox);
         using var host = builder.Build();
         var started = System.Diagnostics.Stopwatch.StartNew();
         await host.StartAsync();
@@ -103,12 +103,12 @@ public sealed class WorkerTests
     [Fact]
     public async Task Event_subscribers_read_full_batches_without_waiting_for_the_next_interval()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var events = new BacklogEvents(available: 300);
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(events);
-        builder.Services.AddWorkThrough().UseSqlite(harness.ConnectionString).AddEventSubscriber<CountingHandler>("tests.backlog");
+        builder.Services.AddWorkThrough().UsePostgreSql(harness.ConnectionString).AddEventSubscriber<CountingHandler>("tests.backlog");
         builder.Services.AddSingleton<IExecutionEvents>(events);
         using var host = builder.Build();
         var started = System.Diagnostics.Stopwatch.StartNew();
@@ -169,7 +169,7 @@ public sealed class WorkerTests
     [Fact]
     public async Task Processor_registry_change_stops_acquisition_and_the_host()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var probe = new Probe();
         using var host = BuildHost(harness.ConnectionString, probe, maximum: 1);
         await host.StartAsync();
@@ -186,10 +186,10 @@ public sealed class WorkerTests
     [Fact]
     public async Task Worker_refuses_to_start_when_a_handler_dependency_is_missing()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
-        builder.Services.AddWorkThrough().UseSqlite(harness.ConnectionString).AddJob<Alpha, NeedsDependency>().AddWorker();
+        builder.Services.AddWorkThrough().UsePostgreSql(harness.ConnectionString).AddJob<Alpha, NeedsDependency>().AddWorker();
         using var host = builder.Build();
         await Assert.ThrowsAsync<InvalidOperationException>(() => host.StartAsync());
     }
@@ -197,7 +197,7 @@ public sealed class WorkerTests
     [Fact]
     public async Task Replacement_attempt_is_tracked_while_revoked_handler_still_runs()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var probe = new Probe { IgnoreCancellation = true };
         using var host = BuildHost(harness.ConnectionString, probe, maximum: 2);
         var client = new JobClient(harness.Store);
@@ -228,7 +228,7 @@ public sealed class WorkerTests
     [Fact]
     public async Task Shutdown_during_attempt_setup_releases_ownership_without_spending_retry_budget()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var probe = new Probe();
         var gatedStore = new SetupGateStore(harness.Store);
         using var host = BuildHost(harness.ConnectionString, probe, maximum: 1, gatedStore);
@@ -256,7 +256,7 @@ public sealed class WorkerTests
     [InlineData(true)]
     public async Task Execution_deadline_records_failure_and_keeps_noncooperative_work_visible(bool ignoresCancellation)
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var probe = new Probe { IgnoreCancellation = ignoresCancellation };
         using var host = BuildHost(harness.ConnectionString, probe, 1, timeout: TimeSpan.FromMilliseconds(120));
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("timeout"), new(MaxAttempts: 1));
@@ -288,7 +288,7 @@ public sealed class WorkerTests
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(probe);
         builder.Services.AddScoped<ScopeMarker>();
-        builder.Services.AddWorkThrough().UseSqlite(connection).AddJob<Alpha, BlockingHandler>()
+        builder.Services.AddWorkThrough().UsePostgreSql(connection).AddJob<Alpha, BlockingHandler>()
             .AddWorker(options =>
             {
                 options.MaxConcurrentJobs = maximum;

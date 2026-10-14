@@ -4,6 +4,11 @@ repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_dir"
 mkdir -p artifacts/packages
 runtime8="${WORKTHROUGH_DOTNET8:-dotnet}"
+if [[ -z "${DURABLEJOBS_POSTGRES:-}" ]]; then echo 'Set DURABLEJOBS_POSTGRES to a disposable PostgreSQL database; see docs/providers.md.' >&2; exit 2; fi
+export WORKTHROUGH_TEST_POSTGRES="${WORKTHROUGH_TEST_POSTGRES:-$DURABLEJOBS_POSTGRES}"
+run_id="$(date +%s)$$"
+# Each sample runs in its own fresh schema of the test database.
+sample_store() { echo "$DURABLEJOBS_POSTGRES;Search Path=wt_sample_${1}_$run_id"; }
 (cd dashboard-ui && npm ci && npm run format:check && npm run build)
 dotnet restore WorkThrough.slnx --disable-parallel -m:1 -nr:false
 dotnet build WorkThrough.slnx -c Release --no-restore -m:1 -nr:false -p:UseSharedCompilation=false
@@ -26,21 +31,21 @@ dotnet restore tests/PackageConsumer -p:TargetFramework=net10.0 --configfile tes
 dotnet run --project tests/PackageConsumer -c Release -f net10.0 -p:TargetFramework=net10.0 --no-restore -p:UseSharedCompilation=false
 WORKTHROUGH_DOTNET8="$runtime8" "$repo_dir/scripts/check-templates.sh"
 sample_dir="$(mktemp -d "$repo_dir/artifacts/shop-sample-XXXXXXXX")"
-Shop__Sqlite="Data Source=$sample_dir/shop.db" "$runtime8" samples/Shop.Api/bin/Release/net8.0/Shop.Api.dll --smoke
-Shop__Sqlite="Data Source=$sample_dir/shop.db" "$runtime8" samples/Shop.Worker/bin/Release/net8.0/Shop.Worker.dll --preflight > artifacts/preflight-smoke.json
+Shop__PostgreSql="$(sample_store shop)" "$runtime8" samples/Shop.Api/bin/Release/net8.0/Shop.Api.dll --smoke
+Shop__PostgreSql="$(sample_store shop)" "$runtime8" samples/Shop.Worker/bin/Release/net8.0/Shop.Worker.dll --preflight > artifacts/preflight-smoke.json
 echo 'PASS: deployment preflight confirmed the shop worker covers stored work and its seeded schedule.'
-(cd "$sample_dir" && "$runtime8" "$repo_dir/samples/QuickStart/bin/Release/net8.0/QuickStart.dll" > quickstart.log)
+(cd "$sample_dir" && WORKTHROUGH_POSTGRES="$(sample_store quickstart)" "$runtime8" "$repo_dir/samples/QuickStart/bin/Release/net8.0/QuickStart.dll" > quickstart.log)
 echo 'PASS: the one-file quick start registered its job by reflection and ran it.'
-(cd "$sample_dir" && "$runtime8" "$repo_dir/samples/HangfireMigration/bin/Release/net8.0/HangfireMigration.dll" > hangfire-migration.log)
+(cd "$sample_dir" && WORKTHROUGH_POSTGRES="$(sample_store hangfire)" "$runtime8" "$repo_dir/samples/HangfireMigration/bin/Release/net8.0/HangfireMigration.dll" > hangfire-migration.log)
 grep -q "Imported 3, skipped 0" "$sample_dir/hangfire-migration.log"
 echo 'PASS: the Hangfire migration sample imported, retired and ran its jobs.'
-(cd "$sample_dir" && "$runtime8" "$repo_dir/samples/QuartzMigration/bin/Release/net8.0/QuartzMigration.dll" > quartz-migration.log)
+(cd "$sample_dir" && WORKTHROUGH_POSTGRES="$(sample_store quartz)" "$runtime8" "$repo_dir/samples/QuartzMigration/bin/Release/net8.0/QuartzMigration.dll" > quartz-migration.log)
 grep -q "Imported 2, skipped 0" "$sample_dir/quartz-migration.log"
 echo 'PASS: the Quartz.NET migration sample imported its triggers as schedules and retired them.'
 dotnet publish samples/NativeAot -c Release -o "$sample_dir/native-aot" -m:1 -nr:false -p:UseSharedCompilation=false
-(cd "$sample_dir" && "$sample_dir/native-aot/NativeAot" > native-aot.log)
+(cd "$sample_dir" && WORKTHROUGH_POSTGRES="$(sample_store aot)" "$sample_dir/native-aot/NativeAot" > native-aot.log)
 grep -q "The scheduled stock count ran." "$sample_dir/native-aot.log"
-echo 'PASS: the native AOT sample ran a flow and a schedule without reflection-based JSON.'
+echo 'PASS: the native AOT sample ran a flow and a schedule on PostgreSQL without reflection-based JSON.'
 
 # Independent process termination and a bounded performance/correctness smoke campaign.
 WORKTHROUGH_DOTNET8="$runtime8" ./scripts/performance.sh --smoke

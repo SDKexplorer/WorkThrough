@@ -2,9 +2,9 @@
 
 | Sample | Shows |
 |---|---|
-| [QuickStart](QuickStart/Program.cs) | The smallest program: one job, SQLite, an in-process worker. It runs the job and exits. |
+| [QuickStart](QuickStart/Program.cs) | The smallest program: one job, PostgreSQL, an in-process worker. It runs the job and exits. |
 | [QuickStart.Web](QuickStart.Web/Program.cs) | An API that enqueues jobs, with idempotent requests, a delayed job, the worker and the console in one process. |
-| [NativeAot](NativeAot/Program.cs) | A native AOT binary: explicit job registration, a source-generated JSON context for job data, a flow and a schedule on SQLite. Publish with `dotnet publish samples/NativeAot -c Release`. |
+| [NativeAot](NativeAot/Program.cs) | A native AOT binary: explicit job registration, a source-generated JSON context for job data, a flow and a schedule on PostgreSQL. Publish with `dotnet publish samples/NativeAot -c Release`. |
 | [HangfireMigration](HangfireMigration/Program.cs) | Moves a Hangfire application's queued, delayed and recurring jobs into WorkThrough with the importer, then retires them in Hangfire. |
 | [QuartzMigration](QuartzMigration/Program.cs) | Moves Quartz.NET jobs with a holiday-calendar cron trigger and an interval trigger into WorkThrough schedules, then unschedules them in Quartz. |
 | [Shop](#shop-sample) | A system split into deployable hosts, with a flow, tenants, limits, schedules, an OIDC console and MCP. |
@@ -53,10 +53,9 @@ curl -X POST http://127.0.0.1:5295/orders -H 'Content-Type: application/json' -d
 
 Each order row and its "start checkout" job commit in one database transaction (`Orders.PlaceAsync`). That job starts the flow with an idempotency key, so a retry never starts a second checkout.
 
-Scale out by starting workers against the same store. Separate local processes need the same absolute SQLite path; use PostgreSQL for several machines:
+Scale out by starting workers against the same store:
 
 ```bash
-Shop__Sqlite="Data Source=$PWD/shop.db" dotnet run --project samples/Shop.Worker
 Shop__PostgreSql="Host=...;Database=shop" dotnet run --project samples/Shop.Worker
 ```
 
@@ -77,14 +76,14 @@ Shop__PostgreSql="Host=...;Database=shop" dotnet run --project samples/Shop.Work
 
 Settings bind from the `Shop` section, with environment variables as `Shop__Name`:
 
-- **Storage:** `Sqlite` (default `Data Source=shop.db`) or `PostgreSql`.
+- **Storage:** `PostgreSql`, by default the local database from `samples/compose.yaml` in schema `shop`.
 - **Capacity:** `WorkerSlots`, `FleetSlots`, `ShippingSlots`, `SlotsPerTenant`.
 - **Rate:** `PaymentsPerTenantPerMinute`.
 - **Report schedule:** `DailyReportCron`, `DailyReportTimeZone`.
 
 `Shop.Dashboard` reads `Identity:Authority`, `ClientId` and `ClientSecret` from host configuration or a secret store; without an authority it runs anonymously only in Development. Its role-to-permission map is in `appsettings.json`; see [dashboard security](../docs/dashboard-security.md). `Shop.Mcp` needs `Mcp:Authority`, `Mcp:Resource` and `Mcp:Environment` and has no anonymous mode; see [MCP](../docs/mcp.md). Both use an already initialized store.
 
-SQL Server, Oracle, MySQL and MariaDB work the same way through `UseSqlServer`, `UseOracle` and `UseMySql`; see [providers](../docs/providers.md). The sample keeps to SQLite and PostgreSQL so that its order table DDL stays portable.
+SQL Server, Oracle, MySQL and MariaDB work the same way through `UseSqlServer`, `UseOracle` and `UseMySql`; see [providers](../docs/providers.md). The sample keeps to PostgreSQL so that its order table DDL stays simple.
 
 ## Verification
 

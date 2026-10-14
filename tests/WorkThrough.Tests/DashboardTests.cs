@@ -19,7 +19,7 @@ public sealed class DashboardTests
     [InlineData("/admin", "/mounted")]
     public async Task Dashboard_requires_authentication_and_reads_unknown_contracts_without_handlers(string groupPrefix, string pathBase)
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("<script>alert(1)</script>"), new(CorrelationId: "order:123"));
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -91,7 +91,7 @@ public sealed class DashboardTests
     [Fact]
     public async Task The_console_reports_the_engine_protocol_and_what_blocks_the_next_level()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         await RollingUpgradeTests.ExecuteAsync(harness, $"UPDATE dj_compatibility SET protocol={EngineProtocol.Baseline}");
         await harness.Store.HeartbeatAsync(new("older-worker", default, [], ["default"], 1, 0));
         await using var app = await StartDashboardAsync(harness);
@@ -107,7 +107,7 @@ public sealed class DashboardTests
     [Fact]
     public async Task Correcting_an_input_requires_the_payload_permission_too()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("bad"), new(MaxAttempts: 1));
         var job = (await harness.Store.ClaimAsync(new("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromSeconds(30))))!;
         Assert.True(await harness.Store.RejectAsync(id, job.LeaseToken!.Value, new("Rejected", "bad", null)));
@@ -132,7 +132,7 @@ public sealed class DashboardTests
     [Fact]
     public async Task Metadata_viewer_cannot_read_exceptions_or_mutate_jobs_even_with_valid_csrf()
     {
-        await using var harness = await StoreHarness.CreateAsync("sqlite");
+        await using var harness = await StoreHarness.CreateAsync("postgres");
         var id = await new JobClient(harness.Store).EnqueueAsync(new Alpha("SECRET-PAYLOAD"), new(MaxAttempts: 1));
         var job = (await harness.Store.ClaimAsync(new("worker", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromSeconds(30))))!;
         await harness.Store.FailWithDetailsAsync(id, job.LeaseToken!.Value, new("Failure", "SECRET-MESSAGE", "SECRET-STACK"), TimeSpan.Zero);

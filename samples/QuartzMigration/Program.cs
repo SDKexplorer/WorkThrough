@@ -22,7 +22,8 @@ await quartz.ScheduleJob(JobBuilder.Create<CleanupJob>().WithIdentity("cleanup")
 // The WorkThrough side: an address and an input per job.
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=quartz-migration.db")
+    .UsePostgreSql(Environment.GetEnvironmentVariable("WORKTHROUGH_POSTGRES")
+        ?? "Host=127.0.0.1;Port=5432;Database=workthrough;Username=postgres;Password=workthrough;Search Path=quartz_migration")
     .Job(Reminders.Send, job => job.Run(call =>
     {
         Console.WriteLine($"Reminding {call.Input.Audience}");

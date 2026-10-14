@@ -1,13 +1,17 @@
 using System.Data.Common;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using WorkThrough.Storage;
 using Xunit;
 
 namespace WorkThrough.Tests;
 
-public sealed class ReadRetryTests : IDisposable
+public sealed class ReadRetryTests : IAsyncLifetime
 {
-    private readonly string directory = Directory.CreateTempSubdirectory("wt-read-retry-").FullName;
+    private StoreHarness harness = null!;
+
+    public async Task InitializeAsync() => harness = await StoreHarness.CreateAsync("postgres");
+
+    public async Task DisposeAsync() => await harness.DisposeAsync();
 
     [Fact]
     public async Task Snapshot_conflicts_are_retried_with_a_fresh_snapshot()
@@ -38,35 +42,24 @@ public sealed class ReadRetryTests : IDisposable
         Assert.Equal(1, store.ReadsStarted);
     }
 
-    private async Task<ConflictingStore> CreateStoreAsync(int conflicts, bool failure = false)
-    {
-        var store = new ConflictingStore($"Data Source={Path.Combine(directory, "jobs.db")}", conflicts, failure);
-        await store.InitializeAsync();
-
-        return store;
-    }
-
-    public void Dispose()
-    {
-        SqliteConnection.ClearAllPools();
-        Directory.Delete(directory, recursive: true);
-    }
+    private Task<ConflictingStore> CreateStoreAsync(int conflicts, bool failure = false) =>
+        Task.FromResult(new ConflictingStore(harness.ConnectionString, conflicts, failure));
 
     private sealed class SnapshotConflictException() : DbException("Simulated snapshot conflict.");
 
     private sealed class UnrelatedFailureException() : DbException("Simulated provider failure.");
 
-    /// <summary>SQLite storage whose read snapshots fail a configured number of times before succeeding.</summary>
+    /// <summary>PostgreSQL storage, already initialized by the harness, whose read snapshots fail a configured number of times before succeeding.</summary>
     private sealed class ConflictingStore(string connectionString, int conflicts, bool failure) : RelationalJobStore
     {
         public int ReadsStarted { get; private set; }
 
-        protected override DbConnection CreateConnection() => new SqliteConnection(connectionString);
+        protected override DbConnection CreateConnection() => new NpgsqlConnection(connectionString);
 
-        protected override string ClockSql => "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)";
+        protected override string ClockSql => "SELECT CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)";
 
-        protected override Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
-            Task.FromResult<DbTransaction>(((SqliteConnection)connection).BeginTransaction(deferred: false));
+        protected override async Task<DbTransaction> BeginWriteAsync(DbConnection connection, CancellationToken cancellationToken) =>
+            await connection.BeginTransactionAsync(cancellationToken);
 
         protected override Task<DbTransaction> BeginReadAsync(DbConnection connection, CancellationToken cancellationToken)
         {
@@ -81,7 +74,7 @@ public sealed class ReadRetryTests : IDisposable
                 throw new SnapshotConflictException();
             }
 
-            return Task.FromResult<DbTransaction>(((SqliteConnection)connection).BeginTransaction(deferred: true));
+            return connection.BeginTransactionAsync(cancellationToken).AsTask();
         }
 
         protected override bool IsReadSnapshotConflict(DbException error) => error is SnapshotConflictException;

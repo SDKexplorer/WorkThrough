@@ -4,7 +4,7 @@
 
 **Move your code. Keep your work.**
 
-Durable background jobs, flows and schedules for .NET 8 and 10, stored in SQLite, PostgreSQL, SQL Server, Oracle, MySQL or MariaDB. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so job classes can move between classes, namespaces, projects and assemblies while jobs are queued.
+Durable background jobs, flows and schedules for .NET 8 and 10, stored in PostgreSQL, SQL Server, Oracle, MySQL or MariaDB. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so job classes can move between classes, namespaces, projects and assemblies while jobs are queued.
 
 > **Status: alpha.** All six databases pass their [verification](docs/verification.md), packages are built locally and not yet published, and there is no production certification. See [release boundaries](#release-boundaries).
 
@@ -42,7 +42,7 @@ Register storage, the assembly's jobs and a worker:
 
 ```csharp
 builder.Services.AddWorkThrough()
-    .UsePostgreSql(connectionString) // or UseSqlite / UseSqlServer / UseOracle / UseMySql
+    .UsePostgreSql(connectionString) // or UseSqlServer / UseOracle / UseMySql
     .AddJobs(typeof(GenerateInvoiceJob).Assembly)
     .AddWorker(options => options.MaxConcurrentJobs = 8);
 ```
@@ -66,7 +66,7 @@ public static class Emails
 }
 
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=jobs.db")
+    .UsePostgreSql(connectionString)
     .Job(Emails.Welcome, job => job
         .Run(call => call.Service<IMailer>().SendAsync(call.Input.Address, call.CancellationToken))
         .AtMostRunning(10))
@@ -102,11 +102,11 @@ dotnet new workthrough-web -n MyApp --storage postgresql    # API + worker + con
 dotnet new workthrough-tests -n MyApp.Tests                  # xUnit tests of a flow with stubbed jobs
 ```
 
-`--storage` takes `sqlite` (default), `postgresql`, `sqlserver`, `oracle` or `mysql` (MySQL and MariaDB).
+`--storage` takes `postgresql` (default), `sqlserver`, `oracle` or `mysql` (MySQL and MariaDB). The samples use a local PostgreSQL started with `docker compose -f samples/compose.yaml up -d`.
 
 Samples ([samples](samples/README.md)):
 
-- [`QuickStart`](samples/QuickStart/Program.cs): one file, SQLite, one job.
+- [`QuickStart`](samples/QuickStart/Program.cs): one file, PostgreSQL, one job.
 - [`QuickStart.Web`](samples/QuickStart.Web/Program.cs): an API that enqueues jobs, with the worker and console in the same process.
 - [Shop](samples/README.md#shop-sample): a complete system with an intake API, workers, an approval flow, tenants, limits, a standalone OIDC console, MCP, and tests of its checkout flow with stubbed jobs.
 - [`HangfireMigration`](samples/HangfireMigration/Program.cs): moves a Hangfire application's queued, delayed and recurring jobs into WorkThrough.
@@ -114,7 +114,7 @@ Samples ([samples](samples/README.md)):
 
 ### Testing a flow
 
-`WorkThrough.Testing` runs the real engine on a throwaway SQLite file. Stub the jobs to test a flow's logic alone ([testing](docs/testing.md)):
+`WorkThrough.Testing` runs the real engine in a throwaway schema of a disposable PostgreSQL database (`WORKTHROUGH_TEST_POSTGRES`). Stub the jobs to test a flow's logic alone ([testing](docs/testing.md)):
 
 ```csharp
 await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough
@@ -276,7 +276,7 @@ The script:
 - runs the test suite on .NET 10 and .NET 8;
 - runs the relocation proof;
 - packs every library package and the `WorkThrough.Templates` package into `artifacts/packages`;
-- creates and builds every template with every storage provider, runs the SQLite projects and the tests template;
+- creates and builds every template with every storage provider, runs the PostgreSQL projects and the tests template;
 - runs NuGet-only consumers on SDK 8 and 10;
 - runs the Shop sample's smoke test and preflight, and the quick-start and Hangfire migration samples;
 - runs process-kill and load smoke exercises.
@@ -288,8 +288,8 @@ Server providers are included when `DURABLEJOBS_POSTGRES`, `DURABLEJOBS_SQLSERVE
 - Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation runs only the undo jobs an application declares.
 - Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
 - OIDC sign-in, role permissions and tenant scoping are verified against a local Keycloak 26.4 (`scripts/check-oidc.py`), not yet against a hosted provider such as Entra ID or Auth0. `scripts/check-hosted-idp.py` checks MCP bearer authorization against a hosted provider once one is configured, and `scripts/check-managed-db.sh` qualifies a managed database server.
-- Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL and SQLite without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits; MySQL reached 460/s and MariaDB 560/s. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.
-- There is no production certification. Native AOT runs with SQLite or PostgreSQL storage, explicit job registration and a source-generated JSON context for job data ([samples/NativeAot](samples/NativeAot/Program.cs)); the dashboard, MCP, EF Core and the SQL Server, Oracle and MySQL providers are not AOT-compatible. Performance figures describe the documented test host.
+- Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits; MySQL reached 460/s and MariaDB 560/s. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.
+- There is no production certification. Native AOT runs with PostgreSQL storage, explicit job registration and a source-generated JSON context for job data ([samples/NativeAot](samples/NativeAot/Program.cs)); the dashboard, MCP, EF Core and the SQL Server, Oracle and MySQL providers are not AOT-compatible. Performance figures describe the documented test host.
 - Package publication and the project license are pending maintainer decisions.
 
 Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Security reports: [SECURITY.md](SECURITY.md). Branching and releases: [branching and release](docs/branching-and-release.md).
