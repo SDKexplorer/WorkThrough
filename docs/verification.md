@@ -7,7 +7,7 @@ This is a chronological evidence log. Earlier package counts and pending states 
 | Area | Latest evidence | Still open |
 |---|---|---|
 | SQLite, PostgreSQL | Full suite on every change; PostgreSQL two-hour soak (233k jobs) and restore drill passed | — |
-| SQL Server, Oracle | Full suite; Oracle two-hour soak passed (2026-10-13); SQL Server history-growth slowdown fixed with indexes, 30-minute soak passed (2026-10-14) | SQL Server two-hour soak (running) |
+| SQL Server, Oracle | Full suite; Oracle two-hour soak passed (2026-10-13); SQL Server two-hour soak passed after the index fix (2026-10-14) | — |
 | MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers; 30-minute soaks passed (2026-10-13) | — |
 | Multi-host | Container network-partition exercise passed (2026-10-13) | Separate physical machines |
 | Identity | OIDC against a local Keycloak 26.4 (2026-10-12); MCP bearer check script validated against Keycloak over HTTPS (2026-10-14) | Hosted providers (Entra ID, Auth0): `scripts/check-hosted-idp.py` |
@@ -408,7 +408,7 @@ SQL Server soak and indexes (2026-10-14):
 - **Finding:** the second two-hour SQL Server soak slowed as history grew; offers fell from 1,465 to about 830 a minute, and at minute 103 an enqueue exceeded the 30-second command timeout and stopped the producer. The harness only surfaced it at the end; it now fails in the minute the producer faults.
 - **Cause:** `SELECT * FROM dj_jobs WHERE workflow_run_id=@id` scanned the table, because SQL Server cannot seek the filtered unique `(workflow_run_id, step_id)` index for a run alone. Its reads grew from 135 to 982 pages per call. The worker's maintenance probe also scanned for expired leases and queued expiries.
 - **Fix:** `ix_dj_jobs_run`, and two filtered indexes holding only running leases and expiring queued jobs, created at every initialization. Live, the run lookup dropped from 982 to 15 logical reads and from 6 ms to 0.09 ms.
-- **Check:** a 30-minute soak with the indexes added mid-run completed 57,419 jobs exactly once within limits, offering 44,162, level with MySQL ([results](performance-results/2026-10-14-sqlserver-soak-index-fix.json)). A new two-hour run is recorded below when it ends.
+- **Check:** a 30-minute soak with the indexes added mid-run completed 57,419 jobs exactly once within limits, offering 44,162, level with MySQL ([results](performance-results/2026-10-14-sqlserver-soak-index-fix.json)). A new two-hour run with the indexes passed; see below.
 
 Native AOT (2026-10-14):
 
@@ -424,3 +424,5 @@ Controlled MCP actions, named calendars and verification tooling (2026-10-14):
 - **Suites:** 1,085 passed across SQLite, PostgreSQL, SQL Server, Oracle, MySQL and MariaDB. The three failures were the broker tests, whose containers were stopped to free memory for the databases.
 - **Hosted identity tooling:** `scripts/check-hosted-idp.py --local-keycloak` passed against Keycloak 26.4 over HTTPS with client-credentials tokens: a role-mapped client listed 9 read tools and searched executions; a broken signature got 401 with the resource metadata challenge; an unmapped client saw no tools. No hosted provider has been run.
 - **Managed database tooling:** with `WT_REQUIRE_TLS=1`, the encryption check passed on SQL Server (encrypted by default) and failed on the local PostgreSQL container, which does not use TLS. No managed server has been run.
+
+SQL Server two-hour soak (2026-10-14): with the run, lease and expiry indexes from the start, 231,845 jobs (178,328 offered, 17,839 flows) succeeded exactly once, none retried, and every per-minute window stayed within its partition, tenant, rate and flow-parallelism limits. Offers held at about 1,490 a minute and completions at about 1,950 through minute 120, with queue-wait p95 between 370 and 620 ms; worker memory stayed between 376 and 380 MiB after warm-up ([results](performance-results/2026-10-14-sqlserver-soak-120.json)).
