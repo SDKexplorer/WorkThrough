@@ -88,7 +88,8 @@ jobs:
   oracle:
     # Separate runner: Oracle and SQL Server would compete for a single runner's memory.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The full release gate on merges takes longer than 30 minutes with Oracle's startup.
+    timeout-minutes: 60
     services:
       postgres:
         # PostgreSQL is the default store of the suite and the samples.

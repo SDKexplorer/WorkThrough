@@ -340,6 +340,7 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
     private async Task<IReadOnlyList<JobRecord>?> ClaimWithRowLocksAsync(ClaimRequest request, CancellationToken cancellationToken)
     {
         var exclusions = new ClaimExclusions();
+        var deadlocks = 0;
         for (var attempt = 1; ; attempt++)
         {
             IReadOnlyList<JobRecord>? claimed;
@@ -347,9 +348,18 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
             {
                 claimed = await ClaimWithRowLocksOnceAsync(request, exclusions, cancellationToken);
             }
-            catch (DbException error) when (attempt < MaximumClaimRestarts && IsDeadlockVictim(error))
+            catch (DbException error) when (IsDeadlockVictim(error))
             {
-                // The database rolled the whole claim back, so it leased nothing and can run again.
+                // The database rolled the whole claim back, so it leased nothing. Under heavy contention SQL Server picks victims
+                // repeatedly; back off a little at random and try again, and after that report nothing claimed: the worker polls again.
+                if (++deadlocks > MaximumDeadlockRetries)
+                {
+                    return [];
+                }
+
+                attempt--;
+                await Task.Delay(TimeSpan.FromMilliseconds(Random.Shared.Next(DeadlockBackoffMilliseconds) * deadlocks), cancellationToken);
+
                 continue;
             }
 
@@ -558,6 +568,10 @@ public abstract partial class RelationalJobStore : IJobStore, IJobQueries, IJobA
 
     /// <summary>Claim transactions one poll may use; see <see cref="ClaimWithRowLocksOnceAsync"/>.</summary>
     private const int MaximumClaimRestarts = 3;
+
+    /// <summary>Times one poll retries a claim the database chose as a deadlock victim.</summary>
+    private const int MaximumDeadlockRetries = 5;
+    private const int DeadlockBackoffMilliseconds = 20;
 
     /// <summary>What one poll's claim attempts learned: jobs the exact check refused and flows at their step bound.</summary>
     private sealed class ClaimExclusions
