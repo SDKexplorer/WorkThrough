@@ -67,6 +67,23 @@ public sealed class TestHostTests
     }
 
     [Fact]
+    public async Task A_flow_started_for_later_waits_for_its_time()
+    {
+        await using var host = await StartAsync();
+        var flow = new FlowBuilder("tests.host.later", 1)
+            .Step<Greet>("first", new Greet("ada"))
+            .Step<Greet>("second", new Greet("grace")).After("first")
+            .Build();
+        var run = await host.Flows.StartAsync(flow, new { }, new FlowStart { NotBefore = host.UtcNow.AddHours(1) });
+
+        await host.WaitUntilIdleAsync();
+        Assert.All(await host.Queries.ListFlowJobsAsync(run), job => Assert.NotEqual(JobStatus.Succeeded, job.Status));
+        await host.AdvanceAsync(TimeSpan.FromHours(1));
+
+        (await host.WaitForFlowAsync(run)).AssertSucceeded();
+    }
+
+    [Fact]
     public async Task Flow_results_expose_typed_outputs_and_describe_failures()
     {
         await using var host = await StartAsync();

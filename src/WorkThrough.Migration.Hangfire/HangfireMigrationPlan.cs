@@ -8,7 +8,10 @@ public enum HangfireJobKind
     Recurring, Enqueued, Scheduled,
 
     /// <summary>A job that failed in Hangfire, imported to run again when <see cref="HangfireMigration.IncludeFailed"/> is set.</summary>
-    Failed
+    Failed,
+
+    /// <summary>A job waiting in Hangfire for its parent to succeed; it moves as a step of its parent's flow.</summary>
+    Continuation
 }
 
 /// <summary>A Hangfire method invocation as Hangfire stored it: the method and its deserialized arguments.</summary>
@@ -46,6 +49,12 @@ public sealed record HangfireMigrationItem(HangfireJobKind Kind, string Hangfire
     public string? Cron { get; init; }
     public string? TimeZone { get; init; }
 
+    /// <summary>For a continuation, the Hangfire job it waits for.</summary>
+    public string? ParentId { get; init; }
+
+    /// <summary>For a job with continuations, every job of its chain; the job then imports as a flow instead of a single job.</summary>
+    public IReadOnlyList<HangfireMigrationItem>? Continuations { get; init; }
+
     /// <summary>Why the job cannot be imported; null when it can.</summary>
     public string? Problem { get; init; }
 
@@ -62,7 +71,11 @@ public sealed record HangfireMigrationPlan(IReadOnlyList<HangfireMigrationItem> 
     public IEnumerable<HangfireMigrationItem> Problems => Items.Where(item => !item.IsReady);
 }
 
-/// <summary>An imported job, with the WorkThrough job it became; null for a schedule.</summary>
-public sealed record HangfireImported(HangfireMigrationItem Item, Guid? JobId);
+/// <summary>An imported job, with the WorkThrough job it became; null for a schedule or a step of a chain.</summary>
+public sealed record HangfireImported(HangfireMigrationItem Item, Guid? JobId)
+{
+    /// <summary>For a job with continuations and each of them, the flow run their chain became.</summary>
+    public Guid? RunId { get; init; }
+}
 
 public sealed record HangfireMigrationResult(IReadOnlyList<HangfireImported> Imported, IReadOnlyList<HangfireMigrationItem> Skipped);

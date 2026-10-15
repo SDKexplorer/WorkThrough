@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Quartz;
 using Quartz.Impl.Calendar;
 using Quartz.Impl.Matchers;
+using Quartz.Listener;
 
 namespace WorkThrough.Migration.Quartz;
 
@@ -21,6 +22,8 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
     private static readonly OperationActor Actor = new("workthrough", "quartz-migration", "Quartz.NET migration");
 
     private readonly List<Mapping> mappings = [];
+    private readonly Dictionary<JobKey, JobKey> chainLinks = [];
+    private const int MaximumChainLength = 50;
     private Func<TriggerKey, string> scheduleKey = DefaultScheduleKey;
 
     private sealed record Mapping(Type JobType, JobContractId Target, Func<QuartzJobData, JsonElement> Convert, string? Queue);
@@ -38,6 +41,20 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
     }
 
     /// <summary>Names the WorkThrough schedule for each trigger; by default <c>quartz.</c> plus its group and name in lowercase.</summary>
+    /// <summary>
+    /// Declares that <paramref name="then"/> runs after <paramref name="first"/> finishes, as a <c>JobChainingJobListener</c> link does.
+    /// The importer also reads that listener's links from the scheduler it is given, but a migration tool usually builds its own
+    /// scheduler without the application's listeners, so declare them here.
+    /// </summary>
+    public QuartzMigration Chain(JobKey first, JobKey then)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(then);
+        chainLinks[first] = then;
+
+        return this;
+    }
+
     public QuartzMigration NameSchedules(Func<TriggerKey, string> key)
     {
         scheduleKey = key ?? throw new ArgumentNullException(nameof(key));
@@ -49,6 +66,12 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
     public async Task<QuartzMigrationPlan> PlanAsync(CancellationToken cancellationToken = default)
     {
         var items = new List<QuartzMigrationItem>();
+        foreach (var (first, then) in ListenerChainLinks())
+        {
+            chainLinks.TryAdd(first, then);
+        }
+
+        var chainedTo = chainLinks.Values.ToHashSet();
         foreach (var jobKey in (await scheduler.GetJobKeys(GroupMatcher<JobKey>.AnyGroup(), cancellationToken)).OrderBy(key => key.ToString(), StringComparer.Ordinal))
         {
             IJobDetail? job;
@@ -70,7 +93,7 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
             }
 
             var triggers = await scheduler.GetTriggersOfJob(jobKey, cancellationToken);
-            if (triggers.Count == 0)
+            if (triggers.Count == 0 && !chainedTo.Contains(job.Key))
             {
                 items.Add(new(job.Key.ToString(), "", "", job.JobType.FullName ?? job.JobType.Name) { Problem = "The job has no triggers; nothing fires it." });
             }
@@ -106,6 +129,17 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
         }
 
         item = item with { Target = mapping.Target, Input = input, Queue = mapping.Queue ?? JobDefaults.Queue };
+        if (chainLinks.ContainsKey(job.Key))
+        {
+            var (flow, chainProblem) = await ChainFlowAsync(job, item, ct);
+            if (flow is null)
+            {
+                return item with { Problem = chainProblem };
+            }
+
+            item = item with { Flow = flow };
+        }
+
         if (trigger is ISimpleTrigger { RepeatCount: 0 })
         {
             return trigger.GetNextFireTimeUtc() is { } once
@@ -141,9 +175,9 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
         schedule = schedule with
         {
             Key = scheduleKey(trigger.Key),
-            Processor = mapping.Target,
-            Input = input,
-            Queue = item.Queue,
+            Processor = item.Flow is null ? mapping.Target : ScheduledFlows.Start.Identity,
+            Input = item.Flow is null ? input : JobJson.ToElement(new ScheduledFlow(item.Flow, JobJson.ToElement(new { }))),
+            Queue = item.Flow is null ? item.Queue : JobDefaults.Queue,
             Overlap = job.ConcurrentExecutionDisallowed ? ScheduleOverlap.Coalesce : ScheduleOverlap.Allow,
             Misfire = Misfire(trigger),
             StartsAt = schedule.StartsAt ?? (trigger.StartTimeUtc > DateTimeOffset.UtcNow ? trigger.StartTimeUtc : null),
@@ -161,6 +195,58 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
         var paused = await scheduler.GetTriggerState(trigger.Key, ct) == TriggerState.Paused;
 
         return item with { Kind = QuartzImportKind.Schedule, Schedule = schedule, Enabled = !paused };
+    }
+
+    /// <summary>
+    /// A job and the jobs chained after it as one flow: each chained job is a step that runs after the one before it succeeds, with its
+    /// own job data, as Quartz fires a chained job without trigger data. Every chained job needs a mapping.
+    /// </summary>
+    private async Task<(FlowDefinition? Flow, string? Problem)> ChainFlowAsync(IJobDetail first, QuartzMigrationItem item, CancellationToken ct)
+    {
+        var flow = new FlowBuilder("quartz.chain." + InvalidKeyCharacters().Replace(first.Key.ToString().ToLowerInvariant(), "-"), 1)
+            .Step(StepId(first.Key), item.Target!, item.Input!.Value, item.Queue);
+        var previous = first.Key;
+        var seen = new HashSet<JobKey> { first.Key };
+        while (chainLinks.TryGetValue(previous, out var next))
+        {
+            if (!seen.Add(next) || seen.Count > MaximumChainLength)
+            {
+                return (null, $"The job chain from {first.Key} loops or is longer than {MaximumChainLength} jobs.");
+            }
+
+            var job = await scheduler.GetJobDetail(next, ct);
+            var mapping = job is null ? null : mappings.FirstOrDefault(candidate => candidate.JobType == job.JobType);
+            if (job is null || mapping is null)
+            {
+                return (null, job is null ? $"Chained job {next} does not exist." : $"Chained job {next} has no mapping for {job.JobType.Name}.");
+            }
+
+            JsonElement input;
+            try
+            {
+                input = mapping.Convert(new(next.ToString(), "", Merge(job.JobDataMap, new JobDataMap())));
+            }
+            catch (Exception error) when (error is InvalidOperationException or ArgumentException or InvalidCastException or FormatException or JsonException)
+            {
+                return (null, $"Chained job {next}: the mapping could not convert its data: {error.Message}");
+            }
+
+            flow.Step(StepId(next), mapping.Target, input, mapping.Queue ?? JobDefaults.Queue).After(StepId(previous));
+            previous = next;
+        }
+
+        return (flow.Build(), null);
+    }
+
+    private static string StepId(JobKey job) => "job-" + InvalidKeyCharacters().Replace(job.ToString().ToLowerInvariant(), "-");
+
+    /// <summary>Links of every <c>JobChainingJobListener</c> registered on this scheduler, which Quartz keeps in a private field.</summary>
+    private IEnumerable<KeyValuePair<JobKey, JobKey>> ListenerChainLinks()
+    {
+        var field = typeof(JobChainingJobListener).GetField("chainLinks", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        return scheduler.ListenerManager.GetJobListeners().OfType<JobChainingJobListener>()
+            .SelectMany(listener => field?.GetValue(listener) as IDictionary<JobKey, JobKey> ?? new Dictionary<JobKey, JobKey>());
     }
 
     /// <summary>The schedule a repeating trigger becomes, without its key, target or input; or why it cannot.</summary>
@@ -362,6 +448,15 @@ public sealed partial class QuartzMigration(IScheduler scheduler)
         var skipped = plan.Problems.ToList();
         foreach (var item in plan.Ready)
         {
+            if (item is { Kind: QuartzImportKind.OneTime, Flow: { } chain })
+            {
+                var run = await new WorkflowClient(store).StartAsync(chain, new { },
+                    new FlowStart(IdempotencyKey: IdempotencyPrefix + item.TriggerKey) { NotBefore = item.NotBefore }, cancellationToken);
+                imported.Add(new(item, null) { RunId = run });
+
+                continue;
+            }
+
             if (item.Kind == QuartzImportKind.OneTime)
             {
                 var id = await client.EnqueueAsync(new JobDefinition<JsonElement>(item.Target!), item.Input!.Value,

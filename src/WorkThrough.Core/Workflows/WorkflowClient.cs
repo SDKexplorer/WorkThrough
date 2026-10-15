@@ -8,6 +8,9 @@ namespace WorkThrough;
 public sealed record FlowStart(string? CorrelationId = null, string? IdempotencyKey = null, string? PartitionKey = null,
     string? TenantId = null, int? MaxParallelSteps = null)
 {
+    /// <summary>When the run's first steps fall due; null or a past instant starts them now. Later steps follow their predecessors.</summary>
+    public DateTimeOffset? NotBefore { get; init; }
+
     public void Validate()
     {
         if (IdempotencyKey is not null)

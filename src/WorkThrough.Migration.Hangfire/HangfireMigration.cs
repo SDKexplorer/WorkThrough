@@ -29,6 +29,7 @@ public sealed partial class HangfireMigration(JobStorage storage)
 
     private readonly List<NameMapping> nameMappings = [];
     private bool includeFailed;
+    private const string AwaitingSet = "awaiting";
 
     /// <summary>Imports calls of <paramref name="method"/> as work at <paramref name="target"/>, with the input <paramref name="convert"/> builds.</summary>
     /// <example><c>.Map((IMailer mailer) =&gt; mailer.SendWelcome(default!), Emails.Welcome, call =&gt; new WelcomeEmail(call.Argument&lt;string&gt;(0)))</c></example>
@@ -82,12 +83,23 @@ public sealed partial class HangfireMigration(JobStorage storage)
         return this;
     }
 
-    /// <summary>Reads every recurring, enqueued and scheduled job and decides what each becomes. Changes nothing.</summary>
+    /// <summary>
+    /// Reads every recurring, enqueued, scheduled and awaiting job and decides what each becomes. Changes nothing. A job with
+    /// continuations becomes a flow: the job is the first step and each continuation runs after its parent. If any job in such a chain
+    /// cannot move, the whole chain stays in Hangfire, so no continuation is left without its parent.
+    /// </summary>
     public HangfireMigrationPlan Plan()
     {
         var items = new List<HangfireMigrationItem>();
+        var continuations = new List<HangfireMigrationItem>();
         using (var connection = storage.GetConnection())
         {
+            // Hangfire's dashboard lists continuations waiting for their parent from this set.
+            foreach (var id in connection.GetAllItemsFromSet(AwaitingSet))
+            {
+                continuations.Add(Continuation(connection, id));
+            }
+
             foreach (var recurring in connection.GetRecurringJobs())
             {
                 var stored = connection.GetAllEntriesFromHash($"recurring-job:{recurring.Id}")?.GetValueOrDefault("Job") is { } payload
@@ -137,8 +149,91 @@ public sealed partial class HangfireMigration(JobStorage storage)
         }
 
         DuplicateSchedules(items);
+        items = Chains(items, continuations, storage);
 
         return new(items, monitoring.Servers().Count, monitoring.ProcessingCount(), monitoring.FailedCount());
+    }
+
+    /// <summary>A continuation waiting in Hangfire: its parent, and whether it runs after any finish rather than only success.</summary>
+    private HangfireMigrationItem Continuation(IStorageConnection connection, string id)
+    {
+        var data = connection.GetJobData(id);
+        IDictionary<string, string> state = connection.GetStateData(id)?.Data ?? new Dictionary<string, string>();
+        var queue = state.TryGetValue("NextState", out var next) && next is { Length: > 0 }
+            && JsonDocument.Parse(next).RootElement.TryGetProperty("Queue", out var named) && named.ValueKind == JsonValueKind.String
+            ? named.GetString()
+            : null;
+        var item = Convert(HangfireJobKind.Continuation, id, data?.Job, data?.InvocationData, data?.LoadException, data?.Job?.Queue ?? queue)
+            with
+        { ParentId = state.TryGetValue("ParentId", out var parent) ? parent : null };
+        if (item.ParentId is null)
+        {
+            return item with { Problem = "Hangfire stores no parent for this continuation." };
+        }
+
+        return state.TryGetValue("Options", out var options) && options != nameof(JobContinuationOptions.OnlyOnSucceededState) && item.IsReady
+            ? item with { Problem = $"The continuation runs on {options}; a flow step runs only after its parent succeeds." }
+            : item;
+    }
+
+    /// <summary>
+    /// Attaches each continuation to the job at the root of its chain. A chain moves whole: one problem in it keeps every job of the
+    /// chain in Hangfire. A continuation whose root is not being imported (running, finished, or a failed job without IncludeFailed)
+    /// stays too.
+    /// </summary>
+    private static List<HangfireMigrationItem> Chains(List<HangfireMigrationItem> items, List<HangfireMigrationItem> continuations,
+        JobStorage storage)
+    {
+        if (continuations.Count == 0)
+        {
+            return items;
+        }
+
+        var byId = continuations.ToDictionary(item => item.HangfireId, StringComparer.Ordinal);
+        var roots = items.Where(item => item.Kind is not HangfireJobKind.Recurring).ToDictionary(item => item.HangfireId, StringComparer.Ordinal);
+        string? RootOf(HangfireMigrationItem continuation)
+        {
+            var parent = continuation.ParentId;
+            for (var depth = 0; parent is not null && depth <= byId.Count; depth++)
+            {
+                if (roots.ContainsKey(parent))
+                {
+                    return parent;
+                }
+
+                parent = byId.GetValueOrDefault(parent)?.ParentId;
+            }
+
+            return null;
+        }
+
+        var chains = continuations.GroupBy(RootOf).ToList();
+        var result = items.ToList();
+        using var connection = storage.GetConnection();
+        foreach (var chain in chains)
+        {
+            if (chain.Key is null)
+            {
+                result.AddRange(chain.Select(item => item.IsReady
+                    ? item with { Problem = $"Its parent {item.ParentId} is {connection.GetStateData(item.ParentId!)?.Name ?? "gone"} in Hangfire, not being imported." }
+                    : item));
+
+                continue;
+            }
+
+            var root = roots[chain.Key];
+            var members = chain.ToList();
+            var blocked = !root.IsReady ? $"job {root.HangfireId}: {root.Problem}"
+                : members.FirstOrDefault(member => !member.IsReady) is { } failing ? $"job {failing.HangfireId}: {failing.Problem}" : null;
+            var index = result.IndexOf(root);
+            result[index] = blocked is null ? root with { Continuations = members } : root with { Problem = $"Its continuation chain cannot move ({blocked})." };
+            if (blocked is not null)
+            {
+                result.AddRange(members.Select(member => member.IsReady ? member with { Problem = $"Its chain cannot move ({blocked})." } : member));
+            }
+        }
+
+        return result;
     }
 
     private HangfireMigrationItem Job(HangfireJobKind kind, string id, Job? job, InvocationData? stored, Exception? loadException, string? queue,
@@ -302,6 +397,16 @@ public sealed partial class HangfireMigration(JobStorage storage)
         var skipped = plan.Problems.ToList();
         foreach (var item in plan.Ready)
         {
+            if (item.Continuations is { Count: > 0 } chain)
+            {
+                var run = await new WorkflowClient(store).StartAsync(ChainFlow(item, chain), new { },
+                    new FlowStart(IdempotencyKey: IdempotencyPrefix + item.HangfireId) { NotBefore = item.NotBefore }, cancellationToken);
+                imported.Add(new(item, null) { RunId = run });
+                imported.AddRange(chain.Select(continuation => new HangfireImported(continuation, null) { RunId = run }));
+
+                continue;
+            }
+
             if (item.Kind != HangfireJobKind.Recurring)
             {
                 var id = await client.EnqueueAsync(new JobDefinition<JsonElement>(item.Target!), item.Input!.Value,
@@ -325,6 +430,24 @@ public sealed partial class HangfireMigration(JobStorage storage)
         return new(imported, skipped);
     }
 
+    /// <summary>A job and its continuations as one flow: each continuation is a step that runs after its parent succeeds.</summary>
+    private static FlowDefinition ChainFlow(HangfireMigrationItem root, IReadOnlyList<HangfireMigrationItem> chain)
+    {
+        var flow = new FlowBuilder("hangfire.chain." + InvalidKeyCharacters().Replace(root.HangfireId.ToLowerInvariant(), "-"), 1);
+        foreach (var job in chain.Prepend(root))
+        {
+            flow.Step(StepId(job.HangfireId), job.Target!, job.Input!.Value, job.Queue);
+            if (job.ParentId is { } parent)
+            {
+                flow.After(StepId(parent));
+            }
+        }
+
+        return flow.Build();
+    }
+
+    private static string StepId(string hangfireId) => "job-" + hangfireId;
+
     /// <summary>Publishes and enables a schedule; returns why it failed, or null. Retries deduplicate on the job's ID.</summary>
     private static async Task<string?> PublishAsync(IJobSchedules schedules, HangfireMigrationItem item, CancellationToken ct)
     {
@@ -343,7 +466,8 @@ public sealed partial class HangfireMigration(JobStorage storage)
         ArgumentNullException.ThrowIfNull(result);
         var jobs = new BackgroundJobClient(storage);
         var recurring = new RecurringJobManager(storage);
-        foreach (var item in result.Imported.Select(imported => imported.Item))
+        // Continuations go before their parents, so deleting a parent cannot release a continuation in Hangfire.
+        foreach (var item in result.Imported.Select(imported => imported.Item).OrderBy(item => item.ParentId is null))
         {
             if (item.Kind == HangfireJobKind.Recurring)
             {
