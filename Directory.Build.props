@@ -10,7 +10,10 @@
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <Authors>WorkThrough contributors</Authors>
-    <Description>Contract-based durable background jobs for .NET.</Description>
+    <Product>WorkThrough.NET</Product>
+    <!-- The name shown on nuget.org; package IDs stay WorkThrough.*, as Quartz.NET ships as Quartz. -->
+    <Title>$(MSBuildProjectName.Replace('WorkThrough', 'WorkThrough.NET'))</Title>
+    <Description>Durable background jobs, flows and schedules for .NET, stored in PostgreSQL, SQL Server, Oracle, MySQL or MariaDB.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Copyright>Copyright (c) 2026 WorkThrough contributors</Copyright>
