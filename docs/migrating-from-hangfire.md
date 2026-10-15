@@ -102,6 +102,6 @@ This deletes the imported jobs in Hangfire and removes the imported recurring jo
 
 ## Limits
 
-- Continuations, batches and job filters are not imported; rebuild them as flows and WorkThrough middleware.
+- Continuations, batches and job filters are not imported; rebuild them as flows and WorkThrough middleware. A continuation still waiting for its parent would never run once the parent is imported and retired, so the plan counts them in `Awaiting` and import refuses while any wait. Let them finish in Hangfire, or rebuild them as flow steps and call `LeaveAwaitingContinuations()`.
 - Typed converters see Hangfire's deserialized arguments; `MapByName` converters see their JSON, read with case-insensitive property names.
 - `WorkThrough.Migration.Hangfire` depends on Hangfire.Core, which is LGPL-3.0. Use it only for the migration; your application does not need it afterwards.

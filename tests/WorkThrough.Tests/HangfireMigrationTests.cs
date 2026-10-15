@@ -107,6 +107,24 @@ public sealed class HangfireMigrationTests
         Assert.Empty(await host.Store.ListAsync(new()));
     }
 
+    [Fact]
+    public async Task Waiting_continuations_are_reported_and_stop_the_import_until_left_explicitly()
+    {
+        var storage = new InMemoryStorage();
+        var hangfire = new BackgroundJobClient(storage);
+        var parent = hangfire.Schedule<LegacyMailer>(mailer => mailer.SendWelcome("ada@example.com"), TimeSpan.FromHours(1));
+        hangfire.ContinueJobWith<LegacyMailer>(parent, mailer => mailer.SendWelcome("grace@example.com"));
+        await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough.Stub(Welcome).Stub(Report));
+
+        var plan = Migration(storage).Plan();
+        Assert.Equal(1, plan.Awaiting);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Migration(storage).ImportAsync(plan, host.Store, host.Store));
+        Assert.Empty(await host.Store.ListAsync(new()));
+
+        var result = await Migration(storage).LeaveAwaitingContinuations().ImportAsync(plan, host.Store, host.Store);
+        Assert.Single(result.Imported);
+    }
+
     private static readonly JobDefinition<InvoiceCopy> Bill = new("tests.hangfire.bill");
 
     public sealed record InvoiceCopy(string Number, decimal Total, int Copies);

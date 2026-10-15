@@ -58,6 +58,9 @@ public sealed record HangfireMigrationItem(HangfireJobKind Kind, string Hangfire
 /// </summary>
 public sealed record HangfireMigrationPlan(IReadOnlyList<HangfireMigrationItem> Items, int RunningServers, long Processing, long Failed)
 {
+    /// <summary>Continuations waiting in Hangfire for a parent job. They are not imported; import refuses while any wait.</summary>
+    public long Awaiting { get; init; }
+
     public IEnumerable<HangfireMigrationItem> Ready => Items.Where(item => item.IsReady);
     public IEnumerable<HangfireMigrationItem> Problems => Items.Where(item => !item.IsReady);
 }

@@ -29,6 +29,8 @@ public sealed partial class HangfireMigration(JobStorage storage)
 
     private readonly List<NameMapping> nameMappings = [];
     private bool includeFailed;
+    private bool leaveAwaiting;
+    private const string AwaitingSet = "awaiting";
 
     /// <summary>Imports calls of <paramref name="method"/> as work at <paramref name="target"/>, with the input <paramref name="convert"/> builds.</summary>
     /// <example><c>.Map((IMailer mailer) =&gt; mailer.SendWelcome(default!), Emails.Welcome, call =&gt; new WelcomeEmail(call.Argument&lt;string&gt;(0)))</c></example>
@@ -52,6 +54,17 @@ public sealed partial class HangfireMigration(JobStorage storage)
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(convert);
         nameMappings.Add(new(type, method, target.Identity, arguments => JsonSerializer.SerializeToElement(convert(arguments), JobJson.Options), queue));
+
+        return this;
+    }
+
+    /// <summary>
+    /// Imports even while continuations wait in Hangfire for a parent job. They are not imported: once their parent is imported and
+    /// retired they never run. Rebuild them as flow steps that run <c>.After</c> their parent, or let them finish in Hangfire first.
+    /// </summary>
+    public HangfireMigration LeaveAwaitingContinuations()
+    {
+        leaveAwaiting = true;
 
         return this;
     }
@@ -86,8 +99,11 @@ public sealed partial class HangfireMigration(JobStorage storage)
     public HangfireMigrationPlan Plan()
     {
         var items = new List<HangfireMigrationItem>();
+        long awaiting;
         using (var connection = storage.GetConnection())
         {
+            // Hangfire's dashboard lists continuations waiting for their parent from this set.
+            awaiting = connection is JobStorageConnection counted ? counted.GetSetCount(AwaitingSet) : connection.GetAllItemsFromSet(AwaitingSet).Count;
             foreach (var recurring in connection.GetRecurringJobs())
             {
                 var stored = connection.GetAllEntriesFromHash($"recurring-job:{recurring.Id}")?.GetValueOrDefault("Job") is { } payload
@@ -138,7 +154,7 @@ public sealed partial class HangfireMigration(JobStorage storage)
 
         DuplicateSchedules(items);
 
-        return new(items, monitoring.Servers().Count, monitoring.ProcessingCount(), monitoring.FailedCount());
+        return new(items, monitoring.Servers().Count, monitoring.ProcessingCount(), monitoring.FailedCount()) { Awaiting = awaiting };
     }
 
     private HangfireMigrationItem Job(HangfireJobKind kind, string id, Job? job, InvocationData? stored, Exception? loadException, string? queue,
@@ -294,6 +310,12 @@ public sealed partial class HangfireMigration(JobStorage storage)
         if (plan.RunningServers > 0 && !allowRunningServers)
         {
             throw new InvalidOperationException($"{plan.RunningServers} Hangfire servers are running and could run the same jobs. Stop them, then plan again.");
+        }
+
+        if (plan.Awaiting > 0 && !leaveAwaiting)
+        {
+            throw new InvalidOperationException($"{plan.Awaiting} Hangfire continuations wait for a parent job and would never run after it is imported. " +
+                "Let them finish in Hangfire, or rebuild them as flows and call LeaveAwaitingContinuations().");
         }
 
         var client = new JobClient(store);
