@@ -26,6 +26,9 @@ public abstract partial class RelationalJobStore
 
         // Starts without admission options keep the fingerprint shape of earlier releases, so existing receipts still match.
         var fingerprint = idempotencyKey is null ? null
+            : start.NotBefore is { } due
+                ? Fingerprint(Args(("definition", definition), ("input", input), ("correlationId", correlationId), ("partitionKey", partitionKey),
+                    ("tenantId", tenantId), ("maxParallelSteps", maxParallelSteps), ("notBefore", due)))
             : tenantId is null && maxParallelSteps is null
                 ? partitionKey is null ? Fingerprint(Args(("definition", definition), ("input", input), ("correlationId", correlationId))) : Fingerprint(Args(("definition", definition), ("input", input), ("correlationId", correlationId), ("partitionKey", partitionKey)))
                 : Fingerprint(Args(("definition", definition), ("input", input), ("correlationId", correlationId), ("partitionKey", partitionKey), ("tenantId", tenantId), ("maxParallelSteps", maxParallelSteps)));
@@ -53,6 +56,14 @@ public abstract partial class RelationalJobStore
             await PublishForStartAsync(connection, transaction, definition, [], ct);
             var runId = await InsertRunAsync(connection, transaction, definition, input,
                 new(correlationId, partitionKey, tenantId, maxParallelSteps, traceParent), ct);
+            if (start.NotBefore is { } notBefore)
+            {
+                // Eligibility rounds up to the millisecond, so a run never starts before its instant.
+                var due = notBefore.ToUnixTimeMilliseconds() + (notBefore.UtcTicks % TimeSpan.TicksPerMillisecond == 0 ? 0 : 1);
+                await ExecuteAsync(connection, transaction,
+                    "UPDATE dj_jobs SET available_at=@due WHERE workflow_run_id=@run AND status='Queued' AND available_at<@due", ct,
+                    ("due", due), ("run", runId.ToString()));
+            }
             if (idempotencyKey is not null)
             {
                 await ExecuteAsync(connection, transaction,

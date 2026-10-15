@@ -108,21 +108,36 @@ public sealed class HangfireMigrationTests
     }
 
     [Fact]
-    public async Task Waiting_continuations_are_reported_and_stop_the_import_until_left_explicitly()
+    public async Task Continuation_chains_become_flows_that_keep_their_order_and_time()
     {
         var storage = new InMemoryStorage();
         var hangfire = new BackgroundJobClient(storage);
         var parent = hangfire.Schedule<LegacyMailer>(mailer => mailer.SendWelcome("ada@example.com"), TimeSpan.FromHours(1));
-        hangfire.ContinueJobWith<LegacyMailer>(parent, mailer => mailer.SendWelcome("grace@example.com"));
+        var child = hangfire.ContinueJobWith<LegacyMailer>(parent, mailer => mailer.SendWelcome("grace@example.com"));
+        var grandchild = hangfire.ContinueJobWith<LegacyMailer>(child, mailer => mailer.SendWelcome("alan@example.com"));
+        var other = hangfire.Schedule<LegacyMailer>(mailer => mailer.SendWelcome("edsger@example.com"), TimeSpan.FromHours(1));
+        hangfire.ContinueJobWith<LegacyMailer>(other, mailer => mailer.SendWelcome("barbara@example.com"), JobContinuationOptions.OnAnyFinishedState);
         await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough.Stub(Welcome).Stub(Report));
+        var migration = Migration(storage);
 
-        var plan = Migration(storage).Plan();
-        Assert.Equal(1, plan.Awaiting);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Migration(storage).ImportAsync(plan, host.Store, host.Store));
-        Assert.Empty(await host.Store.ListAsync(new()));
+        var plan = migration.Plan();
+        var chain = Assert.Single(plan.Ready);
+        Assert.Equal(parent, chain.HangfireId);
+        Assert.Equal([child, grandchild], chain.Continuations!.Select(job => job.HangfireId).Order());
+        Assert.Equal(2, plan.Problems.Count());
 
-        var result = await Migration(storage).LeaveAwaitingContinuations().ImportAsync(plan, host.Store, host.Store);
-        Assert.Single(result.Imported);
+        var result = await migration.ImportAsync(plan, host.Store, host.Store);
+        var run = result.Imported[0].RunId!.Value;
+        await host.WaitUntilIdleAsync();
+        Assert.DoesNotContain(await host.Queries.ListFlowJobsAsync(run), job => job.Status == JobStatus.Succeeded);
+        await host.AdvanceAsync(TimeSpan.FromHours(1));
+        var flow = (await host.WaitForFlowAsync(run)).AssertSucceeded();
+        Assert.Equal(3, flow.Jobs.Count);
+
+        migration.Retire(result);
+        using var connection = storage.GetConnection();
+        Assert.All(new[] { parent, child, grandchild }, id => Assert.Equal("Deleted", connection.GetStateData(id).Name));
+        Assert.Equal("Scheduled", connection.GetStateData(other).Name);
     }
 
     private static readonly JobDefinition<InvoiceCopy> Bill = new("tests.hangfire.bill");
