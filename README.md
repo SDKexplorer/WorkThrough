@@ -1,4 +1,4 @@
-# WorkThrough
+# WorkThrough.NET
 
 [![Verify](https://github.com/SDKexplorer/WorkThrough/actions/workflows/verify.yml/badge.svg)](https://github.com/SDKexplorer/WorkThrough/actions/workflows/verify.yml)
 

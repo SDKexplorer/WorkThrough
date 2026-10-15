@@ -1,0 +1,71 @@
+name: Publish
+# Publishes the packages of a release tag to nuget.org through Trusted Publishing: GitHub proves the run's identity to nuget.org,
+# which returns a short-lived key, so no API key is stored anywhere. The tag must already have passed the release gate on main.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish, for example v1.0.0-rc.1
+        required: true
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: publish-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Matches the environment named in the nuget.org trusted publishing policy; add required reviewers to it to approve each release.
+    environment: nuget
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dashboard-ui/package-lock.json
+      - name: Build the console assets the dashboard package embeds
+        working-directory: dashboard-ui
+        run: npm ci && npm run build
+      - name: Build and pack
+        run: |
+          dotnet build WorkThrough.slnx -c Release
+          for project in src/*/*.csproj templates/WorkThrough.Templates.csproj; do
+            dotnet pack "$project" -c Release --no-build -o artifacts/packages
+          done
+      - name: Check the packages carry the tag's version
+        run: |
+          version="${TAG#v}"
+          ls artifacts/packages
+          test -n "$(ls artifacts/packages/*."$version".nupkg)"
+          if ls artifacts/packages/*.nupkg | grep -v "\.$version\.nupkg$"; then echo "Packages with another version found." >&2; exit 1; fi
+      - uses: actions/upload-artifact@v6
+        with:
+          name: packages-${{ env.TAG }}
+          path: artifacts/packages/*
+      - name: Get a short-lived nuget.org key
+        id: login
+        uses: NuGet/login@v1
+        with:
+          # The nuget.org username, from the nuget environment as a variable or a secret.
+          user: ${{ vars.NUGET_USER || secrets.NUGET_USER }}
+      - name: Push to nuget.org
+        run: >
+          dotnet nuget push "artifacts/packages/*.nupkg"
+          --source https://api.nuget.org/v3/index.json
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --skip-duplicate

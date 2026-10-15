@@ -348,8 +348,9 @@ public sealed class StorageConformanceTests
 
         var claims = await Task.WhenAll(Enumerable.Range(0, 12).Select(i => Task.Run(() => harness.NewStore().ClaimAsync(Claim($"worker-{i}")))));
         var admitted = claims.OfType<JobRecord>().ToArray();
+        // The global limit fills; which jobs win the race is not specified, only that the type limit holds.
         Assert.Equal(3, admitted.Length);
-        Assert.Single(admitted, x => x.Contract.Key == "tests.alpha");
+        Assert.True(admitted.Count(x => x.Contract.Key == "tests.alpha") <= 1);
         Assert.Equal(3, admitted.Select(x => x.Id).Distinct().Count());
         foreach (var job in admitted)
         {

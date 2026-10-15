@@ -50,3 +50,14 @@ Before changing visibility:
 - [ ] Verify clean public-consumer setup, examples and links; add contribution/issue guidance suitable for outside users.
 
 Changing visibility makes repository content and history publicly accessible. The maintainer must explicitly decide that action after reviewing this checklist. Keeping the repository private and upgrading the account plan is a separate way to enable protection.
+
+## Publishing to nuget.org
+
+`.github/workflows/publish.yml` publishes a release tag's packages through nuget.org Trusted Publishing; no API key is stored. It runs when a GitHub Release is published, or by hand (Actions → Publish → Run workflow, with the tag).
+
+One-time setup:
+
+1. On nuget.org: your name → **Trusted Publishing** → add a policy: repository owner `SDKexplorer`, repository `WorkThrough`, workflow file `publish.yml`, environment `nuget`.
+2. On GitHub: Settings → Environments → **New environment** `nuget`. Add yourself as a required reviewer to approve each publish, and add `NUGET_USER` (a variable or a secret) set to your nuget.org username.
+
+Publish only tags that passed the full release gate on `main`.
