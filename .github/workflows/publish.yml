@@ -61,7 +61,8 @@ jobs:
         id: login
         uses: NuGet/login@v1
         with:
-          user: ${{ vars.NUGET_USER }}
+          # The nuget.org username, from the nuget environment as a variable or a secret.
+          user: ${{ vars.NUGET_USER || secrets.NUGET_USER }}
       - name: Push to nuget.org
         run: >
           dotnet nuget push "artifacts/packages/*.nupkg"
