@@ -40,7 +40,7 @@ This compares design choices, not marketing claims. It reflects public documenta
   - Delivery is at least once.
   - Stale workers can never settle an attempt.
   - Business data and the jobs it causes can commit in one transaction.
-  - Each of these is tested against all six databases, process kills and soaks.
+  - Each of these is tested against all five databases, process kills and soaks.
 - **Your flows are fixed business processes:** checkout, onboarding, approvals, document pipelines. They are defined as data, so they are inspectable and versioned, with operator recovery for failed steps.
 
 ## Compared with Quartz.NET in detail
@@ -66,4 +66,4 @@ Quartz.NET still lets operators edit a named calendar shared by many triggers at
 - **Throughput:** completions and claims use row locks, but every event still takes one counter row so the journal stays gap-free. On the documented test host that gives about 800 jobs/s per PostgreSQL store, and about 500 with 50 tenant quotas ([ADR-020](adr/0020-write-path-throughput.md), [ADR-022](adr/0022-limit-locks.md)). A fleet-wide limit serializes claims. That is ample for business workflows; use a broker for event streams.
 - **Flow model:** flows are graphs, not code. Data-driven fan-out, child flows and bounded loops of child flows are built in. Arbitrary code-level control flow is not; Temporal and Durable Functions express it naturally.
 - **Upgrades:** from schema 6, additive schema changes and new engine protocol levels roll out while workers run ([ADR-021](adr/0021-rolling-upgrades.md)). Upgrading a store from schema 5 or earlier still requires stopping its workers once.
-- **Availability:** packages are not published and the license is undecided. Neither is true of the alternatives.
+- **Maturity:** WorkThrough is MIT-licensed and at its first release candidate (1.0.0-rc.1), with no production track record. The alternatives have years of production use.

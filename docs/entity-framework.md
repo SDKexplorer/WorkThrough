@@ -6,7 +6,7 @@
 builder.Services.AddWorkThrough().UsePostgreSql(connectionString).AddWorker();
 builder.Services.AddDbContext<ShopDb>((services, options) => options
     .UseNpgsql(connectionString)
-    .UseWorkThrough((RelationalJobStore)services.GetRequiredService<IJobStore>()));
+    .UseWorkThrough(services.GetRequiredService<RelationalJobStore>()));
 
 // In a request handler:
 db.Orders.Add(order);

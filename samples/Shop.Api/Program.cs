@@ -25,8 +25,6 @@ builder.Services.AddWorkThrough()
         options.Queues = ShopJobRegistration.Queues;
     });
 
-// Transactional intake needs the relational store itself, not only its job ports.
-builder.Services.AddSingleton(services => (RelationalJobStore)services.GetRequiredService<IJobStore>());
 builder.Services.AddSingleton<Orders>();
 builder.Services.AddWorkThroughDashboard();
 var app = builder.Build();

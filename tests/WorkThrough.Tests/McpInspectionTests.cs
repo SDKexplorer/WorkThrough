@@ -1,6 +1,4 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -87,7 +85,7 @@ public sealed partial class McpTests
         var id = await new JobClient(harness.Store).EnqueueAsync(definition, "input");
         var job = (await harness.Store.ClaimAsync(new("worker", [definition.Identity], ["default"], TimeSpan.FromMinutes(1))))!;
         await harness.Store.FailWithDetailsAsync(id, job.LeaseToken!.Value, new("SECRET-TYPE", "SECRET-MESSAGE", "SECRET-STACK"), TimeSpan.Zero);
-        var logs = new InspectionLogCapture();
+        var logs = new LogCapture();
         await using var server = await McpTestHost.CreateAsync(harness, redactor: new FailingRedactor(), loggerProvider: logs);
         using var client = server.Client(payloads: true);
         var result = await ResultAsync(await CallAsync(client, "tools/call", new { name = "workthrough_get_diagnostics", arguments = new { id, attempt = 1 } }));
@@ -105,22 +103,5 @@ public sealed partial class McpTests
     private sealed class FailingRedactor : IMcpDiagnosticRedactor
     {
         public JobFailure Redact(JobFailure failure) => throw new InvalidOperationException("SECRET-REDACTOR-CONFIGURATION");
-    }
-
-    private sealed class InspectionLogCapture : ILoggerProvider
-    {
-        internal ConcurrentQueue<string> Entries { get; } = new();
-        public ILogger CreateLogger(string categoryName) => new CaptureLogger(Entries);
-        public void Dispose()
-        {
-        }
-
-        private sealed class CaptureLogger(ConcurrentQueue<string> entries) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-            public bool IsEnabled(LogLevel logLevel) => true;
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-                entries.Enqueue(formatter(state, exception) + exception);
-        }
     }
 }
