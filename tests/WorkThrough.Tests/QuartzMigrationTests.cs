@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using Quartz;
 using Quartz.Impl;
 using Quartz.Impl.Calendar;
+using Quartz.Listener;
 using WorkThrough.Migration.Quartz;
 using WorkThrough.Testing;
 using Xunit;
@@ -108,6 +109,47 @@ public sealed class QuartzMigrationTests
         await migration.RetireAsync(result);
         Assert.Equal(["DEFAULT.unmapped", "crm.only-2027"], (await scheduler.GetTriggerKeys(Quartz.Impl.Matchers.GroupMatcher<TriggerKey>.AnyGroup()))
             .Select(key => key.ToString()).Order(StringComparer.Ordinal));
+        await scheduler.Shutdown();
+    }
+
+    [Fact]
+    public async Task Chained_jobs_become_a_schedule_that_starts_a_flow()
+    {
+        var scheduler = await new StdSchedulerFactory(new NameValueCollection
+        {
+            ["quartz.scheduler.instanceName"] = "chain-" + Guid.NewGuid().ToString("N"),
+            ["quartz.jobStore.type"] = "Quartz.Simpl.RAMJobStore, Quartz"
+        }).GetScheduler();
+        var reminder = JobBuilder.Create<SendReminderJob>().WithIdentity("reminder", "crm").UsingJobData("customer", "ada").Build();
+        var cleanup = JobBuilder.Create<NightlyCleanupJob>().WithIdentity("cleanup", "crm").UsingJobData("days", "30").StoreDurably().Build();
+        await scheduler.AddJob(cleanup, false);
+        await scheduler.ScheduleJob(reminder, TriggerBuilder.Create().WithIdentity("daily", "crm").WithCronSchedule("0 0 9 * * ?").Build());
+        var chaining = new JobChainingJobListener("chain");
+        chaining.AddJobChainLink(reminder.Key, cleanup.Key);
+        scheduler.ListenerManager.AddJobListener(chaining);
+        await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough.Stub(Remind).Stub(Clean));
+        var migration = new QuartzMigration(scheduler)
+            .Map<SendReminderJob, QuartzReminder>(Remind, data => new QuartzReminder(data.GetString("customer")!))
+            .Map<NightlyCleanupJob, Cleanup>(Clean, data => new Cleanup(data.Get<int>("days")));
+
+        var plan = await migration.PlanAsync();
+        var item = Assert.Single(plan.Ready);
+        Assert.Empty(plan.Problems);
+        Assert.Equal(ScheduledFlows.Start.Identity, item.Schedule!.Processor);
+        Assert.Equal(["job-crm.reminder", "job-crm.cleanup"], item.Flow!.Steps.Select(step => step.Id));
+
+        await migration.ImportAsync(plan, host.Store, host.Store);
+        var schedule = Assert.Single(await host.Store.SchedulesAsync());
+        await host.AdvanceAsync(schedule.NextOccurrence!.Value - host.UtcNow + TimeSpan.FromSeconds(1));
+        using var timeout = new CancellationTokenSource(WorkThroughTestHost.DefaultTimeout);
+        IReadOnlyList<JobRecord> steps = [];
+        while (steps.Count(job => job.Status == JobStatus.Succeeded) < 2)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50), timeout.Token);
+            steps = (await host.Queries.ListAsync(new(Limit: 50), timeout.Token)).Where(job => job.WorkflowRunId is not null).ToList();
+        }
+
+        Assert.Equal(["job-crm.cleanup", "job-crm.reminder"], steps.Select(job => job.StepId).Order());
         await scheduler.Shutdown();
     }
 

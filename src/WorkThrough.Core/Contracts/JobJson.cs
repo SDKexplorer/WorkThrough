@@ -98,6 +98,7 @@ public static class JobJson
 [JsonSerializable(typeof(FlowDefinition))]
 [JsonSerializable(typeof(FlowFailure))]
 [JsonSerializable(typeof(ScheduleDefinition))]
+[JsonSerializable(typeof(ScheduledFlow))]
 [JsonSerializable(typeof(OperationActor))]
 [JsonSerializable(typeof(object))]
 [JsonSerializable(typeof(int?))]

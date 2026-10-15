@@ -64,6 +64,7 @@ public abstract partial class RelationalJobStore
                     "UPDATE dj_jobs SET available_at=@due WHERE workflow_run_id=@run AND status='Queued' AND available_at<@due", ct,
                     ("due", due), ("run", runId.ToString()));
             }
+
             if (idempotencyKey is not null)
             {
                 await ExecuteAsync(connection, transaction,

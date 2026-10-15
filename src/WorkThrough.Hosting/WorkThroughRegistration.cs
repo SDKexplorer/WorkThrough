@@ -22,6 +22,10 @@ public static class WorkThroughRegistration
         services.TryAddScoped<IJobRetryPolicy, DefaultRetryPolicy>();
         services.AddHostedService<JobStorageInitializer>();
 
-        return new(services, catalog, initialization);
+        var builder = new WorkThroughBuilder(services, catalog, initialization);
+
+        // Schedules can start flows; the job that does it is served by every host, like any other job.
+        return builder.AddJob(ScheduledFlows.Start, call => call.Service<WorkflowClient>().StartAsync(call.Input.Definition, call.Input.Input,
+            new FlowStart(IdempotencyKey: ScheduledFlows.RunKey(call.Context.JobId)), call.CancellationToken));
     }
 }

@@ -17,7 +17,7 @@ An importer moves Quartz.NET jobs and their triggers into WorkThrough schedules 
 | `[DisallowConcurrentExecution]` | `ScheduleOverlap.Coalesce`, or `.AtMostRunning(1)` |
 | Misfire instructions | `ScheduleMisfire.Skip`, `Coalesce` or `CatchUp` |
 | `scheduler.TriggerJob(key)` | `await jobs.Enqueue(definition, input)` |
-| Job listeners and chaining | Flows with steps that run `.After(...)` each other |
+| `JobChainingJobListener` chains | A flow: each chained job is a step that runs after the previous one succeeds; the trigger becomes a schedule that starts it |
 | Clustered ADO.NET job store | Any WorkThrough provider; every scheduler host shares the store |
 
 Quartz stores the job's CLR type name, so moving the class breaks stored jobs. WorkThrough stores the address and the input.
@@ -91,5 +91,6 @@ This unschedules the imported triggers, so restarting Quartz cannot fire them ag
 ## Limits
 
 - Quartz reads a job's class to load it, so the importer must run where the old job classes load.
-- Quartz's job listeners, trigger listeners and priorities have no import; rebuild chains as flows.
+- Job chains move: a trigger of a job with jobs chained after it becomes a schedule that starts a flow of the whole chain (a one-time trigger, a flow that starts at its time). The importer reads the links of a `JobChainingJobListener` registered on the scheduler it is given; a migration tool usually builds its own scheduler, so declare the links with `Chain(firstJobKey, thenJobKey)`. Every job of a chain needs a mapping, or the trigger stays in Quartz. A chained job receives its own job data, as in Quartz.
+- Other job listeners, trigger listeners and priorities have no import.
 - `WorkThrough.Migration.Quartz` is built against Quartz.NET 3.22. Quartz 4 is not yet verified.

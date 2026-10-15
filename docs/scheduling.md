@@ -63,6 +63,22 @@ builder.Services.AddWorkThrough()
 
 A seeded schedule that does not exist yet is drafted, published and enabled through the same audited commands, with command IDs derived from its key and version, so hosts starting together create it once. Existing versions, including ones operators paused or edited, are never changed. To replace a seeded schedule, seed a new version: it is published but stays paused while the old version is enabled, and an operator switches them in the console. The [Shop sample](../samples/README.md) seeds a daily report this way. Retrying a job does not create another occurrence. Schedule mutation does not undo prior effects. 
 
+## Scheduled flows
+
+A schedule can start a flow instead of a single job. Every occurrence starts one run; a retried attempt finds the run it already started:
+
+```csharp
+var nightly = new FlowBuilder("reports.nightly", 1)
+    .Step("collect", Reports.Collect)
+    .Step("send", Reports.Send).After("collect")
+    .Build();
+
+builder.Services.AddWorkThrough()
+    .SeedSchedules(ScheduledFlows.Create("reports.nightly", "0 2 * * *", nightly, new { }));
+```
+
+The schedule targets the built-in `workthrough.flows.start` job, which every host registers. A flow can also start later without a schedule: `new FlowStart { NotBefore = tomorrowAtNine }`.
+
 ## Schedule options
 
 `ScheduleDefinition` carries the processor address and fixed input, plus `Queue`, `MaxAttempts`, `Overlap`, `Misfire`, `CorrelationId`, `PartitionKey` and `TenantId` for the jobs it creates. Admission limits apply to those jobs like any other.

@@ -50,6 +50,12 @@ public sealed record QuartzMigrationItem(string JobKey, string TriggerGroup, str
     public DateTimeOffset? NotBefore { get; init; }
     public string Queue { get; init; } = JobDefaults.Queue;
 
+    /// <summary>
+    /// For a job with jobs chained after it, the flow of the whole chain: a repeating trigger becomes a schedule that starts it, a
+    /// one-time trigger a run that starts at its time.
+    /// </summary>
+    public FlowDefinition? Flow { get; init; }
+
     /// <summary>Why the trigger cannot be imported; null when it can.</summary>
     public string? Problem { get; init; }
 
@@ -63,7 +69,11 @@ public sealed record QuartzMigrationPlan(IReadOnlyList<QuartzMigrationItem> Item
     public IEnumerable<QuartzMigrationItem> Problems => Items.Where(item => !item.IsReady);
 }
 
-/// <summary>An imported trigger, with the WorkThrough job it became; null for a schedule.</summary>
-public sealed record QuartzImported(QuartzMigrationItem Item, Guid? JobId);
+/// <summary>An imported trigger, with the WorkThrough job it became; null for a schedule or a chain.</summary>
+public sealed record QuartzImported(QuartzMigrationItem Item, Guid? JobId)
+{
+    /// <summary>For a one-time trigger of a chained job, the flow run it became.</summary>
+    public Guid? RunId { get; init; }
+}
 
 public sealed record QuartzMigrationResult(IReadOnlyList<QuartzImported> Imported, IReadOnlyList<QuartzMigrationItem> Skipped);

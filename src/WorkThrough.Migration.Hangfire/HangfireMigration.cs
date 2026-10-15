@@ -164,7 +164,8 @@ public sealed partial class HangfireMigration(JobStorage storage)
             ? named.GetString()
             : null;
         var item = Convert(HangfireJobKind.Continuation, id, data?.Job, data?.InvocationData, data?.LoadException, data?.Job?.Queue ?? queue)
-            with { ParentId = state.TryGetValue("ParentId", out var parent) ? parent : null };
+            with
+        { ParentId = state.TryGetValue("ParentId", out var parent) ? parent : null };
         if (item.ParentId is null)
         {
             return item with { Problem = "Hangfire stores no parent for this continuation." };
