@@ -197,16 +197,17 @@ Execution is at least once. Handlers receive `context.IdempotencyKey`, which sta
 
 ```csharp
 var fulfil = new FlowBuilder("orders.fulfil", 1)
-    .Step("reserve", Stock.Reserve)
+    .Step("reserve", Stock.Reserve).As(out var reserve)
         .BindInput((ReserveStock step) => step.OrderId, (Order order) => order.Id)
-    .Step("ship", Shipping.Ship).After("reserve")
+    .Step("ship", Shipping.Ship).After(reserve)
         .BindInput((ShipOrder step) => step.OrderId, (Order order) => order.Id)
-        .WhenOutput("reserve", (Reservation reservation) => reservation.Reserved, true)
+        .WhenOutput(reserve, (Reservation reservation) => reservation.Reserved, true)
     .Build();
 
 var run = await flows.StartAsync(fulfil, new Order("42"), new FlowStart(IdempotencyKey: "fulfil:42"), ct);
 ```
 
+- **Step references:** `.As(out var reserve)` captures a step, so later steps write `.After(reserve)` and the ID is typed only once. Strings work too.
 - **Structure:** steps bind input properties from the flow input or earlier outputs, with typed selectors that resolve to JSON names when the definition is built. Flows support equality conditions, parallel branches and joins; `WaitForSignal` steps wait for an external event without holding a worker slot.
 - **Fan-out:** `ForEach` runs a step once per element of an array in an earlier output, up to 1,000 items. Steps after it receive `{"items": [...]}` with every item's output, in order. A failed item follows the flow's failure policy and is recovered like any step. `MaxParallelSteps` bounds how many items run at once.
 
@@ -215,6 +216,7 @@ var run = await flows.StartAsync(fulfil, new Order("42"), new FlowStart(Idempote
   .Step("notify", Customers.Notify).After("ship")
   ```
 - **Child flows:** `Child("ship", ShippingFlow.Definition, input)` runs another published flow as one step and waits for it without holding a worker. The step's output holds the child's final outputs; a failed child fails the step. `ForEach` with a child definition runs one child flow per item. Starting the parent publishes child definitions it carries ([ADR-023](docs/adr/0023-child-flows.md)).
+- **Schedules:** `.ScheduleFlow(fulfil, "0 2 * * *", input)` on the builder starts a run on a cron schedule ([scheduling](docs/scheduling.md#scheduled-flows)).
 - **Loops:** `Repeat("track", PollCarrier.Definition, "check", "status", "delivered", maximumIterations: 20)` runs a child flow again, passing `iteration` and the `previous` output, until a final step's output property matches ([ADR-026](docs/adr/0026-bounded-loops.md)).
 - **Versioning:** every run pins an immutable definition version. Definitions move Draft → Published → Retired.
 - **Compensation:** with `OnFailure(FlowFailurePolicy.Compensate)`, steps declared with `CompensateWith(...)` are undone in reverse dependency order when the flow fails, then the flow fails ([ADR-025](docs/adr/0025-compensation.md)).

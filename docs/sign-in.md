@@ -61,9 +61,35 @@ Without an `ITenantAccessResolver`, every signed-in caller sees the whole store.
 
 So a provider that forgets to issue a tenant claim hides data rather than revealing it. Take tenants only from the provider, never from the request.
 
+## Console sign-in in one call
+
+`AddWorkThroughSignIn` sets up OpenID Connect for the console: the authorization code flow with PKCE, a 30-minute `__Host-` session cookie without sliding, 401 instead of a login redirect for console API calls, and role-to-permission mapping. It also registers `TenantClaimResolver` when `TenantClaim` is set.
+
+```csharp
+builder.Services.AddWorkThroughDashboard();
+builder.Services.AddWorkThroughSignIn(builder.Configuration.GetSection("Identity").Get<DashboardSignInOptions>()!);
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapWorkThroughDashboard("/operations");
+app.MapWorkThroughSignOut();   // POST /logout
+```
+
+Presets fill in the authority and claim names each provider uses. Add the role map to the result:
+
+```csharp
+var signIn = DashboardSignInOptions.EntraId(directoryTenantId, clientId, clientSecret);
+var signIn = DashboardSignInOptions.Auth0("contoso.eu.auth0.com", clientId, clientSecret, claimNamespace: "https://workthrough.example/");
+var signIn = DashboardSignInOptions.Keycloak("https://id.example", "ops", clientId, clientSecret);
+signIn.RolePermissions["workthrough-operator"] = [OperationPermissions.ReadExecutions, TenantClaimResolver.AllTenants, OperationPermissions.RetryJobs];
+```
+
+Configuration binds the same names: `Authority`, `ClientId`, `ClientSecret`, `RoleClaim`, `TenantClaim`, `RolePermissions`, `ConsolePath` (default `/operations`) and `SessionLifetime`. Without `TenantClaim`, every signed-in user is store-wide. Hosts with their own authentication keep using it, and use the pieces below instead.
+
 ## Mapping roles and tenants
 
-Both pieces ship with WorkThrough. Map roles when the token is validated, and register the tenant resolver once:
+`AddWorkThroughSignIn` does this for the console. For the MCP endpoint, or a console host with its own authentication, map roles when the token is validated and register the tenant resolver once:
 
 ```csharp
 var permissions = new RolePermissions(new Dictionary<string, string[]>
@@ -86,7 +112,7 @@ options.Events.OnTokenValidated = context =>
 
 ## Setting up a provider
 
-The console needs a web application registration with a client secret and the redirect URI `https://<host>/signin-oidc`. The MCP endpoint needs an API registration whose identifier is the endpoint's public URI (`Mcp:Resource`). Shop.Dashboard reads `Identity:Authority`, `ClientId`, `ClientSecret`, `RoleClaim`, `TenantClaim` and `RolePermissions`. Shop.Mcp reads `Mcp:Authority`, `Resource`, `Environment`, `RoleClaim`, `TenantClaim` and `RolePermissions`. Keep secrets in environment variables (`Identity__ClientSecret`) or a secret store.
+The console needs a web application registration with a client secret and the redirect URI `https://<host>/signin-oidc`. The MCP endpoint needs an API registration whose identifier is the endpoint's public URI (`Mcp:Resource`). Shop.Dashboard binds the `Identity` section to `DashboardSignInOptions`. Shop.Mcp reads `Mcp:Authority`, `Resource`, `Environment`, `RoleClaim`, `TenantClaim` and `RolePermissions`. Keep secrets in environment variables (`Identity__ClientSecret`) or a secret store.
 
 ### Keycloak
 
@@ -107,7 +133,7 @@ The console needs a web application registration with a client secret and the re
 
 | Check | Keycloak 26.4, local | Entra ID, Auth0 |
 |---|---|---|
-| Console sign-in, role mapping, tenant scoping (`scripts/check-oidc.py`) | Passed | Not run |
+| Console sign-in through `AddWorkThroughSignIn`, role mapping, tenant scoping (`scripts/check-oidc.py`) | Passed | Not run; the presets follow each provider's documented authority and claims |
 | MCP tokens: a mapped client reads, a forged signature gets 401, an unmapped client sees no tools (`scripts/check-hosted-idp.py`) | Passed (`--local-keycloak`) | Not run; the script runs against them once the provider is configured |
 
 To check the console against a hosted provider by hand:
@@ -121,7 +147,7 @@ To check the console against a hosted provider by hand:
 
 - Serve the console and MCP over HTTPS. Behind a TLS-terminating proxy, configure trusted forwarded headers before authentication.
 - Persist and protect ASP.NET Data Protection keys when several console instances share sessions.
-- The sample's session lasts 30 minutes without sliding. A role removed in the provider takes effect at the next sign-in; revoke sooner with host-specific session validation.
+- The session lasts 30 minutes without sliding (`SessionLifetime`). A role removed in the provider takes effect at the next sign-in; revoke sooner with host-specific session validation.
 - Anonymous access exists only in the sample's Development mode without an authority. Never deploy it.
 - Give the console and MCP read-only database credentials unless they run commands ([providers](providers.md#read-only-hosts)).
 - Use tenant claims from the provider, and keep the resolver failing closed.

@@ -2,6 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="../WorkThrough.Core/WorkThrough.Core.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="8.0.31" />
     <EmbeddedResource Include="../../artifacts/console-preview/browser/*" LogicalName="WorkThrough.Console.%(Filename)%(Extension)" />
     <None Include="../../artifacts/console-preview/3rdpartylicenses.txt" Pack="true" PackagePath="THIRD-PARTY-NOTICES.txt" />
   </ItemGroup>

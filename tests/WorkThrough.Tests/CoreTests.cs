@@ -139,6 +139,28 @@ public sealed class CoreTests
         Assert.Equal(System.Text.Json.JsonSerializer.Serialize(named, JobJson.Options), System.Text.Json.JsonSerializer.Serialize(typed, JobJson.Options));
     }
 
+    [Fact]
+    public void Captured_steps_save_the_same_definition_as_their_ids()
+    {
+        var captured = new FlowBuilder("tests.captured", 1)
+            .Step("first", JobContractId.For<Alpha>()).As(out var first)
+            .Step("second", JobContractId.For<Beta>()).As(out var second).After(first)
+                .BindInput((Beta beta) => beta.Value, (Alpha alpha) => alpha.Value, first)
+                .WhenOutput(first, (Alpha alpha) => alpha.Value, "ready")
+            .Step("apologise", JobContractId.For<Alpha>()).OnFailureOf(second)
+            .Build();
+        var named = new FlowBuilder("tests.captured", 1)
+            .Step("first", JobContractId.For<Alpha>())
+            .Step("second", JobContractId.For<Beta>()).After("first")
+                .BindInput("value", "value", "first")
+                .WhenOutput("first", "value", "ready")
+            .Step("apologise", JobContractId.For<Alpha>()).OnFailureOf("second")
+            .Build();
+
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(named, JobJson.Options), System.Text.Json.JsonSerializer.Serialize(captured, JobJson.Options));
+        Assert.Throws<InvalidOperationException>(() => new FlowBuilder("tests.empty", 1).As(out _));
+    }
+
     private sealed record PickList(IReadOnlyList<string> Parcels);
 
     [Fact]
