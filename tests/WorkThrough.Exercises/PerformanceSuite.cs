@@ -7,6 +7,9 @@ namespace WorkThrough.Exercises;
 
 internal static class PerformanceSuite
 {
+    /// <summary>Destination stores assign immediate creation time on delivery, so outbox latency starts at the source commit instead.</summary>
+    private const string LatencyOrigin = "stored creation time; outbox uses the source commit observed by the harness clock";
+
     public static async Task RunAsync(string provider, string output, bool full)
     {
         var runs = new List<RunResult>();
@@ -36,13 +39,14 @@ internal static class PerformanceSuite
             {
                 workerProcesses = 2,
                 producers = 4,
-                localSlots = 4,
+                localSlots = Workload.LocalSlots,
                 globalLimit = 6,
                 limitedTypeLimit = 2,
                 handlerDelayMs = 10,
-                pollMs = 10,
+                pollMs = Workload.PollMilliseconds,
                 leaseSeconds = 30,
                 load = "finite concurrent burst",
+                latencyOrigin = LatencyOrigin,
                 repetitions,
                 measuredOperations = count
             },
@@ -75,6 +79,7 @@ internal static class PerformanceSuite
 
         await WaitForSuccessAsync(database, "warmup", warmup, workers);
         var acceptance = new ConcurrentBag<double>();
+        var sourceCommits = new ConcurrentDictionary<int, DateTimeOffset>();
         var correlation = Guid.NewGuid().ToString("N");
         var flow = new FlowBuilder("exercises.sequence", 1)
             .Step("first", Workload.Fast, new WorkItem(0), Workload.Queue)
@@ -95,6 +100,7 @@ internal static class PerformanceSuite
             {
                 await source.Store.InTransactionAsync((_, _, jobs, token) =>
                 jobs.SendAsync(Workload.Fast, new WorkItem(index), new(Queue: Workload.Queue, CorrelationId: correlation, IdempotencyKey: $"item:{index}"), token), ct);
+                sourceCommits[index] = DateTimeOffset.UtcNow;
             }
             else
             {
@@ -115,13 +121,14 @@ internal static class PerformanceSuite
         var completed = await WaitForSuccessAsync(database, correlation, expected, workers);
         var elapsed = clock.Elapsed.TotalSeconds;
         var cpu = workers.Sum(w => w.Cpu.TotalMilliseconds) - beforeCpu;
-        var peakBytes = workers.Sum(w => w.PeakBytes);
+        var workerPeaks = workers.Select(worker => worker.PeakBytes).ToArray();
+        long? peakBytes = workerPeaks.All(peak => peak > 0) ? workerPeaks.Sum() : null;
         parentCpu = parent.TotalProcessorTime.TotalMilliseconds - parentCpu;
         var attempts = new List<(JobRecord Job, JobAttempt Attempt)>();
         foreach (var job in completed)
         {
             var history = await database.Store.AttemptsAsync(job.Id);
-            Ensure(history.Count == 1 && history[0].Status == "Succeeded", "Unexpected retry or unsuccessful attempt under load.");
+            Ensure(history.Count == 1 && history[0].Status == AttemptStatus.Succeeded, "Unexpected retry or unsuccessful attempt under load.");
             Ensure(job.Output?.GetInt32() == job.Payload.GetProperty("index").GetInt32(), "Processor output mismatched its accepted input.");
             attempts.Add((job, history[0]));
         }
@@ -129,8 +136,9 @@ internal static class PerformanceSuite
         var globalPeak = Peak(attempts.Select(x => x.Attempt));
         var limitedPeak = Peak(attempts.Where(x => x.Job.Contract == Workload.Limited.Identity).Select(x => x.Attempt));
         Ensure(globalPeak <= 6 && limitedPeak <= 2, "Shared admission limit exceeded across independent processes.");
-        var queue = attempts.Select(x => (x.Attempt.StartedAt - x.Job.CreatedAt).TotalMilliseconds);
-        var endToEnd = attempts.Select(x => (x.Attempt.FinishedAt!.Value - x.Job.CreatedAt).TotalMilliseconds);
+        DateTimeOffset Origin(JobRecord job) => scenario == "outbox" ? sourceCommits[job.Payload.GetProperty("index").GetInt32()] : job.CreatedAt;
+        var queue = attempts.Select(x => (x.Attempt.StartedAt - Origin(x.Job)).TotalMilliseconds);
+        var endToEnd = attempts.Select(x => (x.Attempt.FinishedAt!.Value - Origin(x.Job)).TotalMilliseconds);
         var execution = attempts.Select(x => (x.Attempt.FinishedAt!.Value - x.Attempt.StartedAt).TotalMilliseconds);
 
         return new(scenario, repeat, await database.VersionAsync(), expected, count, expected / elapsed, count / producerSeconds,
@@ -170,7 +178,7 @@ internal static class PerformanceSuite
         }
     }
 
-    private static int Peak(IEnumerable<JobAttempt> attempts)
+    internal static int Peak(IEnumerable<JobAttempt> attempts)
     {
         var points = attempts.SelectMany(a => new[] { (At: a.StartedAt, Delta: 1), (At: a.FinishedAt!.Value, Delta: -1) });
         var active = 0;
@@ -206,4 +214,4 @@ internal sealed record Distribution(double Min, double P50, double P95, double P
 internal sealed record RunResult(string Scenario, int Repetition, string DatabaseVersion, int Jobs, int Operations,
     double JobsPerSecond, double AcceptedOperationsPerSecond, Distribution AcceptanceMs, Distribution QueueWaitMs,
     Distribution EndToEndMs, Distribution AttemptMs, double WallSeconds, double WorkerCpuMs, double HarnessCpuMs,
-    long SumWorkerPeakRssBytes, double IdleWorkerCpuPercentOfOneCore, int MaximumGlobalLeases, int MaximumLimitedLeases);
+    long? SumWorkerPeakRssBytes, double IdleWorkerCpuPercentOfOneCore, int MaximumGlobalLeases, int MaximumLimitedLeases);

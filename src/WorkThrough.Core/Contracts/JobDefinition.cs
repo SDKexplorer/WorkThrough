@@ -13,9 +13,9 @@ public sealed record JobDefinition<TInput>
     public JobDefinition(JobContractId identity, string? displayName = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        if (displayName is { Length: > 200 })
+        if (displayName is { Length: > FlowValidator.MaximumDisplayNameLength })
         {
-            throw new ArgumentException("Display names are limited to 200 characters.", nameof(displayName));
+            throw new ArgumentException($"Display names are limited to {FlowValidator.MaximumDisplayNameLength} characters.", nameof(displayName));
         }
 
         Identity = identity;
@@ -25,19 +25,26 @@ public sealed record JobDefinition<TInput>
     public JobContractId Identity { get; }
     public string? DisplayName { get; }
 
+    /// <summary>The queue new work at this address uses unless a producer chooses another.</summary>
+    public string Queue { get; private init; } = JobDefaults.Queue;
+
+    /// <summary>The attempts new work at this address gets unless a producer chooses otherwise.</summary>
+    public int MaxAttempts { get; private init; } = JobDefaults.MaxAttempts;
+
+    /// <summary>This address with <paramref name="queue"/> as the default queue for new work.</summary>
+    public JobDefinition<TInput> InQueue(string queue) => string.IsNullOrWhiteSpace(queue)
+        ? throw new ArgumentException("Queue must be non-empty.", nameof(queue))
+        : this with { Queue = queue };
+
+    /// <summary>This address with <paramref name="attempts"/> as the default attempt budget for new work.</summary>
+    public JobDefinition<TInput> WithMaxAttempts(int attempts) => attempts < 1
+        ? throw new ArgumentOutOfRangeException(nameof(attempts), "Jobs need at least one attempt.")
+        : this with { MaxAttempts = attempts };
+
+    /// <summary>Options carrying this address's defaults.</summary>
+    public EnqueueOptions DefaultOptions => new(Queue: Queue, MaxAttempts: MaxAttempts);
+
     /// <summary>Deserializes a saved compatibility fixture using the same wire settings as execution.</summary>
-    public TInput ReadInput(JsonElement payload) => payload.Deserialize<TInput>(JobJson.Options)
+    public TInput ReadInput(JsonElement payload) => JobJson.Deserialize<TInput>(payload)
         ?? throw new JsonException($"Null input is invalid for {Identity}.");
-}
-
-/// <summary>Opt out of generated registration when the composition root supplies the permanent identity.</summary>
-[AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class ManualProcessorRegistrationAttribute : Attribute;
-
-/// <summary>Declares a compatible historical address. Activation requires a coordinated registry update.</summary>
-[AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = true)]
-public sealed class ProcessorAliasAttribute(string id) : Attribute
-{
-    public string Id { get; } = id;
-    public int Version { get; set; } = 1;
 }

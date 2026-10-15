@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,6 +8,8 @@ namespace WorkThrough.Exercises;
 internal static class Workload
 {
     public const string Queue = "exercise";
+    public const int LocalSlots = 4;
+    public const int PollMilliseconds = 10;
     public static JobDefinition<WorkItem> Fast { get; } = new("exercises.fast");
     public static JobDefinition<WorkItem> Limited { get; } = new("exercises.limited");
     public static readonly TimeSpan Lease = TimeSpan.FromSeconds(30);
@@ -22,24 +23,33 @@ internal static class Workload
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(new EffectStore(effects));
         var jobs = builder.Services.AddWorkThrough();
-        if (provider == "postgres")
+        if (provider == "oracle")
+        {
+            jobs.UseOracle(connection);
+        }
+        else if (provider == "sqlserver")
+        {
+            jobs.UseSqlServer(connection);
+        }
+        else if (provider == "postgres")
         {
             jobs.UsePostgreSql(connection);
         }
         else
         {
-            jobs.UseSqlite(connection);
+            jobs.UseMySql(connection);
         }
 
         jobs.InitializeStorageOnStart(false)
-            .AddProcessor<WorkItem, Processor>(Fast).AddProcessor<WorkItem, LimitedProcessor>(Limited)
+            .AddJob<WorkItem, Processor>(Fast).AddJob<WorkItem, LimitedProcessor>(Limited)
             .AddWorker(options =>
             {
-                options.WorkerId = $"exercise-{Environment.ProcessId}";
-                options.Queues = [Queue];
-                options.MaxConcurrentJobs = 4;
+                // Containers all run as process 1, so they name themselves.
+                options.WorkerId = Environment.GetEnvironmentVariable("WT_EXERCISE_WORKER_ID") is { Length: > 0 } id ? id : $"exercise-{Environment.ProcessId}";
+                options.Queues = Environment.GetEnvironmentVariable("WT_EXERCISE_QUEUES") is { Length: > 0 } queues ? queues.Split(',') : [Queue];
+                options.MaxConcurrentJobs = int.TryParse(Environment.GetEnvironmentVariable("WT_EXERCISE_SLOTS"), out var slots) ? slots : LocalSlots;
                 options.PerJobLimits[Limited.Identity.Key] = 2;
-                options.PollInterval = TimeSpan.FromMilliseconds(10);
+                options.PollInterval = TimeSpan.FromMilliseconds(PollMilliseconds);
                 options.LeaseDuration = Environment.GetEnvironmentVariable("WT_EXERCISE_CRASH") == "1" ? TimeSpan.FromSeconds(2) : Lease;
             });
         using var host = builder.Build();
@@ -49,9 +59,9 @@ internal static class Workload
         await host.WaitForShutdownAsync();
     }
 
-    public sealed class Processor(EffectStore effects) : IProcessor<WorkItem>
+    public sealed class Processor(EffectStore effects) : IJob<WorkItem>
     {
-        public async Task<JobResult> ProcessAsync(WorkItem input, JobExecutionContext context, CancellationToken ct)
+        public async Task<JobResult> ExecuteAsync(WorkItem input, JobExecutionContext context, CancellationToken ct)
         {
             if (input.DelayMs > 0)
             {
@@ -70,45 +80,33 @@ internal static class Workload
             return JobResult.From(input.Index);
         }
     }
-    public sealed class LimitedProcessor(EffectStore effects) : IProcessor<WorkItem>
+    public sealed class LimitedProcessor(EffectStore effects) : IJob<WorkItem>
     {
         private readonly Processor inner = new(effects);
-        public Task<JobResult> ProcessAsync(WorkItem input, JobExecutionContext context, CancellationToken ct) => inner.ProcessAsync(input, context, ct);
+        public Task<JobResult> ExecuteAsync(WorkItem input, JobExecutionContext context, CancellationToken ct) => inner.ExecuteAsync(input, context, ct);
     }
 }
 
 internal sealed record WorkItem(int Index, int DelayMs = 10, bool CrashAfterEffect = false);
 
-// A separate business database models an idempotent external effect, outside the engine transaction.
+// A separate business system models an idempotent external effect, outside the engine transaction: one marker file per effect key.
 internal sealed class EffectStore(string path)
 {
-    public async Task ApplyAsync(string key, CancellationToken ct)
+    public Task ApplyAsync(string key, CancellationToken ct)
     {
-        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
-        await connection.OpenAsync(ct);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "CREATE TABLE IF NOT EXISTS effects(id TEXT PRIMARY KEY); INSERT INTO effects(id) VALUES (@id) ON CONFLICT DO NOTHING";
-        command.Parameters.AddWithValue("@id", key);
-        await command.ExecuteNonQueryAsync(ct);
-    }
-    public async Task<long> CountAsync()
-    {
-        if (!File.Exists(path))
-        {
-            return 0;
-        }
-
-        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM effects";
+        ct.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(path);
         try
         {
-            return (long)(await command.ExecuteScalarAsync())!;
+            using var _ = new FileStream(Path.Combine(path, Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(key))), FileMode.CreateNew);
         }
-        catch (SqliteException e) when (e.SqliteErrorCode == 1)
+        catch (IOException) when (File.Exists(Path.Combine(path, Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(key)))))
         {
-            return 0;
+            // Applied before: the effect is idempotent.
         }
+
+        return Task.CompletedTask;
     }
+
+    public Task<long> CountAsync() => Task.FromResult(Directory.Exists(path) ? (long)Directory.GetFiles(path).Length : 0);
 }

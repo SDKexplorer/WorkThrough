@@ -1,7 +1,4 @@
 using System.Data.Common;
-using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Npgsql;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -20,21 +17,39 @@ public sealed class OperationsTests
         var id = await new JobClient(store).EnqueueAsync(new Alpha("fail audit"), new(MaxAttempts: 1));
         var job = (await store.ClaimAsync(Claim()))!;
         await store.FailAsync(id, job.LeaseToken!.Value, "failure", TimeSpan.Zero);
-        await using DbConnection connection = provider == "sqlite" ? new SqliteConnection(harness.ConnectionString) : new NpgsqlConnection(harness.ConnectionString);
+        await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var query = connection.CreateCommand();
-        query.CommandText = provider == "sqlite"
-            ? "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END"
-            : "CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$; CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit FOR EACH ROW EXECUTE FUNCTION reject_audit();";
+        query.CommandText = provider switch
+        {
+            "oracle" => "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit BEGIN raise_application_error(-20001, 'audit unavailable'); END;",
+            "sqlserver" => "CREATE TRIGGER reject_audit ON dj_audit AFTER INSERT AS THROW 51000,'audit unavailable',1;",
+            "mysql" or "mariadb" => "CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='audit unavailable'",
+            _ => "CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$; CREATE TRIGGER reject_audit BEFORE INSERT ON dj_audit FOR EACH ROW EXECUTE FUNCTION reject_audit();"
+        };
         await query.ExecuteNonQueryAsync();
         var command = Command();
         await Assert.ThrowsAnyAsync<DbException>(() => store.RetryJobAsync(id, 1, command));
         Assert.Equal(JobStatus.Failed, (await store.GetAsync(id))!.Status);
         Assert.Empty(await store.AuditAsync());
-        query.CommandText = provider == "sqlite" ? "DROP TRIGGER reject_audit" : "DROP TRIGGER reject_audit ON dj_audit";
+        query.CommandText = provider != "postgres" ? "DROP TRIGGER reject_audit" : "DROP TRIGGER reject_audit ON dj_audit";
         await query.ExecuteNonQueryAsync();
-        Assert.True(await store.RetryJobAsync(id, 1, command));
+        await store.RetryJobAsync(id, 1, command).SucceedsAsync();
         Assert.Single(await store.AuditAsync());
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Rejected_commands_return_typed_failures_and_commit_nothing(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var store = harness.Store;
+        var id = await new JobClient(store).EnqueueAsync(new Alpha("pending"));
+        await store.RetryJobAsync(Guid.NewGuid(), 0, Command()).FailsAsync(ErrorType.NotFound);
+        await store.RetryJobAsync(id, 5, Command()).FailsAsync(ErrorType.Conflict);
+        await store.ChangeLimitAsync(new(null, -1), Command()).FailsAsync(ErrorType.Validation);
+        await store.CancelJobAsync(id, 0, Command() with { Reason = "" }).FailsAsync(ErrorType.Validation);
+        Assert.Empty(await store.AuditAsync());
+        Assert.Equal(JobStatus.Queued, (await store.GetAsync(id))!.Status);
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -44,21 +59,21 @@ public sealed class OperationsTests
         var store = harness.Store;
         var draft = new FlowBuilder("tests.draft", 1).Step<Alpha>("one", new Alpha("original")).Build();
         var save = Command();
-        Assert.Equal(1, await store.SaveDraftAsync(draft, 0, save));
-        Assert.Equal(1, await store.SaveDraftAsync(draft, 0, save));
-        await Assert.ThrowsAsync<StateConflictException>(() => store.SaveDraftAsync(draft, 0, Command()));
+        Assert.Equal(1, await store.SaveDraftAsync(draft, 0, save).SucceedsAsync());
+        Assert.Equal(1, await store.SaveDraftAsync(draft, 0, save).SucceedsAsync());
+        await store.SaveDraftAsync(draft, 0, Command()).FailsAsync(ErrorType.Conflict);
         await Assert.ThrowsAsync<StateConflictException>(() => new WorkflowClient(store).StartAsync(draft, new { }));
-        Assert.Equal(2, await store.PublishAsync(draft.Key, draft.Version, 1, Command()));
+        Assert.Equal(2, await store.PublishAsync(draft.Key, draft.Version, 1, Command()).SucceedsAsync());
         var run = await new WorkflowClient(store).StartAsync(draft, new
         {
         });
-        await Assert.ThrowsAsync<StateConflictException>(() => store.SaveDraftAsync(draft, 2, Command()));
-        Assert.Equal(3, await store.RetireAsync(draft.Key, draft.Version, 2, Command()));
+        await store.SaveDraftAsync(draft, 2, Command()).FailsAsync(ErrorType.Conflict);
+        Assert.Equal(3, await store.RetireAsync(draft.Key, draft.Version, 2, Command()).SucceedsAsync());
         await Assert.ThrowsAsync<StateConflictException>(() => new WorkflowClient(store).StartAsync(draft, new { }));
         Assert.Equal("original", (await store.GetRunDefinitionAsync(run))!.Steps[0].Input.GetProperty("value").GetString());
         var job = (await store.ClaimAsync(Claim()))!;
         Assert.True(await store.CompleteAsync(job.Id, job.LeaseToken!.Value, JobResult.Done()));
-        Assert.Equal("Succeeded", (await store.GetWorkflowAsync(run))!.Status);
+        Assert.Equal(FlowStatus.Succeeded, (await store.GetWorkflowAsync(run))!.Status);
         Assert.Equal(3, (await store.AuditAsync()).Count);
     }
 
@@ -76,22 +91,22 @@ public sealed class OperationsTests
         var first = (await store.ClaimAsync(Claim()))!;
         var exception = new JobFailure("RemoteFailure", "Service unavailable", "protected stack at Processor.cs:42");
         Assert.True(await store.FailWithDetailsAsync(first.Id, first.LeaseToken!.Value, exception, TimeSpan.Zero));
-        Assert.Equal("Incident", (await store.GetWorkflowAsync(run))!.Status);
+        Assert.Equal(FlowStatus.Incident, (await store.GetWorkflowAsync(run))!.Status);
         var dependent = (await store.ListAsync(new("incident"))).Single(x => x.StepId == "two");
         Assert.Equal(JobStatus.Waiting, dependent.Status);
         Assert.Equal("FlowIncident", (await store.HealthAsync(dependent.Id))!.Reason);
         Assert.Null(await store.ClaimAsync(Claim()));
         var recovery = Command();
-        Assert.True(await store.RecoverStepAsync(first.Id, 1, recovery));
-        Assert.True(await store.RecoverStepAsync(first.Id, 1, recovery));
-        await Assert.ThrowsAsync<StateConflictException>(() => store.RecoverStepAsync(dependent.Id, 0, recovery));
+        await store.RecoverStepAsync(first.Id, 1, recovery).SucceedsAsync();
+        await store.RecoverStepAsync(first.Id, 1, recovery).SucceedsAsync();
+        await store.RecoverStepAsync(dependent.Id, 0, recovery).FailsAsync(ErrorType.Conflict);
         var second = (await store.ClaimAsync(Claim()))!;
         Assert.Equal(first.Id, second.Id);
         Assert.Equal(2, second.Attempt);
         Assert.True(await store.CompleteAsync(second.Id, second.LeaseToken!.Value, JobResult.From("done")));
         Assert.Equal(dependent.Id, (await store.ClaimAsync(Claim()))!.Id);
         Assert.Equal(exception, (await store.FailuresAsync(first.Id)).Single().Failure);
-        Assert.Equal(["Failed", "Succeeded"], (await store.AttemptsAsync(first.Id)).Select(x => x.Status));
+        Assert.Equal([AttemptStatus.Failed, AttemptStatus.Succeeded], (await store.AttemptsAsync(first.Id)).Select(x => x.Status));
         Assert.Single(await store.AuditAsync());
         Assert.Contains(await store.EventsAsync(run), x => x.Kind == "RecoveryRequested");
     }
@@ -109,7 +124,7 @@ public sealed class OperationsTests
         var health = (await store.HealthAsync(id))!;
         Assert.True(health.SuspectedStalled);
         Assert.Equal("ExecutionDeadlineExceeded", health.Reason);
-        Assert.True(await store.CancelJobAsync(id, 1, Command()));
+        await store.CancelJobAsync(id, 1, Command()).SucceedsAsync();
         Assert.False(await store.ReportProgressAsync(id, job.LeaseToken.Value, "stale"));
         Assert.False(await store.FailWithDetailsAsync(id, job.LeaseToken.Value, new("late", "late", "late"), TimeSpan.Zero));
         Assert.Empty(await store.FailuresAsync(id));
@@ -126,10 +141,10 @@ public sealed class OperationsTests
         {
         });
         var first = (await store.ClaimAsync(Claim()))!;
-        Assert.True(await store.SetFlowPausedAsync(run, true, Command()));
+        await store.SetFlowPausedAsync(run, true, Command()).SucceedsAsync();
         Assert.True(await store.CompleteAsync(first.Id, first.LeaseToken!.Value, JobResult.Done()));
         Assert.Null(await store.ClaimAsync(Claim()));
-        Assert.True(await store.SetFlowPausedAsync(run, false, Command()));
+        await store.SetFlowPausedAsync(run, false, Command()).SucceedsAsync();
         Assert.Equal("b", (await store.ClaimAsync(Claim()))!.StepId);
     }
 
@@ -138,8 +153,8 @@ public sealed class OperationsTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var draft = new FlowDefinition("tests.invalid", 1, []);
-        await harness.Store.SaveDraftAsync(draft, 0, Command());
-        await Assert.ThrowsAsync<ArgumentException>(() => harness.Store.PublishAsync(draft.Key, 1, 1, Command()));
+        await harness.Store.SaveDraftAsync(draft, 0, Command()).SucceedsAsync();
+        await harness.Store.PublishAsync(draft.Key, 1, 1, Command()).FailsAsync(ErrorType.Validation);
         Assert.Equal(DefinitionStatus.Draft, (await harness.Store.GetDefinitionAsync(draft.Key, 1))!.Status);
         Assert.Single(await harness.Store.AuditAsync());
     }

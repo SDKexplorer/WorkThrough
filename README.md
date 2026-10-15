@@ -4,150 +4,293 @@
 
 **Move your code. Keep your work.**
 
-A .NET 8 library for durable jobs, persisted flows, and recurring schedules, verified on .NET 8 and .NET 10. **Move a processor between classes, namespaces, projects, and assemblies without rewriting queued job metadata.**
+Durable background jobs, flows and schedules for .NET 8 and 10, stored in PostgreSQL, SQL Server, Oracle, MySQL or MariaDB. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so job classes can move between classes, namespaces, projects and assemblies while jobs are queued.
 
-WorkThrough is an alpha. SQLite and PostgreSQL are implemented; packages are built locally, not published. Production maturity, final package/domain clearance, and a project license are separate release decisions.
+> **Status: alpha.** All six databases pass their [verification](docs/verification.md), packages are built locally and not yet published, and there is no production certification. See [release boundaries](#release-boundaries).
 
-## Repository map
+## Why WorkThrough
 
-| Location | Purpose |
-|---|---|
-| `src/WorkThrough.Core` | Stable processor identities, flows, state rules, and persistence contracts |
-| `src/WorkThrough.Hosting` | DI composition, background workers, and schedule dispatch |
-| `src/WorkThrough.Storage.*` | SQLite/PostgreSQL adapters and shared transactional operations |
-| `src/WorkThrough.Dashboard`, `dashboard-ui` | Protected HTTP APIs and the embedded Angular console |
-| `src/WorkThrough.Generators` | Compile-time processor discovery and registration |
-| `samples` | API, worker, dashboard-only, direct-processor, and relocation examples |
-| `tests`, `scripts` | Real-provider conformance, package consumers, and deployment proofs |
-| `docs`, `specs` | Architecture decisions, requirements, evidence, and the remaining plan |
+- **Refactor-safe:** dispatch by explicit, versioned addresses. A [published relocation proof](scripts/check-refactor.sh) runs queued work after its job classes moved to a renamed assembly on another runtime.
+- **Honest delivery:** at least once, with fenced leases, so a stale worker can never settle an attempt. Crashes neither lose work nor manufacture success. Transactional enqueue and an outbox commit work together with business data.
+- **Flows:** persisted graphs with bindings, conditions, joins, fan-out, child flows, loops, failure branches, compensation, durable signals, idempotent starts, incident recovery and immutable, versioned definitions.
+- **Schedules:** cron with seconds, fixed and calendar intervals, daily windows, start and end bounds, and holiday calendars, including named calendars operators edit while schedules run ([scheduling](docs/scheduling.md)).
+- **Admission control:** fleet and per-type limits, per-key concurrency (serialize a customer), tenant quotas, sliding-window rate limits, bounded flow fan-out and weighted fair queues. All are exact across hosts.
+- **Operations:** an embedded Angular console with audited commands, tenant-scoped access, retention with holds, deployment preflight, payload encryption at rest, an MCP endpoint for AI assistants, and OpenTelemetry traces and metrics.
+- **Testable and easy to adopt:** a test host runs flows on the real engine with stubbed jobs, `dotnet new` templates start a worker, a web app or a test project, and importers move existing Hangfire and Quartz.NET jobs and schedules ([Hangfire](docs/migrating-from-hangfire.md), [Quartz.NET](docs/migrating-from-quartz.md)).
 
-Start with the [samples](samples/README.md). Contributors should read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md); security boundaries are in [SECURITY.md](SECURITY.md). CI runs the verification workflow on pushes and pull requests. A green build is evidence for the tested scenarios, not a production maturity claim.
+## Quick start
 
-## Processor identity survives refactoring
+A job is a class that implements `IJob<TInput>`. Its input type carries the address that the database stores:
+
+```csharp
+[JobContract("invoices.generate")]
+public sealed record GenerateInvoice(string InvoiceId);
+
+public sealed class GenerateInvoiceJob(IInvoiceService invoices) : IJob<GenerateInvoice>
+{
+    public async Task<JobResult> ExecuteAsync(GenerateInvoice input, JobExecutionContext context, CancellationToken ct)
+    {
+        // Attempts can repeat after a crash: let the external service deduplicate on the stable key.
+        var number = await invoices.CreateAsync(input.InvoiceId, context.IdempotencyKey, ct);
+
+        return JobResult.From(new { number });
+    }
+}
+```
+
+Register storage, the assembly's jobs and a worker:
+
+```csharp
+builder.Services.AddWorkThrough()
+    .UsePostgreSql(connectionString) // or UseSqlServer / UseOracle / UseMySql
+    .AddJobs(typeof(GenerateInvoiceJob).Assembly)
+    .AddWorker(options => options.MaxConcurrentJobs = 8);
+```
+
+Enqueue from anywhere that can reach the store, refining the request fluently:
+
+```csharp
+await jobs.Enqueue(new GenerateInvoice("INV-42"))
+    .After(TimeSpan.FromMinutes(5))
+    .Idempotent("invoice:INV-42");
+```
+
+### One place per job
+
+`Job(...)` declares everything about a job together: what runs it, when it recurs and how much of it may run. A small job can be a delegate instead of a class; its address stays explicit:
+
+```csharp
+public static class Emails
+{
+    public static JobDefinition<WelcomeEmail> Welcome { get; } = new JobDefinition<WelcomeEmail>("emails.welcome").InQueue("emails");
+}
+
+builder.Services.AddWorkThrough()
+    .UsePostgreSql(connectionString)
+    .Job(Emails.Welcome, job => job
+        .Run(call => call.Service<IMailer>().SendAsync(call.Input.Address, call.CancellationToken))
+        .AtMostRunning(10))
+    .Job(Reports.Daily, job => job
+        .RunWith<DailyReportJob>()
+        .Every("0 6 * * *", new DailyReport(Days: 1), "Europe/Bucharest"))
+    .AddScheduler()
+    .AddWorker(options => options.Queues = ["default", "emails"]);
+
+await jobs.Enqueue(Emails.Welcome, new WelcomeEmail("ada@example.com")).ForTenant("acme");
+```
+
+A definition's queue and attempt budget apply wherever it is used: enqueues, schedules and flow steps. Seeded schedules and limits are created once; operators own them afterwards.
+
+Compared with Hangfire:
+
+| | Hangfire | WorkThrough |
+|---|---|---|
+| Enqueue | `BackgroundJob.Enqueue<IMailer>(m => m.Send("ada"))` | `await jobs.Enqueue(Emails.Welcome, new WelcomeEmail("ada"))` |
+| Delay | `BackgroundJob.Schedule<IMailer>(m => m.Send("ada"), TimeSpan.FromMinutes(5))` | `.After(TimeSpan.FromMinutes(5))` |
+| Recurring | `RecurringJob.AddOrUpdate<Reports>("daily", r => r.Run(1), Cron.Daily)` | `.Job(Reports.Daily, job => job.RunWith<DailyReportJob>().Every("0 0 * * *", new DailyReport(1)))` |
+| Every 30 seconds | `"*/30 * * * * *"` | `.Every(TimeSpan.FromSeconds(30), input)` or `.Every("*/30 * * * * *", input)` |
+| What is stored | The method and its arguments | An address and an input record |
+| After a rename | Queued jobs fail | Queued jobs run on the moved class |
+
+Run several processes, or several machines on a server database, against the same store. Workers claim work under leases; a crashed worker's attempt is recovered when its lease expires.
+
+Or start from a template. Packages are not published yet, so install it from a local build (`./scripts/verify.sh` packs it):
+
+```bash
+dotnet new install artifacts/packages/WorkThrough.Templates.0.1.0-alpha.1.nupkg
+dotnet new workthrough-web -n MyApp --storage postgresql    # API + worker + console; or workthrough-worker
+dotnet new workthrough-tests -n MyApp.Tests                  # xUnit tests of a flow with stubbed jobs
+```
+
+`--storage` takes `postgresql` (default), `sqlserver`, `oracle` or `mysql` (MySQL and MariaDB). The samples use a local PostgreSQL started with `docker compose -f samples/compose.yaml up -d`.
+
+Samples ([samples](samples/README.md)):
+
+- [`QuickStart`](samples/QuickStart/Program.cs): one file, PostgreSQL, one job.
+- [`QuickStart.Web`](samples/QuickStart.Web/Program.cs): an API that enqueues jobs, with the worker and console in the same process.
+- [Shop](samples/README.md#shop-sample): a complete system with an intake API, workers, an approval flow, tenants, limits, a standalone OIDC console, MCP, and tests of its checkout flow with stubbed jobs.
+- [`HangfireMigration`](samples/HangfireMigration/Program.cs): moves a Hangfire application's queued, delayed and recurring jobs into WorkThrough.
+- [`QuartzMigration`](samples/QuartzMigration/Program.cs): moves Quartz.NET jobs and triggers into WorkThrough schedules.
+
+### Testing a flow
+
+`WorkThrough.Testing` runs the real engine in a throwaway schema of a disposable PostgreSQL database (`WORKTHROUGH_TEST_POSTGRES`). Stub the jobs to test a flow's logic alone ([testing](docs/testing.md)):
+
+```csharp
+await using var host = await WorkThroughTestHost.StartAsync(workthrough => workthrough
+    .Stub(Payments.Charge, (ChargePayment charge) => new Payment(charge.OrderId))
+    .Reject(Shipping.Ship, "address unknown"));
+
+var flow = await host.RunFlowAsync(Checkout.Definition, order);
+flow.AssertStatus(FlowStatus.Incident);
+Assert.Equal(order.Id, flow.Step("charge").Input<ChargePayment>().OrderId);
+```
+
+### Addresses shared with producers
+
+When producers live in other services, or one input type feeds several jobs, declare the address once as a `JobDefinition` and bind the class at the composition root. The input type then needs no attribute, and schedules take the same definition:
 
 ```csharp
 public static class InvoiceJobs
 {
-    public static JobDefinition<InvoiceInput> Generate { get; } =
-        new("invoices.generate", displayName: "Generate invoice");
+    public static JobDefinition<GenerateInvoice> Generate { get; } = new("invoices.generate", displayName: "Generate invoice");
 }
 
-[ManualProcessorRegistration]
-public sealed class GenerateInvoice : IProcessor<InvoiceInput>
-{
-    public async Task<JobResult> ProcessAsync(
-        InvoiceInput invoice, JobExecutionContext context, CancellationToken ct)
-    {
-        await context.ReportProgressAsync("Input validated", ct);
-        // Call your service; deduplicate effects using context.IdempotencyKey.
+builder.Services.AddWorkThrough()
+    .UsePostgreSql(connectionString)
+    .AddJob<GenerateInvoice, GenerateInvoiceJob>(InvoiceJobs.Generate)
+    .SeedSchedules(ScheduleDefinition.Create("invoices.nightly", "0 2 * * *", InvoiceJobs.Generate, new GenerateInvoice("batch")))
+    .AddScheduler()
+    .AddWorker();
 
-        return JobResult.From(new InvoiceOutput(invoice.InvoiceId, Generated: true));
-    }
-}
-
-public sealed record InvoiceInput(string InvoiceId);
-public sealed record InvoiceOutput(string InvoiceId, bool Generated);
+await jobs.EnqueueAsync(InvoiceJobs.Generate, new GenerateInvoice("INV-42"), cancellationToken: ct);
 ```
 
-The database stores the permanent processor key, contract version, and input. It never dispatches using a stored CLR type, method, or assembly-qualified name. Several processors can accept the same input type, including `string`. Typed `[JobContract]` / `IJobHandler<T>` registration remains available through the same registry.
+### Native AOT
 
-Keep `invoices.generate/v1` and its compatible input/output meaning when moving the class. Reference and deploy its new assembly; explicit or generated registration maps the existing identity to the new implementation. Existing and newly created jobs use that mapping. Historical attempt diagnostics retain the implementation actually used. A [deployment preflight](docs/deployment-preflight.md) checks whether the proposed worker fleet covers the processor versions and queues still required by saved work. Folder moves need no engine action unless they change the compiled namespace/assembly. Incompatible business or payload changes require a new version or an explicit adapter.
+Register jobs explicitly with `AddJob` or the source generator; `AddJobs(assembly)` scans by reflection and is marked as such. Job inputs and outputs serialize through a `JsonSerializerContext` the application registers once, before the host starts:
 
-The [published relocation proof](scripts/check-refactor.sh) creates typed, future-due raw-string, and persisted flow-step invocations on .NET 8, removes the original assembly, and executes them through a renamed processor assembly on .NET 10. It checks unchanged processor identities and inputs.
+```csharp
+JobJson.AddContext(InvoiceJsonContext.Default);
 
-## Setup and hosting
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+[JsonSerializable(typeof(GenerateInvoice))]
+internal sealed partial class InvoiceJsonContext : JsonSerializerContext;
+```
 
-Seven local NuGet packages separate Core, Hosting, Dashboard, Generators, relational mechanics, SQLite, and PostgreSQL. Consumers do not need Node. The Angular console is embedded in the Dashboard package.
+A type with no registered metadata fails with an error naming it, instead of falling back to reflection. [samples/NativeAot](samples/NativeAot/Program.cs) runs a flow and a schedule as a native binary.
+
+## Concepts
+
+### Addresses and relocation
+
+A job's address is its key and contract version. The database stores that address and the JSON input, never a type, method or assembly name. To move a job class, keep its address: the attribute moves with it, or `AddJob` maps the address to the new class. Change the version when the input's meaning changes.
+
+Every job implements `IJob<TInput>`. Its address comes from `[JobContract("key")]` on the input type, from `[Job("key")]` on the class, or from a `JobDefinition` passed to `AddJob`. A definition suits addresses shared with producers in other services, and input types that several jobs accept. `AddJobs(assembly)` registers attributed jobs at startup; the `WorkThrough.Generators` source generator does the same at build time and reports a job without an address as a compile error.
+
+When an input changes, add a new version and an upcast that converts stored older inputs, so queued work, schedules and pinned flow steps run on the new job without keeping old classes ([identity evolution](docs/identity-evolution.md#change-what-an-input-means-new-version-plus-upcast)). Retired addresses can be [aliased](docs/identity-evolution.md) to new ones under fleet fencing. [Deployment preflight](docs/deployment-preflight.md) checks that a proposed worker fleet covers every address, version and queue that stored work still needs.
+
+### Delivery
+
+Execution is at least once. Handlers receive `context.IdempotencyKey`, which stays stable across retries.
+
+- **Results:** `JobResult.Reject` stops without retrying invalid input. `Defer` reschedules without spending the retry budget. Retries use a configurable policy.
+- **Deadlines:** progress reporting and execution deadlines separate a live lease from useful work. Non-cooperative handlers are reported as suspected-stalled.
+- **Brokers:** `jobs.Publish(destination, message)` publishes to RabbitMQ, Kafka or Azure Service Bus through a durable job, and consumers turn messages into jobs, deduplicated by message ID ([message brokers](docs/messaging.md)).
+- **Transactions:** with EF Core, `db.Enqueue(...)` and `SaveChangesAsync` commit entities and jobs together ([EF Core](docs/entity-framework.md)). Without EF, `InTransactionAsync` does the same for ADO.NET. `Send` plus an outbox dispatcher delivers to a separate job store.
+- **Failures:** exception details are kept behind a separate permission. Redact them before storage with `DescribeFailure`.
+- **Input correction:** operators can fix the input of failed or rejected work and run it again, audited, with the original input kept.
+- **Checkpoint forks:** operators can start a new run from any step of a finished or failed flow, keeping earlier outcomes and leaving the original run untouched.
+
+### Flows
+
+```csharp
+var fulfil = new FlowBuilder("orders.fulfil", 1)
+    .Step("reserve", Stock.Reserve)
+        .BindInput((ReserveStock step) => step.OrderId, (Order order) => order.Id)
+    .Step("ship", Shipping.Ship).After("reserve")
+        .BindInput((ShipOrder step) => step.OrderId, (Order order) => order.Id)
+        .WhenOutput("reserve", (Reservation reservation) => reservation.Reserved, true)
+    .Build();
+
+var run = await flows.StartAsync(fulfil, new Order("42"), new FlowStart(IdempotencyKey: "fulfil:42"), ct);
+```
+
+- **Structure:** steps bind input properties from the flow input or earlier outputs, with typed selectors that resolve to JSON names when the definition is built. Flows support equality conditions, parallel branches and joins; `WaitForSignal` steps wait for an external event without holding a worker slot.
+- **Fan-out:** `ForEach` runs a step once per element of an array in an earlier output, up to 1,000 items. Steps after it receive `{"items": [...]}` with every item's output, in order. A failed item follows the flow's failure policy and is recovered like any step. `MaxParallelSteps` bounds how many items run at once.
+
+  ```csharp
+  .ForEach("ship", Shipping.Ship.Identity, "pick", (PickList list) => list.Parcels, (ShipParcel ship) => ship.Parcel)
+  .Step("notify", Customers.Notify).After("ship")
+  ```
+- **Child flows:** `Child("ship", ShippingFlow.Definition, input)` runs another published flow as one step and waits for it without holding a worker. The step's output holds the child's final outputs; a failed child fails the step. `ForEach` with a child definition runs one child flow per item. Starting the parent publishes child definitions it carries ([ADR-023](docs/adr/0023-child-flows.md)).
+- **Loops:** `Repeat("track", PollCarrier.Definition, "check", "status", "delivered", maximumIterations: 20)` runs a child flow again, passing `iteration` and the `previous` output, until a final step's output property matches ([ADR-026](docs/adr/0026-bounded-loops.md)).
+- **Versioning:** every run pins an immutable definition version. Definitions move Draft → Published → Retired.
+- **Compensation:** with `OnFailure(FlowFailurePolicy.Compensate)`, steps declared with `CompensateWith(...)` are undone in reverse dependency order when the flow fails, then the flow fails ([ADR-025](docs/adr/0025-compensation.md)).
+- **Failure branches:** `.Step("apologise", Customers.Apologise).OnFailureOf("charge")` runs only when `charge` fails, is rejected or times out, and handles that failure: the run continues and can rejoin later steps ([ADR-028](docs/adr/0028-failure-branches.md)).
+- **Failure:** a step that fails by default suspends the run as an **incident**; operators recover the step with its history and idempotency key intact. See [flow starts](docs/adr/0009-idempotent-flow-starts.md) and [architecture](docs/architecture.md).
+
+### Admission control
+
+All limits are evaluated in the claim transaction, so they hold across every host. They count admitted, unexpired leases ([ADR-018](docs/adr/0018-execution-admission-controls.md)).
 
 ```csharp
 builder.Services.AddWorkThrough()
-    .UseSqlite("Data Source=jobs.db") // Or UsePostgreSql(connectionString).
-    .AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)
-    .SeedClusterLimits(new(null, 20), new(InvoiceJobs.Generate.Identity.Key, 3))
-    .AddScheduler()
-    .AddWorker(options =>
-    {
-        options.MaxConcurrentJobs = 8;
-        options.PerJobLimits[InvoiceJobs.Generate.Identity.Key] = 2;
-        options.ExecutionTimeout = TimeSpan.FromMinutes(5);
-        options.ProgressTimeout = TimeSpan.FromMinutes(1);
-    });
+    .SeedClusterLimits(new(null, 50), new(Shipping.Ship.Identity.Key, 5))      // fleet-wide and per type
+    .SeedKeyedLimits(new(KeyScope.Partition, null, 1),                        // one at a time per partition key
+                     new(KeyScope.Tenant, null, 10))                          // at most 10 slots per tenant
+    .SeedRateLimits(new RateLimit(Payments.Charge.Identity.Key, 100, TimeSpan.FromMinutes(1), KeyScope.Tenant));
+
+await jobs.EnqueueAsync(Payments.Charge, payment, new(TenantId: tenant, PartitionKey: $"{tenant}/customer/{id}"), ct);
 ```
 
-Reference `WorkThrough.Generators` with `PrivateAssets="all"` in processor projects and the worker composition root, or register explicitly with `.AddProcessor<InvoiceInput, GenerateInvoice>(InvoiceJobs.Generate)`. Generated registration rejects inaccessible processors and missing stable IDs; conflicting implementations fail at catalog composition. Worker startup resolves handler dependencies before claiming work.
+- **Fan-out:** `FlowStart.MaxParallelSteps` releases a wide flow stage gradually.
+- **Weighted queues:** queues sharing workers are served by weighted fair scheduling.
+- **Seeding:** seeded values are created once. Afterwards operators change them in the console, and redeployments never overwrite those changes.
+- **Partition keys:** keys are global, so namespace them by tenant when tenants reuse IDs.
 
-Inject `JobClient`:
+### Operations and security
 
-```csharp
-await jobs.EnqueueAsync(InvoiceJobs.Generate, invoice,
-    new(CorrelationId: correlationId, IdempotencyKey: requestKey), ct);
-await jobs.EnqueueAsync(InvoiceJobs.Generate, invoice,
-    new(NotBefore: scheduledAt), ct);
-```
+- **Console:** people sign in through your identity provider (Entra ID, Auth0, Keycloak…); WorkThrough keeps no user accounts ([sign-in and permissions](docs/sign-in.md), [console security](docs/dashboard-security.md)).
+  - Permissions are separate for metadata, payloads, recovery, publication, schedules, limits and audit.
+  - Every command is CSRF-protected, attributed to a trusted actor, deduplicated, and committed together with its audit record.
+- **Payload protection:** `ProtectPayloads("2026-10", keys)` encrypts job inputs and outputs, flow inputs and signals at rest with AES-256-GCM and a rotating key ring. Handlers and the console see plain JSON; database readers, backups and archives see ciphertext. Schedule inputs, failure text and fingerprints are not encrypted ([ADR-027](docs/adr/0027-payload-protection.md)).
+- **Tenant scoping:** register an `ITenantAccessResolver` to scope users to their tenants ([ADR-019](docs/adr/0019-tenant-access-isolation.md)).
+- **Data operations:** [operations and retention](docs/operations-and-retention.md) covers queue pause, worker drain, replay, archives, retention with holds and verified exports, and event subscriptions.
+- **MCP:** the [MCP endpoint](docs/mcp.md) gives AI assistants bounded, audited investigation tools behind bearer authentication. A host can also enroll a few actions (retry, cancel, recover, queue pause, worker drain), each of which a person approves before it runs.
+- **OpenTelemetry:** subscribe to the `WorkThrough` ActivitySource and Meter. An attempt continues the trace that enqueued it, including through flows and the outbox. Job IDs are trace attributes, never metric labels.
+- **Health checks:** `services.AddHealthChecks().AddWorkThrough()` reports storage reachability and, in worker hosts, repeated acquisition failures.
+- **Rolling upgrades:** from schema 6, compatible schema changes and new engine semantics deploy while workers keep running. Older hosts refuse work they could misread ([ADR-021](docs/adr/0021-rolling-upgrades.md)).
 
-The explicit key overload lets producer-only hosts enqueue without the processor DLL. Producer, scheduler, BackgroundService worker, API dashboard, and standalone dashboard roles can be deployed independently. The host controls port/address; `MapWorkThroughDashboard("/operations/jobs")` controls the mount path. Generic workers need no HTTP listener. SQLite requires a shared **absolute local file path** for separate local processes; use PostgreSQL for a multi-machine fleet.
+## Documentation
 
-Local total/type concurrency and shared total/type limits all apply. Shared limits count valid admitted leases; lowering a limit does not terminate current handlers. A partitioned process can outlive its lease, so external effects still require idempotency/fencing.
+| Topic | Where |
+|---|---|
+| How it compares with Hangfire, Quartz.NET, Wolverine, MassTransit, Temporal | [Comparison](docs/comparison.md) |
+| Moving from Hangfire or Quartz.NET: concepts and the importers | [Migrating from Hangfire](docs/migrating-from-hangfire.md), [migrating from Quartz.NET](docs/migrating-from-quartz.md) |
+| Design and invariants | [Architecture](docs/architecture.md), [decision records](docs/adr/README.md), [requirements](specs/durable-jobs.spec.md) |
+| Storage providers and schema upgrades | [Providers](docs/providers.md) |
+| Rolling upgrades, payload encryption | [ADR-021](docs/adr/0021-rolling-upgrades.md), [ADR-027](docs/adr/0027-payload-protection.md) |
+| Scheduling | [Scheduling](docs/scheduling.md) |
+| Job address changes and aliases | [Job addresses](docs/identity-evolution.md), [deployment preflight](docs/deployment-preflight.md) |
+| Sign-in, permissions, tenants, the console | [Sign-in and permissions](docs/sign-in.md), [console security](docs/dashboard-security.md) |
+| Queries and MCP | [Execution queries](docs/execution-queries.md), [MCP](docs/mcp.md) |
+| Operations and retention | [Operations and retention](docs/operations-and-retention.md) |
+| Testing jobs and flows, `WorkThrough.Testing` | [Testing](docs/testing.md) |
+| Committing jobs with EF Core | [EF Core](docs/entity-framework.md) |
+| Publishing to and consuming from RabbitMQ, Kafka and Azure Service Bus | [Message brokers](docs/messaging.md) |
+| Evidence | [Verification](docs/verification.md), [performance](docs/performance.md) |
+| Roadmap | [Plan](docs/plan.md) |
 
-## Flows and recovery
+## Build and verify
 
-`FlowBuilder` supports sequences, parallel roots, joins, output property bindings, equality conditions, and raw/typed processor input. Every run pins an immutable definition version. `CorrelationId` groups executions; it is not an authorization, deduplication, or locking key.
-
-Flow definitions have **Draft → Published → Retired** lifecycle. Draft edits require an expected revision. Publication validates and freezes the graph. Retiring prevents new starts while existing runs retain their graph. Create a new version to edit published content. The code-first `WorkflowClient.StartAsync(definition, ...)` convenience registers previously unseen graphs as published; it cannot bypass an existing Draft or Retired state.
-
-New builders suspend on exhausted retries: the failed node creates an **Incident**, dependent steps remain waiting, and admission stops until recovery. `OnFailure(FlowFailurePolicy.Stop)` preserves terminal fail-and-skip behavior; schema-1 definitions retain that behavior. Recovery retries the failed step with its original logical job ID, attempts, and idempotency key. Pause/resume controls admission while allowing running attempts to settle.
-
-Flow starts also accept a caller idempotency key:
-
-```csharp
-var runId = await flows.StartAsync(definition, input,
-    correlationId: "order:123", idempotencyKey: "process-order:123", cancellationToken: ct);
-```
-
-Repeat the identical serialized definition/input/correlation and key to recover the accepted run ID after a lost response, even if that definition has since retired. Conflicting reuse fails. Keys are case-sensitive, scoped to the configured store, and distinct from individual-job keys. Without a key, every call creates a new run. This deduplicates logical starts; handlers still execute at least once. See [flow-start semantics](docs/adr/0009-idempotent-flow-starts.md).
-
-Failed attempts retain exception type, message, and stack trace behind diagnostics permission. Configure `DescribeFailure` to redact before storage. Optional progress reporting and execution deadlines distinguish a live lease from useful progress. Deadlines request cooperative cancellation; non-cooperative handlers remain visibly suspected-stalled and occupy their local slot until they return. Expired leases are recovered; stale tokens cannot settle work.
-
-[Scheduling](docs/scheduling.md) covers cron time zones, draft/publication, enable/pause, overlap, misfires, and transactional occurrence creation. Recurrence currently targets individual processors.
-
-## Dashboard and security
-
-The Angular console reads real storage data: correlation/status filters, saved flow diagrams, attempts and protected stack traces, waiting explanations, draft lifecycle, schedules, worker observations, limits, and an administrative audit trail. It does not load application processor DLLs.
-
-Configure host authentication before mapping the dashboard. Default policies require `workthrough.permission` claims; hosts can override policies and inspect route resources. Metadata, payloads, recovery, publication, schedules, limits, and audit reads have separate permissions. Administrative actions require CSRF protection, a trusted actor, a reason, a command ID, and state preconditions. Mutation, command deduplication, and successful audit commit together.
-
-The [standalone OIDC sample and security guide](docs/dashboard-security.md) reuse an identity provider for user management. The initial isolation boundary is one configured store/environment, not row-scoped multi-tenancy. `AllowAnonymous` is only for an explicitly isolated development host.
-
-Subscribe to the `WorkThrough` ActivitySource and Meter with OpenTelemetry to export attempt traces/counts/durations. Job/correlation IDs are trace attributes, never metric labels. The console's counts describe stored state; they are not invented throughput or SLA measurements.
-
-## Run and verify
-
-Repository builds use SDK 10; SDK/runtime 8 is also required for the compatibility gate. Node 24 builds the Angular assets. NuGet consumers use .NET 8 or 10 without Node.
+Repository builds need .NET SDK 10, a .NET 8 runtime for the compatibility gate, and Node 24 for the console assets. Package consumers need neither Node nor SDK 10.
 
 ```sh
-cd dashboard-ui && npm ci && npm run build && cd ..
-dotnet restore WorkThrough.slnx --disable-parallel -m:1
-dotnet build WorkThrough.slnx -m:1
-ASPNETCORE_ENVIRONMENT=Development dotnet run --project samples/Demo.Host --urls http://127.0.0.1:5295
+./scripts/verify.sh           # the full release gate
+./scripts/verify.sh --quick   # build, format and test suites; what pull requests run
 ```
 
-Open `/operations/jobs`. In Development, POST `{ "orderId": "123", "amount": 250 }` to `/demo/orders`; an amount above 1000 selects the review branch, and a negative amount creates an intentional incident. The [direct processor sample](samples/Demo.Processor) demonstrates typed definitions, configurable delayed and recurring work; `--once` performs a smoke test.
+The full gate:
 
-`./scripts/verify.sh` builds the frontend and libraries, tests both runtimes, proves cross-runtime assembly relocation, packs NuGet artifacts, and runs isolated package-only consumers with SDK 8 and SDK 10. Set `DURABLEJOBS_POSTGRES` to a disposable database to include PostgreSQL; see [provider instructions](docs/providers.md). If .NET 8 is installed separately, set `WORKTHROUGH_DOTNET8` to its absolute executable path. Local packages are written to `artifacts/packages`.
+- builds the console and libraries;
+- runs the test suite on .NET 10 and .NET 8;
+- runs the relocation proof;
+- packs every library package and the `WorkThrough.Templates` package into `artifacts/packages`;
+- creates and builds every template with every storage provider, runs the PostgreSQL projects and the tests template;
+- runs NuGet-only consumers on SDK 8 and 10;
+- runs the Shop sample's smoke test and preflight, and the quick-start and Hangfire migration samples;
+- runs process-kill and load smoke exercises.
 
-## Operational extensions and performance
-
-Typed `JobDefinition<T>` addresses let producers and processors share contracts without sharing implementation DLLs. Assign identities at registration, add compatible historical aliases, and activate the reviewed mapping with fleet fencing. See [identity evolution](docs/identity-evolution.md).
-
-The engine includes scoped middleware/validation/retry policies, rejection/deferral, local observers, durable event cursors, queue pause, worker drain, expiry, causation-aware replay, signals/timeouts, transaction/outbox acceptance, and bounded whole-execution archives. The [operations guide](docs/operations-and-retention.md) explains their boundaries; schema-3 upgrades require stopping old engine writers.
-
-Run `scripts/format.sh` for braces, statement spacing, and the requested blank lines; CI enforces `--check`. `scripts/performance.sh --full` starts independent worker processes on disposable SQLite/PostgreSQL stores and records latency distributions, throughput, CPU/memory, environment, and correctness assertions. See [performance methodology and results](docs/performance.md).
+`DURABLEJOBS_POSTGRES` must point at a disposable PostgreSQL database; SQL Server, Oracle, MySQL and MariaDB are included when `DURABLEJOBS_SQLSERVER`, `DURABLEJOBS_ORACLE`, `DURABLEJOBS_MYSQL` or `DURABLEJOBS_MARIADB` point at disposable databases ([providers](docs/providers.md)). Set `WORKTHROUGH_DOTNET8` when .NET 8 lives elsewhere. `scripts/format.sh` applies the code style that CI enforces.
 
 ## Release boundaries
 
-Execution is at least once. Arbitrary side effects cannot be undone by rewinding engine state. Compensation/checkpoint forks, child flows, SQL Server and further providers, legacy import/upcasting, automatic retention policy, partition/rate limits, and deployment-specific production soak/partition campaigns remain in the [plan](docs/plan.md). External OIDC login requires a configured identity provider and has not been verified against a real account. There is no production certification or Native AOT claim.
+- Delivery is at least once. Rewinding engine state cannot undo external side effects; compensation runs only the undo jobs an application declares.
+- Tenant scoping governs WorkThrough's hosts, not direct database access. Archives are store-wide.
+- Sign-in, role permissions and tenant scoping are verified against a local Keycloak 26.4 (`scripts/check-oidc.py`), not yet against Entra ID or Auth0 ([what is verified](docs/sign-in.md#what-has-been-verified)). `scripts/check-hosted-idp.py` checks MCP bearer authorization against a hosted provider once one is configured, and `scripts/check-managed-db.sh` qualifies a managed database server.
+- Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits; MySQL reached 460/s and MariaDB 560/s. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.
+- There is no production certification. Native AOT runs with PostgreSQL storage, explicit job registration and a source-generated JSON context for job data ([samples/NativeAot](samples/NativeAot/Program.cs)); the dashboard, MCP, EF Core and the SQL Server, Oracle and MySQL providers are not AOT-compatible. Performance figures describe the documented test host.
+- Licensed under [MIT](LICENSE). NuGet packages are not published yet; the first release will be 1.0.0-rc.1.
 
-The [typed processor and lifecycle exploration](docs/processor-lifecycle-and-extensibility.md) distinguishes existing APIs from implemented middleware, retry policies, and durable subscriptions.
-The [identity evolution design](docs/identity-evolution.md) covers defining a processor before assigning its key and coordinated old-ID aliases, including shared concurrency and rollout requirements.
-
-See [architecture](docs/architecture.md), [decisions](docs/adr), [requirements](specs/durable-jobs.spec.md), [community research](docs/research.md), [verification](docs/verification.md), and [contributor guardrails](AGENTS.md).
+Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Security reports: [SECURITY.md](SECURITY.md). Branching and releases: [branching and release](docs/branching-and-release.md).

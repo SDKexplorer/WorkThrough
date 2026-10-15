@@ -1,0 +1,6211 @@
+{
+  "formatVersion": 2,
+  "recordedAt": "2026-10-10T09:28:55.26941+00:00",
+  "gitRevision": "fab54e21edcab07595bf83dc9f97e545f6a34349",
+  "workingTree": "modified",
+  "runtime": ".NET 8.0.31",
+  "os": "Darwin 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:17:26 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T6041",
+  "architecture": "Arm64",
+  "processors": 16,
+  "retainedFixtureJobs": 100000,
+  "fixture": "synthetic terminal jobs with one to three attempts; no delivery claim for seeded rows",
+  "authentication": "locally signed per-client JWTs over loopback HTTP; not external identity-provider qualification",
+  "client": "official C# MCP client over Streamable HTTP",
+  "accessSink": "in-memory count, no external audit I/O",
+  "queueWaitDefinition": "database acceptance to first attempt start for immediate jobs; settlement can change AvailableAt",
+  "workload": {
+    "workerProcesses": 2,
+    "producerConcurrency": 4,
+    "batchJobs": 24,
+    "globalAdmission": 6,
+    "investigatorPauseMs": 250,
+    "concurrentHttpLimit": 32,
+    "requestsPerMinutePerSubject": 10000
+  },
+  "phases": [
+    {
+      "investigators": 0,
+      "requestedSeconds": 30,
+      "measuredSeconds": 30.4496504,
+      "verifiedJobs": 888,
+      "jobsPerSecond": 29.16289639896818,
+      "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
+      "acceptance": {
+        "count": 888,
+        "meanMs": 46.406230518018,
+        "p50Ms": 1,
+        "p95Ms": 452,
+        "p99Ms": 606,
+        "maximumMs": 907.17,
+        "overflowAbove10000Ms": 0,
+        "bucketWidthMs": 1,
+        "buckets": [
+          {
+            "upperBoundMs": 1,
+            "count": 746
+          },
+          {
+            "upperBoundMs": 2,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 3,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 4,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 10,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 151,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 152,
+            "count": 29
+          },
+          {
+            "upperBoundMs": 153,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 157,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 302,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 303,
+            "count": 27
+          },
+          {
+            "upperBoundMs": 304,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 305,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 308,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 452,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 453,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 454,
+            "count": 19
+          },
+          {
+            "upperBoundMs": 455,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 456,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 457,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 458,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 604,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 605,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 606,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 607,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 756,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 758,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 908,
+            "count": 1
+          }
+        ]
+      },
+      "queueWait": {
+        "count": 888,
+        "meanMs": 113.15653153153153,
+        "p50Ms": 97,
+        "p95Ms": 317,
+        "p99Ms": 408,
+        "maximumMs": 463,
+        "overflowAbove10000Ms": 0,
+        "bucketWidthMs": 1,
+        "buckets": [
+          {
+            "upperBoundMs": 0,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 1,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 2,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 3,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 4,
+            "count": 15
+          },
+          {
+            "upperBoundMs": 5,
+            "count": 16
+          },
+          {
+            "upperBoundMs": 6,
+            "count": 21
+          },
+          {
+            "upperBoundMs": 7,
+            "count": 19
+          },
+          {
+            "upperBoundMs": 8,
+            "count": 22
+          },
+          {
+            "upperBoundMs": 9,
+            "count": 20
+          },
+          {
+            "upperBoundMs": 10,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 11,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 12,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 13,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 14,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 15,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 17,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 18,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 19,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 20,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 21,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 22,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 23,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 24,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 25,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 26,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 27,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 28,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 29,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 30,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 31,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 32,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 33,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 34,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 35,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 36,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 37,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 38,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 39,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 40,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 41,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 42,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 43,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 44,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 45,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 46,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 47,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 48,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 49,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 50,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 51,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 52,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 53,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 54,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 55,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 56,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 57,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 58,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 59,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 60,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 61,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 62,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 63,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 64,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 65,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 66,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 67,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 68,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 70,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 71,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 72,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 73,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 74,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 75,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 76,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 77,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 78,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 80,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 81,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 82,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 83,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 84,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 85,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 86,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 88,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 89,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 91,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 92,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 94,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 95,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 96,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 97,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 98,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 99,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 100,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 101,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 102,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 103,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 105,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 106,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 107,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 108,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 110,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 111,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 112,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 114,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 116,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 117,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 118,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 119,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 121,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 122,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 123,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 124,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 125,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 126,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 127,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 128,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 129,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 130,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 131,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 132,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 133,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 134,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 135,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 137,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 138,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 139,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 140,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 141,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 142,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 143,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 144,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 145,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 147,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 148,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 149,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 150,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 151,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 152,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 153,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 154,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 155,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 156,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 157,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 158,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 159,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 160,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 161,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 162,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 163,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 164,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 165,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 166,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 167,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 168,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 169,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 170,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 171,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 172,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 173,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 174,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 175,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 176,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 177,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 178,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 179,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 180,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 181,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 182,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 184,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 185,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 186,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 187,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 188,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 189,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 190,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 191,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 192,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 196,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 197,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 198,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 199,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 200,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 202,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 203,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 207,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 208,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 209,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 210,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 211,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 212,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 213,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 217,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 218,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 219,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 220,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 223,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 224,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 226,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 229,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 230,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 231,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 234,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 237,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 238,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 240,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 241,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 242,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 244,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 245,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 249,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 250,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 253,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 255,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 256,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 262,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 263,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 265,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 266,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 267,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 274,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 275,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 276,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 277,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 278,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 279,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 285,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 288,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 289,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 290,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 291,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 294,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 295,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 299,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 301,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 302,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 304,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 305,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 306,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 308,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 311,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 312,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 313,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 314,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 315,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 317,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 321,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 322,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 323,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 324,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 325,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 326,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 327,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 328,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 333,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 334,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 336,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 337,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 339,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 343,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 344,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 347,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 348,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 351,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 358,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 359,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 363,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 369,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 375,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 381,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 386,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 392,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 397,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 404,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 408,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 415,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 420,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 426,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 438,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 442,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 449,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 450,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 463,
+            "count": 1
+          }
+        ]
+      },
+      "endToEnd": {
+        "count": 888,
+        "meanMs": 205.47635135135135,
+        "p50Ms": 170,
+        "p95Ms": 475,
+        "p99Ms": 636,
+        "maximumMs": 1090,
+        "overflowAbove10000Ms": 0,
+        "bucketWidthMs": 1,
+        "buckets": [
+          {
+            "upperBoundMs": 11,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 14,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 15,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 16,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 17,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 18,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 19,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 20,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 21,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 22,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 24,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 25,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 26,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 27,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 28,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 29,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 30,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 31,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 32,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 33,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 34,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 35,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 36,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 37,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 38,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 39,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 40,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 41,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 42,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 43,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 44,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 46,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 47,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 48,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 49,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 50,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 51,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 52,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 53,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 54,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 55,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 57,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 58,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 59,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 60,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 61,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 62,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 63,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 64,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 65,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 66,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 67,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 69,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 70,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 71,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 72,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 73,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 74,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 75,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 76,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 77,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 78,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 79,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 81,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 82,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 83,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 84,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 85,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 86,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 87,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 88,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 89,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 91,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 92,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 93,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 94,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 95,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 96,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 97,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 98,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 99,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 100,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 102,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 104,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 105,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 106,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 107,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 108,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 110,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 111,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 112,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 113,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 115,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 116,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 117,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 118,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 119,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 120,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 121,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 122,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 123,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 125,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 126,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 127,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 128,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 129,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 130,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 132,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 133,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 134,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 136,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 137,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 138,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 139,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 140,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 141,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 142,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 143,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 144,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 145,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 147,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 148,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 149,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 150,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 151,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 153,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 154,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 155,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 156,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 158,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 159,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 161,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 162,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 163,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 164,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 165,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 166,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 167,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 168,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 169,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 170,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 171,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 172,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 173,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 174,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 175,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 176,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 177,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 178,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 179,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 180,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 181,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 182,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 183,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 184,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 185,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 186,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 187,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 188,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 189,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 190,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 191,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 192,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 193,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 194,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 195,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 196,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 197,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 198,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 200,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 201,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 202,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 203,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 206,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 207,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 208,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 209,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 210,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 211,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 212,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 213,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 214,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 215,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 216,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 218,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 219,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 221,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 222,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 223,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 224,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 225,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 228,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 229,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 230,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 234,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 235,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 236,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 238,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 240,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 241,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 242,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 243,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 244,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 245,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 248,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 249,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 251,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 252,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 253,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 255,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 256,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 260,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 261,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 262,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 263,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 264,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 266,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 272,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 273,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 274,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 276,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 278,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 284,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 287,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 288,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 290,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 294,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 295,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 296,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 298,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 300,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 301,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 302,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 303,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 305,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 306,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 310,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 311,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 312,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 313,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 314,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 315,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 316,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 317,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 318,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 319,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 320,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 321,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 322,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 323,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 324,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 325,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 326,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 327,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 328,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 332,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 333,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 334,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 335,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 336,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 337,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 339,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 340,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 341,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 343,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 345,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 347,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 348,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 351,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 352,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 354,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 358,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 359,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 363,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 368,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 370,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 374,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 380,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 385,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 392,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 395,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 396,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 404,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 408,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 415,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 419,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 426,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 433,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 437,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 438,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 444,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 446,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 447,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 449,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 451,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 456,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 457,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 461,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 462,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 463,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 464,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 465,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 466,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 467,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 468,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 469,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 470,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 471,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 472,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 473,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 474,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 475,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 476,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 481,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 483,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 504,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 539,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 596,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 599,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 604,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 612,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 615,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 616,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 617,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 618,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 620,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 621,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 623,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 624,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 627,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 629,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 636,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 640,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 733,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 751,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 771,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 777,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 787,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 937,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 1090,
+            "count": 1
+          }
+        ]
+      },
+      "queries": {},
+      "failures": 0,
+      "failureTypes": {},
+      "redactionViolations": 0,
+      "maximumResponseBytes": 0,
+      "accessEvents": 0,
+      "workerCpuMs": 6154.3958,
+      "harnessCpuMs": 1252.1333,
+      "resources": [
+        {
+          "elapsedSeconds": 0.787807,
+          "managedBytes": 6988736,
+          "managedAllocatedBytes": 1308744,
+          "generationTwoCollections": 0,
+          "harnessRssBytes": 128155648,
+          "workerRssBytes": 150683648,
+          "workerPeakRssBytes": null
+        },
+        {
+          "elapsedSeconds": 11.2841363,
+          "managedBytes": 8922128,
+          "managedAllocatedBytes": 14702440,
+          "generationTwoCollections": 0,
+          "harnessRssBytes": 138903552,
+          "workerRssBytes": 181846016,
+          "workerPeakRssBytes": null
+        },
+        {
+          "elapsedSeconds": 21.5504606,
+          "managedBytes": 6070704,
+          "managedAllocatedBytes": 28193256,
+          "generationTwoCollections": 0,
+          "harnessRssBytes": 138952704,
+          "workerRssBytes": 182370304,
+          "workerPeakRssBytes": null
+        }
+      ]
+    },
+    {
+      "investigators": 20,
+      "requestedSeconds": 60,
+      "measuredSeconds": 60.3437475,
+      "verifiedJobs": 1944,
+      "jobsPerSecond": 32.215433753099276,
+      "databaseVersion": "3.53.4; journal_mode=wal; synchronous=2",
+      "acceptance": {
+        "count": 1944,
+        "meanMs": 38.874680555555535,
+        "p50Ms": 1,
+        "p95Ms": 303,
+        "p99Ms": 455,
+        "maximumMs": 756.0582,
+        "overflowAbove10000Ms": 0,
+        "bucketWidthMs": 1,
+        "buckets": [
+          {
+            "upperBoundMs": 1,
+            "count": 1655
+          },
+          {
+            "upperBoundMs": 2,
+            "count": 27
+          },
+          {
+            "upperBoundMs": 3,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 5,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 151,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 152,
+            "count": 75
+          },
+          {
+            "upperBoundMs": 153,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 155,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 302,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 303,
+            "count": 55
+          },
+          {
+            "upperBoundMs": 304,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 305,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 306,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 453,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 454,
+            "count": 35
+          },
+          {
+            "upperBoundMs": 455,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 605,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 606,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 608,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 756,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 757,
+            "count": 1
+          }
+        ]
+      },
+      "queueWait": {
+        "count": 1944,
+        "meanMs": 96.15072016460906,
+        "p50Ms": 84,
+        "p95Ms": 271,
+        "p99Ms": 362,
+        "maximumMs": 436,
+        "overflowAbove10000Ms": 0,
+        "bucketWidthMs": 1,
+        "buckets": [
+          {
+            "upperBoundMs": 0,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 1,
+            "count": 16
+          },
+          {
+            "upperBoundMs": 2,
+            "count": 15
+          },
+          {
+            "upperBoundMs": 3,
+            "count": 30
+          },
+          {
+            "upperBoundMs": 4,
+            "count": 51
+          },
+          {
+            "upperBoundMs": 5,
+            "count": 52
+          },
+          {
+            "upperBoundMs": 6,
+            "count": 51
+          },
+          {
+            "upperBoundMs": 7,
+            "count": 45
+          },
+          {
+            "upperBoundMs": 8,
+            "count": 36
+          },
+          {
+            "upperBoundMs": 9,
+            "count": 38
+          },
+          {
+            "upperBoundMs": 10,
+            "count": 49
+          },
+          {
+            "upperBoundMs": 11,
+            "count": 28
+          },
+          {
+            "upperBoundMs": 12,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 13,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 14,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 15,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 16,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 17,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 18,
+            "count": 15
+          },
+          {
+            "upperBoundMs": 19,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 20,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 21,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 22,
+            "count": 16
+          },
+          {
+            "upperBoundMs": 23,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 24,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 25,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 26,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 27,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 28,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 29,
+            "count": 18
+          },
+          {
+            "upperBoundMs": 30,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 31,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 32,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 33,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 34,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 35,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 36,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 37,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 38,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 39,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 40,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 41,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 42,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 43,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 44,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 45,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 46,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 47,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 48,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 49,
+            "count": 15
+          },
+          {
+            "upperBoundMs": 50,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 51,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 52,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 53,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 54,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 55,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 56,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 57,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 58,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 59,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 60,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 61,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 62,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 63,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 64,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 65,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 66,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 67,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 68,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 69,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 70,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 71,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 72,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 73,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 74,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 75,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 76,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 77,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 78,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 79,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 80,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 81,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 82,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 83,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 84,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 85,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 86,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 87,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 88,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 89,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 90,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 91,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 92,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 93,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 94,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 95,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 96,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 97,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 98,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 99,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 100,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 101,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 103,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 104,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 105,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 106,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 107,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 108,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 109,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 110,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 111,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 112,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 113,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 114,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 115,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 116,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 117,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 118,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 119,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 120,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 121,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 122,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 123,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 124,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 125,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 126,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 127,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 128,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 129,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 130,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 131,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 132,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 133,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 134,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 135,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 136,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 137,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 138,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 139,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 140,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 141,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 142,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 143,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 144,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 145,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 146,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 147,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 148,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 149,
+            "count": 17
+          },
+          {
+            "upperBoundMs": 150,
+            "count": 35
+          },
+          {
+            "upperBoundMs": 151,
+            "count": 20
+          },
+          {
+            "upperBoundMs": 152,
+            "count": 19
+          },
+          {
+            "upperBoundMs": 153,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 154,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 155,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 156,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 157,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 158,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 159,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 160,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 161,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 162,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 163,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 164,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 165,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 166,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 167,
+            "count": 15
+          },
+          {
+            "upperBoundMs": 168,
+            "count": 15
+          },
+          {
+            "upperBoundMs": 169,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 170,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 171,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 172,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 173,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 175,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 176,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 177,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 178,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 179,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 180,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 181,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 182,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 183,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 184,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 185,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 186,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 187,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 188,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 189,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 190,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 191,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 193,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 195,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 196,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 197,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 198,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 199,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 200,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 201,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 202,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 203,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 204,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 207,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 209,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 210,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 211,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 212,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 213,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 215,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 216,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 217,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 218,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 219,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 221,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 222,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 223,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 224,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 226,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 228,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 229,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 232,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 233,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 234,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 235,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 236,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 237,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 239,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 240,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 243,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 244,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 245,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 246,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 249,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 250,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 252,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 254,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 255,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 256,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 260,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 261,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 262,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 263,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 265,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 266,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 267,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 269,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 270,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 271,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 272,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 273,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 275,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 276,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 278,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 280,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 281,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 283,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 284,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 285,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 286,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 288,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 290,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 291,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 292,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 293,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 294,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 295,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 297,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 302,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 303,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 305,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 306,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 307,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 308,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 310,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 313,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 314,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 315,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 316,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 317,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 323,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 324,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 325,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 326,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 327,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 329,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 335,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 337,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 338,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 339,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 340,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 346,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 348,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 349,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 350,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 352,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 357,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 358,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 359,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 360,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 362,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 369,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 371,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 372,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 374,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 380,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 383,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 384,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 386,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 387,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 391,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 392,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 398,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 402,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 409,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 421,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 430,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 436,
+            "count": 1
+          }
+        ]
+      },
+      "endToEnd": {
+        "count": 1944,
+        "meanMs": 182.30298353909464,
+        "p50Ms": 159,
+        "p95Ms": 467,
+        "p99Ms": 624,
+        "maximumMs": 927,
+        "overflowAbove10000Ms": 0,
+        "bucketWidthMs": 1,
+        "buckets": [
+          {
+            "upperBoundMs": 11,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 12,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 13,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 14,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 15,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 16,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 17,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 18,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 19,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 20,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 21,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 22,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 23,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 24,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 25,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 26,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 27,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 28,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 29,
+            "count": 18
+          },
+          {
+            "upperBoundMs": 30,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 31,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 32,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 33,
+            "count": 17
+          },
+          {
+            "upperBoundMs": 34,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 35,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 36,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 37,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 38,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 39,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 40,
+            "count": 15
+          },
+          {
+            "upperBoundMs": 41,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 42,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 43,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 44,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 45,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 46,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 47,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 48,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 49,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 50,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 51,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 52,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 53,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 54,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 55,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 56,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 57,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 58,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 59,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 60,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 61,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 62,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 63,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 64,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 65,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 66,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 67,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 68,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 69,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 70,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 71,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 72,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 73,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 74,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 75,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 76,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 77,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 78,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 79,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 80,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 81,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 82,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 83,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 84,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 85,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 86,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 87,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 88,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 89,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 90,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 91,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 92,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 93,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 94,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 95,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 96,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 97,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 98,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 99,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 100,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 102,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 103,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 104,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 105,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 106,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 107,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 108,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 109,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 110,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 111,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 112,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 113,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 114,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 115,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 116,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 117,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 118,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 119,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 120,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 121,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 122,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 123,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 124,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 125,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 126,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 127,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 128,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 129,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 130,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 131,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 132,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 133,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 134,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 136,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 137,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 138,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 139,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 140,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 141,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 142,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 143,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 144,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 145,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 146,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 147,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 148,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 149,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 150,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 151,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 152,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 153,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 154,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 155,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 156,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 157,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 158,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 159,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 160,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 161,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 162,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 163,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 164,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 165,
+            "count": 24
+          },
+          {
+            "upperBoundMs": 166,
+            "count": 19
+          },
+          {
+            "upperBoundMs": 167,
+            "count": 23
+          },
+          {
+            "upperBoundMs": 168,
+            "count": 30
+          },
+          {
+            "upperBoundMs": 169,
+            "count": 21
+          },
+          {
+            "upperBoundMs": 170,
+            "count": 20
+          },
+          {
+            "upperBoundMs": 171,
+            "count": 23
+          },
+          {
+            "upperBoundMs": 172,
+            "count": 33
+          },
+          {
+            "upperBoundMs": 173,
+            "count": 16
+          },
+          {
+            "upperBoundMs": 174,
+            "count": 15
+          },
+          {
+            "upperBoundMs": 175,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 176,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 177,
+            "count": 15
+          },
+          {
+            "upperBoundMs": 178,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 179,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 180,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 181,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 182,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 183,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 184,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 185,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 186,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 187,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 188,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 189,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 190,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 191,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 192,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 193,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 195,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 196,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 197,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 198,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 199,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 200,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 201,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 202,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 204,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 206,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 207,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 208,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 210,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 212,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 213,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 215,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 216,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 218,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 219,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 220,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 221,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 222,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 223,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 226,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 228,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 229,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 230,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 232,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 233,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 234,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 235,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 236,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 237,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 239,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 240,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 243,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 244,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 245,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 246,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 247,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 248,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 250,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 251,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 253,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 255,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 256,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 260,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 261,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 262,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 264,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 265,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 266,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 267,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 270,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 271,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 272,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 273,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 274,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 275,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 276,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 277,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 278,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 280,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 281,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 282,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 283,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 284,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 286,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 287,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 288,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 289,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 291,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 292,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 293,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 294,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 295,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 296,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 297,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 299,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 300,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 302,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 303,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 304,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 305,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 306,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 307,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 309,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 310,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 311,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 312,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 313,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 314,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 315,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 316,
+            "count": 9
+          },
+          {
+            "upperBoundMs": 317,
+            "count": 16
+          },
+          {
+            "upperBoundMs": 318,
+            "count": 18
+          },
+          {
+            "upperBoundMs": 319,
+            "count": 14
+          },
+          {
+            "upperBoundMs": 320,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 321,
+            "count": 13
+          },
+          {
+            "upperBoundMs": 322,
+            "count": 12
+          },
+          {
+            "upperBoundMs": 323,
+            "count": 18
+          },
+          {
+            "upperBoundMs": 324,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 325,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 326,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 327,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 328,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 329,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 331,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 334,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 335,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 336,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 337,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 338,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 339,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 340,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 341,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 346,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 347,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 348,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 349,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 350,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 351,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 357,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 358,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 359,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 360,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 361,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 362,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 368,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 370,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 371,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 372,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 374,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 377,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 379,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 380,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 383,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 385,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 386,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 391,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 393,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 394,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 395,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 398,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 399,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 401,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 402,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 409,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 412,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 420,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 422,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 425,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 426,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 427,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 431,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 432,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 433,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 435,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 437,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 438,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 441,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 443,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 445,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 446,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 447,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 452,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 453,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 454,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 455,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 457,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 461,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 462,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 463,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 464,
+            "count": 10
+          },
+          {
+            "upperBoundMs": 465,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 466,
+            "count": 8
+          },
+          {
+            "upperBoundMs": 467,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 468,
+            "count": 7
+          },
+          {
+            "upperBoundMs": 469,
+            "count": 6
+          },
+          {
+            "upperBoundMs": 470,
+            "count": 11
+          },
+          {
+            "upperBoundMs": 471,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 472,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 473,
+            "count": 4
+          },
+          {
+            "upperBoundMs": 474,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 475,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 476,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 482,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 483,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 500,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 502,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 521,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 529,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 548,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 549,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 564,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 576,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 579,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 583,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 592,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 597,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 600,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 602,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 606,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 614,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 615,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 616,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 618,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 619,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 620,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 621,
+            "count": 2
+          },
+          {
+            "upperBoundMs": 623,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 624,
+            "count": 5
+          },
+          {
+            "upperBoundMs": 632,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 641,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 653,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 700,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 753,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 762,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 766,
+            "count": 3
+          },
+          {
+            "upperBoundMs": 767,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 769,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 772,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 908,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 918,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 919,
+            "count": 1
+          },
+          {
+            "upperBoundMs": 927,
+            "count": 1
+          }
+        ]
+      },
+      "queries": {
+        "workthrough_get_attempts": {
+          "count": 774,
+          "meanMs": 1.1040666666666659,
+          "p50Ms": 1,
+          "p95Ms": 3,
+          "p99Ms": 9,
+          "maximumMs": 21.2545,
+          "overflowAbove10000Ms": 0,
+          "bucketWidthMs": 1,
+          "buckets": [
+            {
+              "upperBoundMs": 1,
+              "count": 594
+            },
+            {
+              "upperBoundMs": 2,
+              "count": 114
+            },
+            {
+              "upperBoundMs": 3,
+              "count": 28
+            },
+            {
+              "upperBoundMs": 4,
+              "count": 19
+            },
+            {
+              "upperBoundMs": 5,
+              "count": 4
+            },
+            {
+              "upperBoundMs": 6,
+              "count": 1
+            },
+            {
+              "upperBoundMs": 7,
+              "count": 4
+            },
+            {
+              "upperBoundMs": 9,
+              "count": 3
+            },
+            {
+              "upperBoundMs": 13,
+              "count": 4
+            },
+            {
+              "upperBoundMs": 19,
+              "count": 2
+            },
+            {
+              "upperBoundMs": 22,
+              "count": 1
+            }
+          ]
+        },
+        "workthrough_get_capacity": {
+          "count": 769,
+          "meanMs": 1.6128972691807537,
+          "p50Ms": 2,
+          "p95Ms": 4,
+          "p99Ms": 5,
+          "maximumMs": 19.043,
+          "overflowAbove10000Ms": 0,
+          "bucketWidthMs": 1,
+          "buckets": [
+            {
+              "upperBoundMs": 1,
+              "count": 202
+            },
+            {
+              "upperBoundMs": 2,
+              "count": 424
+            },
+            {
+              "upperBoundMs": 3,
+              "count": 86
+            },
+            {
+              "upperBoundMs": 4,
+              "count": 35
+            },
+            {
+              "upperBoundMs": 5,
+              "count": 16
+            },
+            {
+              "upperBoundMs": 9,
+              "count": 1
+            },
+            {
+              "upperBoundMs": 10,
+              "count": 2
+            },
+            {
+              "upperBoundMs": 19,
+              "count": 2
+            },
+            {
+              "upperBoundMs": 20,
+              "count": 1
+            }
+          ]
+        },
+        "workthrough_get_execution": {
+          "count": 771,
+          "meanMs": 1.0862459143968886,
+          "p50Ms": 1,
+          "p95Ms": 3,
+          "p99Ms": 9,
+          "maximumMs": 26.3766,
+          "overflowAbove10000Ms": 0,
+          "bucketWidthMs": 1,
+          "buckets": [
+            {
+              "upperBoundMs": 1,
+              "count": 539
+            },
+            {
+              "upperBoundMs": 2,
+              "count": 179
+            },
+            {
+              "upperBoundMs": 3,
+              "count": 31
+            },
+            {
+              "upperBoundMs": 4,
+              "count": 13
+            },
+            {
+              "upperBoundMs": 5,
+              "count": 1
+            },
+            {
+              "upperBoundMs": 9,
+              "count": 3
+            },
+            {
+              "upperBoundMs": 10,
+              "count": 1
+            },
+            {
+              "upperBoundMs": 19,
+              "count": 3
+            },
+            {
+              "upperBoundMs": 27,
+              "count": 1
+            }
+          ]
+        },
+        "workthrough_get_metrics": {
+          "count": 770,
+          "meanMs": 60.184558701298755,
+          "p50Ms": 62,
+          "p95Ms": 73,
+          "p99Ms": 76,
+          "maximumMs": 103.6697,
+          "overflowAbove10000Ms": 0,
+          "bucketWidthMs": 1,
+          "buckets": [
+            {
+              "upperBoundMs": 46,
+              "count": 1
+            },
+            {
+              "upperBoundMs": 47,
+              "count": 25
+            },
+            {
+              "upperBoundMs": 48,
+              "count": 48
+            },
+            {
+              "upperBoundMs": 49,
+              "count": 34
+            },
+            {
+              "upperBoundMs": 50,
+              "count": 20
+            },
+            {
+              "upperBoundMs": 51,
+              "count": 17
+            },
+            {
+              "upperBoundMs": 52,
+              "count": 17
+            },
+            {
+              "upperBoundMs": 53,
+              "count": 34
+            },
+            {
+              "upperBoundMs": 54,
+              "count": 16
+            },
+            {
+              "upperBoundMs": 55,
+              "count": 30
+            },
+            {
+              "upperBoundMs": 56,
+              "count": 38
+            },
+            {
+              "upperBoundMs": 57,
+              "count": 10
+            },
+            {
+              "upperBoundMs": 58,
+              "count": 17
+            },
+            {
+              "upperBoundMs": 59,
+              "count": 22
+            },
+            {
+              "upperBoundMs": 60,
+              "count": 14
+            },
+            {
+              "upperBoundMs": 61,
+              "count": 31
+            },
+            {
+              "upperBoundMs": 62,
+              "count": 39
+            },
+            {
+              "upperBoundMs": 63,
+              "count": 29
+            },
+            {
+              "upperBoundMs": 64,
+              "count": 22
+            },
+            {
+              "upperBoundMs": 65,
+              "count": 46
+            },
+            {
+              "upperBoundMs": 66,
+              "count": 37
+            },
+            {
+              "upperBoundMs": 67,
+              "count": 42
+            },
+            {
+              "upperBoundMs": 68,
+              "count": 36
+            },
+            {
+              "upperBoundMs": 69,
+              "count": 47
+            },
+            {
+              "upperBoundMs": 70,
+              "count": 32
+            },
+            {
+              "upperBoundMs": 71,
+              "count": 13
+            },
+            {
+              "upperBoundMs": 72,
+              "count": 13
+            },
+            {
+              "upperBoundMs": 73,
+              "count": 19
+            },
+            {
+              "upperBoundMs": 74,
+              "count": 6
+            },
+            {
+              "upperBoundMs": 75,
+              "count": 4
+            },
+            {
+              "upperBoundMs": 76,
+              "count": 5
+            },
+            {
+              "upperBoundMs": 80,
+              "count": 2
+            },
+            {
+              "upperBoundMs": 82,
+              "count": 1
+            },
+            {
+              "upperBoundMs": 104,
+              "count": 3
+            }
+          ]
+        },
+        "workthrough_get_retention": {
+          "count": 772,
+          "meanMs": 0.9395294041450785,
+          "p50Ms": 1,
+          "p95Ms": 3,
+          "p99Ms": 9,
+          "maximumMs": 18.9797,
+          "overflowAbove10000Ms": 0,
+          "bucketWidthMs": 1,
+          "buckets": [
+            {
+              "upperBoundMs": 1,
+              "count": 644
+            },
+            {
+              "upperBoundMs": 2,
+              "count": 86
+            },
+            {
+              "upperBoundMs": 3,
+              "count": 26
+            },
+            {
+              "upperBoundMs": 4,
+              "count": 2
+            },
+            {
+              "upperBoundMs": 5,
+              "count": 5
+            },
+            {
+              "upperBoundMs": 9,
+              "count": 3
+            },
+            {
+              "upperBoundMs": 13,
+              "count": 3
+            },
+            {
+              "upperBoundMs": 19,
+              "count": 3
+            }
+          ]
+        },
+        "workthrough_search_executions": {
+          "count": 770,
+          "meanMs": 2.427849610389611,
+          "p50Ms": 2,
+          "p95Ms": 5,
+          "p99Ms": 9,
+          "maximumMs": 32.5967,
+          "overflowAbove10000Ms": 0,
+          "bucketWidthMs": 1,
+          "buckets": [
+            {
+              "upperBoundMs": 1,
+              "count": 8
+            },
+            {
+              "upperBoundMs": 2,
+              "count": 414
+            },
+            {
+              "upperBoundMs": 3,
+              "count": 181
+            },
+            {
+              "upperBoundMs": 4,
+              "count": 90
+            },
+            {
+              "upperBoundMs": 5,
+              "count": 51
+            },
+            {
+              "upperBoundMs": 6,
+              "count": 13
+            },
+            {
+              "upperBoundMs": 7,
+              "count": 3
+            },
+            {
+              "upperBoundMs": 8,
+              "count": 2
+            },
+            {
+              "upperBoundMs": 9,
+              "count": 1
+            },
+            {
+              "upperBoundMs": 14,
+              "count": 3
+            },
+            {
+              "upperBoundMs": 22,
+              "count": 2
+            },
+            {
+              "upperBoundMs": 23,
+              "count": 1
+            },
+            {
+              "upperBoundMs": 33,
+              "count": 1
+            }
+          ]
+        }
+      },
+      "failures": 0,
+      "failureTypes": {},
+      "redactionViolations": 0,
+      "maximumResponseBytes": 30609,
+      "accessEvents": 4626,
+      "workerCpuMs": 9642.2792,
+      "harnessCpuMs": 59041.3292,
+      "resources": [
+        {
+          "elapsedSeconds": 0.6738199,
+          "managedBytes": 30291584,
+          "managedAllocatedBytes": 22865384,
+          "generationTwoCollections": 1,
+          "harnessRssBytes": 178405376,
+          "workerRssBytes": 148406272,
+          "workerPeakRssBytes": null
+        },
+        {
+          "elapsedSeconds": 11.2808067,
+          "managedBytes": 52464704,
+          "managedAllocatedBytes": 189831040,
+          "generationTwoCollections": 1,
+          "harnessRssBytes": 208371712,
+          "workerRssBytes": 182108160,
+          "workerPeakRssBytes": null
+        },
+        {
+          "elapsedSeconds": 21.4288252,
+          "managedBytes": 40199344,
+          "managedAllocatedBytes": 355109728,
+          "generationTwoCollections": 3,
+          "harnessRssBytes": 208175104,
+          "workerRssBytes": 182501376,
+          "workerPeakRssBytes": null
+        },
+        {
+          "elapsedSeconds": 31.7063236,
+          "managedBytes": 46655832,
+          "managedAllocatedBytes": 519266816,
+          "generationTwoCollections": 4,
+          "harnessRssBytes": 209780736,
+          "workerRssBytes": 183222272,
+          "workerPeakRssBytes": null
+        },
+        {
+          "elapsedSeconds": 42.0931928,
+          "managedBytes": 43239224,
+          "managedAllocatedBytes": 679578968,
+          "generationTwoCollections": 5,
+          "harnessRssBytes": 209780736,
+          "workerRssBytes": 183549952,
+          "workerPeakRssBytes": null
+        },
+        {
+          "elapsedSeconds": 52.184752,
+          "managedBytes": 41590656,
+          "managedAllocatedBytes": 839723864,
+          "generationTwoCollections": 6,
+          "harnessRssBytes": 210878464,
+          "workerRssBytes": 183599104,
+          "workerPeakRssBytes": null
+        }
+      ]
+    }
+  ],
+  "throughputDegradationPercent": -10.467195412864072,
+  "failureType": null
+}

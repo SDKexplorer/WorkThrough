@@ -1,7 +1,7 @@
-using System.Data.Common;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Npgsql;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -18,13 +18,13 @@ public sealed class ScheduleTests
         await using var harness = await StoreHarness.CreateAsync(provider);
         var store = harness.Store;
         var schedule = Definition();
-        await store.SaveScheduleDraftAsync(schedule, 0, Command());
-        await Assert.ThrowsAsync<StateConflictException>(() => store.SetScheduleEnabledAsync(schedule.Key, 1, 1, true, Command()));
+        await store.SaveScheduleDraftAsync(schedule, 0, Command()).SucceedsAsync();
+        await store.SetScheduleEnabledAsync(schedule.Key, 1, 1, true, Command()).FailsAsync(ErrorType.Conflict);
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
-        await store.PublishScheduleAsync(schedule.Key, 1, 1, Command());
-        await SetDueAsync(harness.ConnectionString, provider, DateTimeOffset.UtcNow.AddMinutes(-10));
+        await store.PublishScheduleAsync(schedule.Key, 1, 1, Command()).SucceedsAsync();
+        await SetDueAsync(harness, DateTimeOffset.UtcNow.AddMinutes(-10));
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
-        await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command());
+        await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command()).SucceedsAsync();
         var counts = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => harness.NewStore().DispatchDueSchedulesAsync())));
         Assert.Equal(1, counts.Sum());
         var occurrence = Assert.Single(await store.OccurrencesAsync(schedule.Key));
@@ -32,7 +32,39 @@ public sealed class ScheduleTests
         Assert.Equal("raw input", job.Payload.GetString());
         Assert.Equal(schedule.Processor, job.Contract);
         Assert.Equal("MisfireDispatched", occurrence.Outcome);
-        await Assert.ThrowsAsync<StateConflictException>(() => store.SaveScheduleDraftAsync(schedule, 3, Command()));
+        await store.SaveScheduleDraftAsync(schedule, 3, Command()).FailsAsync(ErrorType.Conflict);
+    }
+
+    [Theory, MemberData(nameof(Providers))]
+    public async Task Seeded_schedules_are_created_once_across_hosts_and_never_override_operators(string provider)
+    {
+        await using var harness = await StoreHarness.CreateAsync(provider);
+        var nightly = ScheduleDefinition.Create("tests.nightly", "0 2 * * *", new JobDefinition<Alpha>("tests.alpha"), new Alpha("report"));
+        var hosts = Enumerable.Range(0, 3).Select(_ => SeedingHost(harness, nightly)).ToArray();
+        await Task.WhenAll(hosts.Select(host => host.StartAsync()));
+        var seeded = Assert.Single(await harness.Store.SchedulesAsync());
+        Assert.Equal((DefinitionStatus.Published, true), (seeded.Status, seeded.Enabled));
+        Assert.Equal(3, (await harness.Store.AuditAsync()).Count);
+
+        await harness.Store.SetScheduleEnabledAsync(nightly.Key, 1, seeded.Revision, false, Command()).SucceedsAsync();
+        using var restarted = SeedingHost(harness, nightly);
+        await restarted.StartAsync();
+        Assert.False(Assert.Single(await harness.Store.SchedulesAsync()).Enabled);
+        foreach (var host in hosts.Append(restarted))
+        {
+            await host.StopAsync();
+            host.Dispose();
+        }
+    }
+
+    private static IHost SeedingHost(StoreHarness harness, ScheduleDefinition schedule)
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddSingleton<IJobStore>(harness.NewStore());
+        builder.Services.AddWorkThrough().SeedSchedules(schedule);
+
+        return builder.Build();
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -44,12 +76,12 @@ public sealed class ScheduleTests
         {
             Overlap = ScheduleOverlap.Coalesce
         };
-        await store.SaveScheduleDraftAsync(definition, 0, Command());
-        await store.PublishScheduleAsync(definition.Key, 1, 1, Command());
-        await store.SetScheduleEnabledAsync(definition.Key, 1, 2, true, Command());
-        await SetDueAsync(harness.ConnectionString, provider, DateTimeOffset.UtcNow.AddMinutes(-5));
+        await store.SaveScheduleDraftAsync(definition, 0, Command()).SucceedsAsync();
+        await store.PublishScheduleAsync(definition.Key, 1, 1, Command()).SucceedsAsync();
+        await store.SetScheduleEnabledAsync(definition.Key, 1, 2, true, Command()).SucceedsAsync();
+        await SetDueAsync(harness, DateTimeOffset.UtcNow.AddMinutes(-5));
         Assert.Equal(1, await store.DispatchDueSchedulesAsync());
-        await SetDueAsync(harness.ConnectionString, provider, DateTimeOffset.UtcNow.AddMinutes(-2));
+        await SetDueAsync(harness, DateTimeOffset.UtcNow.AddMinutes(-2));
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
         Assert.Equal(0, await store.DispatchDueSchedulesAsync());
         var job = (await store.ClaimAsync(new("worker", [definition.Processor], ["default"], TimeSpan.FromSeconds(30))))!;
@@ -72,16 +104,6 @@ public sealed class ScheduleTests
         Assert.Equal(new DateTime(2026, 11, 2), second.UtcDateTime.Date);
     }
 
-    private static async Task SetDueAsync(string connectionString, string provider, DateTimeOffset due)
-    {
-        await using DbConnection connection = provider == "sqlite" ? new SqliteConnection(connectionString) : new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        await using var query = connection.CreateCommand();
-        query.CommandText = "UPDATE dj_schedules SET next_due=@due";
-        var parameter = query.CreateParameter();
-        parameter.ParameterName = "due";
-        parameter.Value = due.ToUnixTimeMilliseconds();
-        query.Parameters.Add(parameter);
-        await query.ExecuteNonQueryAsync();
-    }
+    private static Task SetDueAsync(StoreHarness harness, DateTimeOffset due) =>
+        harness.ExecuteAsync("UPDATE dj_schedules SET next_due=@due", ("due", due.ToUnixTimeMilliseconds()));
 }

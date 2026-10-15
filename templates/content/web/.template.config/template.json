@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "WorkThrough contributors",
+  "classifications": ["Web", "API", "Background jobs"],
+  "identity": "WorkThrough.Templates.Web",
+  "name": "WorkThrough web API",
+  "description": "An ASP.NET Core API that enqueues durable jobs, runs them in-process and serves the operations console.",
+  "shortName": "workthrough-web",
+  "sourceName": "WorkThroughWeb",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "project" },
+  "symbols": {
+    "storage": {
+      "type": "parameter",
+      "datatype": "choice",
+      "defaultValue": "postgresql",
+      "description": "The database that stores jobs.",
+      "choices": [
+        { "choice": "postgresql", "description": "PostgreSQL; several machines." },
+        { "choice": "sqlserver", "description": "SQL Server; several machines." },
+        { "choice": "oracle", "description": "Oracle; several machines." },
+        { "choice": "mysql", "description": "MySQL or MariaDB; several machines." }
+      ]
+    },
+    "WorkThroughVersion": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "0.1.0-alpha.1",
+      "replaces": "WORKTHROUGH_VERSION",
+      "description": "The WorkThrough package version."
+    },
+    "UsePostgreSql": { "type": "computed", "value": "(storage == \"postgresql\")" },
+    "UseSqlServer": { "type": "computed", "value": "(storage == \"sqlserver\")" },
+    "UseOracle": { "type": "computed", "value": "(storage == \"oracle\")" },
+    "UseMySql": { "type": "computed", "value": "(storage == \"mysql\")" }
+  },
+  "primaryOutputs": [{ "path": "WorkThroughWeb.csproj" }]
+}

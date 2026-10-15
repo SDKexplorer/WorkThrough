@@ -1,15 +1,39 @@
-# Dashboard identity and operations
+# Console security
 
-The dashboard reuses ASP.NET Core authentication. Configure authentication in the host, call `AddWorkThroughDashboard`, and mount `MapWorkThroughDashboard` at the chosen path. The standalone sample in `samples/Demo.Dashboard` demonstrates OIDC authorization code with PKCE and a secure, HTTP-only session cookie. User accounts, invitations, MFA, password resets, and role membership belong to the identity provider; WorkThrough does not maintain a second user database.
+The console is an ASP.NET Core endpoint group in your host. Sign-in, permissions and tenants are covered in [sign-in and permissions](sign-in.md); this page covers what the console itself enforces.
 
-Set `Identity__Authority`, `Identity__ClientId`, and `Identity__ClientSecret` through the host environment/secret store, register `/signin-oidc` with the provider, and run the host on HTTPS. Persist and protect ASP.NET Data Protection keys across dashboard instances. The sample role mapping is in `appsettings.json`; permissions are added only from validated token roles. No tokens are saved in browser local storage. Sessions expire after 30 minutes; immediate role revocation requires host-specific session validation. No real identity-provider login is claimed verified without configured provider credentials.
+## Mounting it
 
-Each dashboard operation has a `WorkThrough.<permission>` authorization policy. The default policies require the matching `workthrough.permission` claim. Hosts can replace them after `AddWorkThroughDashboard`; policies receive a `DashboardResource` containing the request path and route values. The initial deployment boundary is one configured store/environment per dashboard. It is not a multi-tenant row-filtering system. Never use correlation IDs as access control.
+```csharp
+builder.Services.AddWorkThroughDashboard();
+// ... the host's own authentication, as in samples/Shop.Dashboard
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapWorkThroughDashboard("/operations");
+```
 
-Metadata access is `executions.read`. Payloads, outputs, progress descriptions, exception messages, and stack traces additionally require `payloads.read`. Administrators do not automatically receive this permission. Separate policies cover retries, cancellations, flow recovery, definition edits/publication/retirement, schedules, limits, and audit reads. The server checks permissions on direct API calls; hiding a button is not authorization.
+`MapWorkThroughDashboard` refuses to start without host authentication unless `AllowAnonymous` is set explicitly. Anonymous mode attributes commands to a development actor; use it only for an isolated local sample. One console serves one store and environment.
 
-Administrative POSTs require anti-forgery tokens, a unique command ID, a reason, and the applicable expected attempt/revision. Actor identity comes from trusted server claims (`iss` plus `sub`/NameIdentifier), never the request body. The mutation, command receipt, redacted change summary, and successful audit commit together. Repeating an identical command returns its original result; reusing its ID for different work is rejected. Configure host access/security logging for denied attempts; those are not presented as committed changes. The append-only product API does not prevent a database administrator altering data.
+## Authorization
 
-Exception text can contain secrets. Configure `JobWorkerOptions.DescribeFailure` to redact it before storage, apply database access/retention controls, and limit diagnostics permission. Default logs identify failed jobs without dumping their input.
+Each operation has a `WorkThrough.<permission>` policy that, by default, requires the matching `workthrough.permission` claim. Replace a policy after `AddWorkThroughDashboard` to add host rules; it receives a `DashboardResource` with the request path and route values. Correlation IDs are never access control.
 
-The OIDC sample follows [ASP.NET Core's OIDC web authentication guidance](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/configure-oidc-web-authentication). Development without an authority explicitly enables anonymous access; use that mode only for the isolated local sample.
+## Commands and audit
+
+Every change (retry, cancel, recover, publish, limits, schedules, calendars, retention, and so on):
+
+- needs an anti-forgery token from `/api/csrf`, a unique command ID, a reason and, where it applies, the expected attempt or revision;
+- takes its actor from the server's claims (`iss` and `sub`), never from the request body;
+- commits the change, its command receipt, a redacted summary and its audit entry in one transaction.
+
+Repeating a command returns its first result; reusing its ID for different work is refused. Denied attempts are not audit entries; log them in the host. The audit trail is append-only through WorkThrough, not against a database administrator.
+
+## Sensitive data
+
+- `executions.read` shows metadata only. Inputs, outputs, progress text, error messages and stack traces need `payloads.read`, which administrators do not get automatically.
+- Error text can contain secrets. `JobWorkerOptions.DescribeFailure` redacts it before it is stored. Default logs name failed jobs without their input.
+- With payload protection ([ADR-027](adr/0027-payload-protection.md)), a console host without the key ring shows encrypted envelopes even with `payloads.read`. Leaving the keys out of the console host keeps business data from operators.
+
+## Other views
+
+The workers view shows the store's engine protocol, the workers holding back the next level ([ADR-021](adr/0021-rolling-upgrades.md)), each worker's level, and processor addresses served through an upcast.

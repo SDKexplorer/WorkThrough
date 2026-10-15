@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><IsPackable>false</IsPackable></PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />
+    <Compile Include="../PackageConsumer/OracleTestDatabase.cs" Link="OracleTestDatabase.cs" />
+    <ProjectReference Include="../../src/WorkThrough.Storage.MySql/WorkThrough.Storage.MySql.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
     <ProjectReference Include="../../src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
   </ItemGroup>
 </Project>

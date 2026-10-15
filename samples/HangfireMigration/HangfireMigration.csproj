@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsPackable>false</IsPackable><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/WorkThrough.Hosting/WorkThrough.Hosting.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
+    <ProjectReference Include="../../src/WorkThrough.Migration.Hangfire/WorkThrough.Migration.Hangfire.csproj" />
+    <!-- Stands in for your Hangfire storage (SQL Server, PostgreSQL, Redis…); the importer reads any of them. -->
+    <PackageReference Include="Hangfire.InMemory" Version="1.0.0" />
+  </ItemGroup>
+</Project>

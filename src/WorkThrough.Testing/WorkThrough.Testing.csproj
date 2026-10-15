@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Test host for WorkThrough jobs and flows: a real PostgreSQL store in a throwaway schema, a controllable clock, waits and flow assertions.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../WorkThrough.Hosting/WorkThrough.Hosting.csproj" />
+    <ProjectReference Include="../WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
+  </ItemGroup>
+</Project>

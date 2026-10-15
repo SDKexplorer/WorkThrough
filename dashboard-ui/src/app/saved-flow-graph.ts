@@ -1,5 +1,14 @@
 import { Component, computed, input, output } from '@angular/core';
 
+interface SavedStep {
+    id: string;
+    displayName?: string | null;
+    after: string[];
+    contract: { key: string };
+    conditional: boolean;
+    onFailureOf?: string | null;
+}
+
 @Component({
     selector: 'app-saved-flow-graph',
     template: ` <div
@@ -31,7 +40,12 @@ import { Component, computed, input, output } from '@angular/core';
                     </marker>
                 </defs>
                 @for (edge of layout().edges; track edge.id) {
-                    <path class="saved-edge" [attr.d]="edge.path" marker-end="url(#flow-arrow)" />
+                    <path
+                        class="saved-edge"
+                        [class.failure-edge]="edge.failure"
+                        [attr.d]="edge.path"
+                        marker-end="url(#flow-arrow)"
+                    />
                 }
             </svg>
             @for (node of layout().nodes; track node.id) {
@@ -46,13 +60,15 @@ import { Component, computed, input, output } from '@angular/core';
                     <span class="muted">{{
                         node.contract.key === 'workthrough.signal'
                             ? 'Wait for signal'
-                            : node.conditional
-                              ? 'Conditional step'
-                              : node.after.length
-                                ? 'After ' + node.after.join(', ')
-                                : 'Start'
+                            : node.onFailureOf
+                              ? 'If ' + node.onFailureOf + ' fails'
+                              : node.conditional
+                                ? 'Conditional step'
+                                : node.after.length
+                                  ? 'After ' + node.after.join(', ')
+                                  : 'Start'
                     }}</span>
-                    <strong>{{ node.id }}</strong
+                    <strong>{{ node.displayName ?? node.id }}</strong
                     ><code>{{ node.contract.key }}</code>
                     <span class="badge" [attr.data-status]="node.status">{{ node.status }}</span>
                 </button>
@@ -61,10 +77,7 @@ import { Component, computed, input, output } from '@angular/core';
     </div>`,
 })
 export class SavedFlowGraph {
-    readonly steps =
-        input.required<
-            { id: string; after: string[]; contract: { key: string }; conditional: boolean }[]
-        >();
+    readonly steps = input.required<SavedStep[]>();
     readonly jobs = input.required<{ stepId: string | null; status: string }[]>();
     readonly selected = input<string | null>(null);
     readonly choose = output<string>();
@@ -104,6 +117,7 @@ export class SavedFlowGraph {
                 return [
                     {
                         id: id + ':' + node.id,
+                        failure: node.onFailureOf === id,
                         path: `M ${x} ${y} C ${x + 30} ${y}, ${node.x - 30} ${targetY}, ${node.x} ${targetY}`,
                     },
                 ];

@@ -1,0 +1,9 @@
+# The PostgreSQL database the samples use by default. Start it with: docker compose -f samples/compose.yaml up -d
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: workthrough
+      POSTGRES_PASSWORD: workthrough
+    ports:
+      - "127.0.0.1:5432:5432"

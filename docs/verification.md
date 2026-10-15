@@ -1,18 +1,35 @@
 # Verification record
 
+This is a chronological evidence log. Earlier package counts and pending states describe their recorded revision. The summary below states the current position; each row points to its dated entry.
+
+## Current status — 2026-10-14
+
+| Area | Latest evidence | Still open |
+|---|---|---|
+| PostgreSQL | Full suite on every change; two-hour soak (233k jobs) and restore drill passed. SQLite was removed (ADR-033) | — |
+| SQL Server, Oracle | Full suite; Oracle two-hour soak passed (2026-10-13); SQL Server two-hour soak passed after the index fix (2026-10-14) | — |
+| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers; 30-minute soaks passed (2026-10-13) | — |
+| Multi-host | Container network-partition exercise passed (2026-10-13) | Separate physical machines |
+| Identity | OIDC against a local Keycloak 26.4 (2026-10-12); MCP bearer check script validated against Keycloak over HTTPS (2026-10-14) | Hosted providers (Entra ID, Auth0): `scripts/check-hosted-idp.py` |
+| Managed databases | Encryption gate and runner script (2026-10-14) | Azure SQL MI, RDS and others: `scripts/check-managed-db.sh` |
+| Native AOT | PostgreSQL sample runs as a native binary (2026-10-14) | Other providers, dashboard, MCP |
+| Packages | Package-only consumers on SDK 8 and 10; templates build with every provider | Publication, license |
+| Runtimes | .NET 8 and .NET 10 | .NET 9 is not claimed |
+
+
 Date: 2026-10-08. Local macOS ARM64. Repository SDK 10.0.400; runtime packages target net8.0 and the Roslyn generator targets netstandard2.0. The compatibility gate also uses SDK 8.0.425 / runtime 8.0.31; the replacement worker runs on runtime 10.0.11.
 
 ## Completed
 
-`WORKTHROUGH_DOTNET8=<SDK 8 executable> DURABLEJOBS_POSTGRES=<disposable connection> ./scripts/verify.sh` completed successfully. The retained local log is `artifacts/verification-latest.log` (ignored by Git).
+`WORKTHROUGH_DOTNET8=<SDK 8 executable> DURABLEJOBS_POSTGRES=<disposable connection> ./scripts/verify.sh` completed successfully after the bounded execution-query change. The retained local log is `artifacts/operations-query-verification.log` (ignored by Git).
 
 | Check | Result |
 |---|---|
 | Angular formatting and production build | Passed; static console embedded for package consumers |
 | Release solution build | Passed, zero warnings and errors |
 | Repository readability gate | Passed; syntax-aware braces/spacing plus whitespace formatting; a second pass made no edits |
-| Automated suite on .NET 8 | 121 cases passed |
-| Automated suite on .NET 10 | 121 cases passed |
+| Automated suite on .NET 8 | 141 cases passed |
+| Automated suite on .NET 10 | 141 cases passed |
 | SQLite | Real file databases, independent connections and restarts |
 | PostgreSQL | Real PostgreSQL 17 Alpine container; isolated schema per case |
 | Published assembly replacement | Passed from producer runtime 8 to worker runtime 10 after removal of the original processor DLL |
@@ -21,6 +38,7 @@ Date: 2026-10-08. Local macOS ARM64. Repository SDK 10.0.400; runtime packages t
 | Local NuGet packaging | Seven WorkThrough 0.1.0-alpha.1 packages produced |
 | Package-only consumers | SDK 8 and SDK 10 passed with separate fresh caches, local package source mapping, and no project references |
 | Package registration paths | Generated typed/raw processors, manually assigned typed definitions, and idempotent flow starts executed from packages |
+| Bounded execution query consumers | `IExecutionQueries` resolved through provider DI and found completed typed work from SDK 8 and 10 package-only consumers |
 | Direct processor sample | Passed immediate processor execution and persisted recurring schedule setup |
 | Lifecycle sample | Business outbox delivered into a separate job database; typed durable approval resumed the saved flow |
 | Deployment preflight CLI | Rejected unsupported saved invoice work with exit code 2; no hosted worker started |
@@ -50,7 +68,7 @@ The process harness terminates a worker after an independently committed effect 
 
 ## Live sample
 
-The embedded Angular console was exercised through Demo.Host at `/operations/jobs` against a separate SQLite file. Approved and review branches completed. An intentional negative-amount failure created an Incident with waiting dependents; its inspector displayed the saved diagram, attempt evidence, and protected exception stack. An audited recovery retried the same logical step and retained prior attempts. A separate flow draft was saved without executing it. A recurring schedule was saved as a draft and published through the live console while its trigger remained paused; both actions appeared with actor/reason in the audit trail. Narrow-screen checks at 375 CSS pixels found no document overflow, and keyboard skip-to-content remained visible on focus. These are manual local checks, not a browser accessibility certification.
+The embedded Angular console was exercised through Demo.Host (the former sample host, replaced by `samples/Shop.Api` on 2026-10-11) at `/operations/jobs` against a separate SQLite file. Approved and review branches completed. An intentional negative-amount failure created an Incident with waiting dependents; its inspector displayed the saved diagram, attempt evidence, and protected exception stack. An audited recovery retried the same logical step and retained prior attempts. A separate flow draft was saved without executing it. A recurring schedule was saved as a draft and published through the live console while its trigger remained paused; both actions appeared with actor/reason in the audit trail. Narrow-screen checks at 375 CSS pixels found no document overflow, and keyboard skip-to-content remained visible on focus. These are manual local checks, not a browser accessibility certification.
 
 On 8 October the rebuilt host rendered the new processor-coverage inventory against the existing SQLite incident data: all three required processor/queue pairs matched the recent worker heartbeat; waiting/incident steps had no ready count. Historical heartbeats were excluded from matching after 60 seconds. The new view had no document overflow at 375 CSS pixels and no observed browser warnings/errors. A screenshot is retained locally as `artifacts/workthrough-coverage.png`.
 
@@ -66,14 +84,349 @@ On the same date, the combined compatible updates from PRs 1, 2, 3, 6, 7, 8, and
 
 Angular build/compiler peer metadata was checked directly: both require TypeScript `>=6.0 <6.1`. The Roslyn 5.9 PR's SDK 8 consumer failed CS9057. These upgrades are excluded rather than weakening peer validation or compiler compatibility. See [dependency update policy](dependency-updates.md). YAML parsing passed for the workflow and Dependabot configuration; hosted validation remains specific to the maintenance PR's current head.
 
+## Bounded execution-query verification
+
+The expanded 141-case suite passed on each runtime against real SQLite files and PostgreSQL 17.11. New provider cases verify failed-attempt windows including recovered jobs, one result per logical execution, exact filters, half-open/fractional creation windows, stable pagination ties across connections, preserved default windows, mismatched/malformed cursors, cancellation, clipped long metadata and explicit live-only archive coverage. A fixture with invalid payload/output JSON still supports metadata reads, proving that the new path does not deserialize those fields. Protected HTTP routes were exercised on both providers; legacy dashboard composition without the new port returns an explicit unsupported response.
+
+The first expanded run exhausted PostgreSQL's connection limit because separate test schemas retained separate idle pools after disposal. The harness now clears only the completed test's pool before dropping its schema, using [Npgsql's scoped pool cleanup](https://www.npgsql.org/doc/api/Npgsql.NpgsqlConnection.html#Npgsql_NpgsqlConnection_ClearPool_Npgsql_NpgsqlConnection_). The subsequent full gate passed without reducing test parallelism or increasing server limits. Production connection management is unchanged.
+
+That query-foundation gate also passed the release/readability build, published relocation/alias proofs, both package consumers, examples, process-kill recovery and all six provider/workload smoke runs. The subsequent MCP verification is recorded below; the proposed 100,000-execution investigative-query contention campaign remains unrun.
+
+## Read-only MCP verification
+
+The full gate in `artifacts/mcp-verification.log` passed **149 tests on each of .NET 8 and .NET 10**, with real SQLite files and PostgreSQL 17.11. It built/formatted the new `WorkThrough.Mcp` package and standalone sample without warnings or errors. All eight local packages packed; fresh SDK 8/10 consumers exercised the packaged MCP server and official C# client through real loopback Kestrel with signed JWTs. Published relocation/alias proofs, examples, process-kill recovery and all six workload smoke runs passed.
+
+Eight new cases use the official C# SDK 2.2.0 Streamable HTTP client (current 2026-07-28 negotiation) and an independent HTTP JSON-RPC client using 2025-11-25 requests. They verify typed discovery, metadata paging/failed-attempt searches, attempt reads, signed-token validation (wrong issuer/audience and expiration), dashboard-scheme isolation, direct permission/resource enforcement, rejected mutation calls, request/result limits, per-principal rates, concurrency admission, deadline/disconnect cancellation and access-sink failure. The real-provider MCP connections are read-only: SQLite `Mode=ReadOnly` and PostgreSQL `default_transaction_read_only=on`. Job state and engine mutation audit remain unchanged by MCP reads. These transport tests do not claim to verify deployment database-role grants.
+
+That gate established the initial four-tool metadata subset. The following increment adds protected diagnostics and saved-flow inspection. Real external identity-provider discovery/login, setup with third-party AI applications, remaining tools and the planned 100,000-execution/two-hour contention campaign remain unverified or unimplemented. The existing execution smoke is not that performance campaign. See [MCP hosting and limits](mcp.md).
+
+## MCP diagnostic and flow inspection verification
+
+The final gate in `artifacts/mcp-inspection-verification.log` passed **165 tests on each of .NET 8 and .NET 10**, against real SQLite files and PostgreSQL 17.11. Angular formatting/build, the zero-warning Release build, readability checks, all eight package builds, fresh SDK 8/10 package consumers, published relocation/alias proofs, examples, process-kill recovery and all six provider/workload smoke runs passed. The package consumers now inspect a two-node saved flow and a selected attempt through the packaged MCP server and official client over loopback HTTP.
+
+Sixteen added cases cover bounded diagnostic fields (including the legacy exception-type fallback), missing executions/attempts, pinned flow revisions after publication of a newer definition, independent node/dependency/event pagination, oversized-definition coverage, archived runs with retained events, trimmed journal ranges, invalid page positions and cancellation. Invalid input/output JSON fixtures prove that these inspection paths do not deserialize job payloads. Both real providers are exercised through the existing read-only MCP connections.
+
+Authorization cases verify that diagnostics require both execution and payload permissions, direct calls cannot bypass discovery filtering, run-specific policies receive the actual flow ID, and legacy hosts without the inspection port return explicit unavailable capabilities. Access evidence records sensitive reads and resource IDs without stored diagnostic text. A failing host redactor suppresses results; a trace-level SDK log capture also verifies that its exception containing a secret is not logged. Flow responses exclude templates and condition literals. These checks establish the six-tool subset, not the remaining MCP tools or the planned investigative-load campaign.
+
+## MCP history and manual retention preview verification
+
+The full gate in `artifacts/mcp-history-verification.log` passed **180 tests on each of .NET 8 and .NET 10**, using real SQLite and PostgreSQL 17.11. Angular formatting/build, zero-warning Release build, readability checks, all eight packages, fresh package-only consumers, published relocation/alias proofs, examples, process-kill recovery and all six provider/workload smoke runs passed. Packaged MCP consumers now also call audit/archive search and manual retention preview through the official client over loopback Kestrel.
+
+Fifteen added cases verify audit attribution without reasons/display names/change JSON, bounded or unavailable actors, timestamp ties and fractional half-open windows, store/filter/query-kind cursor rejection, purged-body summaries, unrestricted-age archive-ID lookup, and manual-policy preview parity without payload reads or mutation. Invalid archive-body/change JSON fixtures still support metadata queries. Preview retains failed work without a failure cutoff, excludes incident flow steps and reports clipping and additional candidates explicitly. The legacy schema fixture still upgrades after adding the terminal-selection index after its column migration.
+
+Real-provider MCP cases use read-only connections and exercise independent audit/retention permissions, discovery filtering, direct calls, actual archive-ID resource authorization, access evidence and rejected archive/export/purge mutations. Missing history ports report explicit unavailable capabilities. The new queries have row/window/time budgets; the proposed 100,000-execution contention and two-hour soak gates have not been run. Manual preview is not evidence of automatic retention, holds, export verification or purge implementation.
+
 ## Limits of this evidence
 
 - Local packing is not package publication. Hosted verification applies only to the exact commit shown by each workflow run.
 - This is an alpha correctness baseline, not an availability, performance, security, accessibility, or disaster-recovery certification.
 - The oldest consumer SDK actually executed is 8.0.425. SDK 8.0.100, .NET 9, Native AOT, and full trimming have not been verified.
-- SQL Server, MySQL, MongoDB, and further adapters are not implemented or tested.
-- The standalone OIDC sample compiles; login against a real external identity provider still requires verification with deployment-specific credentials.
+- SQL Server, Oracle, MySQL, MongoDB, and further adapters are not implemented or tested.
+- The standalone OIDC sample signs in against a local Keycloak 26.4 (`scripts/check-oidc.py`, added 2026-10-12). Hosted providers remain unverified.
 - Shared limits bound valid leases, not effects from a process resuming after losing its lease.
 - The targeted process-kill, lost-acknowledgment, disconnection, and SQLite restore proofs do not replace multi-machine partitions, PostgreSQL PITR, exhaustive fault campaigns, or production soak/load tests.
 
 See `plan.md` for remaining work rather than treating a green suite as a complete replacement for Hangfire or Wolverine.
+
+
+## Runtime evidence and console verification — 2026-10-08
+
+The runtime-query increment passes `scripts/verify.sh`: **190 tests on each of .NET 8 and .NET 10**, SQLite and PostgreSQL 17, zero build warnings/errors, eight local packages, fresh NuGet-only consumers on both runtimes, published relocation proof and both-provider independent-process/performance smoke exercises. New coverage includes exact worker/queue matching, aliases/shared limits, incomplete and stale heartbeats, draining/acquisition failures, progress/deadline observations, half-open metric windows, recovered failures, archival coverage, authorization and absent optional ports. Logs: `artifacts/runtime-verification.log`.
+
+The Angular build and formatting checks pass. An isolated local host was inspected through the in-app browser: empty attempt windows show unavailable durations, worker acquisition observations are visible, and the page has no document overflow at a 375px viewport. Existing demo data was untouched. This is targeted UI verification, not a comprehensive accessibility audit. Large investigative contention, external IdP/client integration and the two-hour soak remain unexecuted gates.
+
+
+## Opt-in retention verification — 2026-10-10
+
+`scripts/verify.sh` passes with **214 tests on each of .NET 8 and .NET 10**, SQLite and real PostgreSQL 17, zero build warnings/errors, eight local NuGet packages, both fresh package consumers, the published processor-relocation proof and both providers' process-kill/performance smoke exercises. The initial fresh consumer exposed a missing JSON namespace import; it was fixed before the final successful full gate. Final log: `artifacts/retention-verification.log`.
+
+New tests cover disabled defaults, audited policy/hold revisions, whole-flow holds and incident preservation, competing maintenance connections, takeover with an unchanged batch ID, stale tokens, lost-response reconciliation, policy supersession, forced lease loss after archive writes with full transactional rollback, schema-3 upgrade, oversized-candidate progress, subscriber/hold-aware event trimming, verified-copy destination/hash checks, body-purge receipt preservation, file-copy reuse/corruption and hosted-service shutdown. MCP status is tested through read-only connections with separate retention permissions; dashboard writes verify CSRF, trusted attribution and optimistic concurrency. NuGet-only consumers inspect the thirteenth MCP tool.
+
+The Angular production build and formatting gate pass. An isolated local sample visibly reports disabled/unconfigured retention and current hold/incident/journal state; the Archives view has no document overflow at 375px. Existing demo data and retention settings were not modified. This was a focused dark-theme UI check, not a complete accessibility audit.
+
+These checks are not the proposed large maintenance-versus-worker performance gate. The 100k retained-execution investigative campaign, two-hour soak, real external IdP/desktop AI-client integration, destination durability/restore checks, PostgreSQL PITR and multi-machine partitions remain pending. SQL Server and Oracle remain unimplemented.
+
+
+## SQL Server implementation campaign — 2026-10-10
+
+The SQL Server provider uses Microsoft.Data.SqlClient 7.1.0 and a pinned SQL Server 2022 CU27 Developer image (16.0.4295.3, Ubuntu 22.04 x64). Local Docker is ARM64 and runs that image through emulation; these local results are debugging evidence, not a supported platform claim. Native Linux x64 CI is being added before qualification.
+
+The shared SQLite/PostgreSQL/SQL Server suite passed 299 tests on .NET 10, then 308 tests after adding identity-boundary and initialization cases. The first full gate passed all 308 on .NET 10 but had 26 .NET 8 failures involving immediate claims and default query windows on the network databases. An isolated .NET 8 rerun passed all 308. A 100-job per-runtime PostgreSQL timing probe reproduced no failures; measured idle host/database differences were approximately 1–2 ms after warmup. The initial failure remains recorded rather than being called fixed. Native CI and a complete rerun are required. No scheduled eligibility boundary was weakened to hide a failure.
+
+Read-only MCP cases provision real SELECT-only SQL Server logins, with no storage initialization. Additional package/runtime, published relocation, process-kill and two-worker performance gates are wired into `scripts/verify.sh`; their results are pending below.
+
+
+The complete local rerun passed: 308 tests on each of .NET 8.0.31 and .NET 10.0.11, zero build warnings/errors, all nine local NuGet packages, isolated SDK 8/10 consumers (including SQL Server generated handlers and hosted workers), published relocation/alias proofs on all three providers, and process-kill recovery plus the two-worker performance smoke. SQL Server's emulated smoke measured 37.5/25.6/29.1 jobs/s for mixed/flows/outbox, with 60/120/60 successful jobs checked. These small local workloads are correctness/regression evidence, not production performance or soak qualification. Logs: `artifacts/sqlserver-verification.log` and `artifacts/performance/sqlserver-smoke.json`. A final constructor guard rejects implicit/system databases; its targeted checks and native CI run follow this gate.
+
+
+Native x64 qualification passed at commit `b383bac3d4ef51393b8b7c466e536f0604f79d9e`: [CI run 37995454966](https://github.com/SDKexplorer/WorkThrough/actions/runs/37995454966), verify 8m12s and console 23s. All 313 tests passed on each runtime, including the final configuration guard; package consumers, published relocation and killed-worker recovery passed. The native SQL Server smoke measured 18.6/16.0/16.3 jobs/s for mixed/flows/outbox with 60/120/60 jobs verified. The earlier local timing failure did not recur in the full local rerun or native CI; its cause is not established. Raw CI log and performance artifacts were retained locally under `artifacts/sqlserver-native-ci*`. SQL Server 2022 CU27 Developer/Linux x64 is now the verified initial server matrix. Azure SQL, Windows SQL Server, other releases, sustained load and backup/PITR remain outside that evidence.
+
+## Oracle and immediate-acceptance qualification, 2026-10-10
+
+The local full gate `artifacts/oracle-verification-final.log` passed on macOS ARM64 with real SQLite, PostgreSQL 17.11 and Oracle Free 26ai 23.26.3.0 (official lite ARM64 image, ODP.NET Core 23.26.301). Both .NET 8.0.31 and .NET 10.0.11 passed **323 tests** each. Ten packages packed; fresh SDK 8/10 consumers executed Oracle generated registration, hosted work and metadata/retention/metrics queries. Published typed, future-due raw-string, flow-step and alias relocation proofs passed on all three providers with the original handler DLL removed. Independent-process crash recovery retained abandoned/successful attempts and one idempotent external effect. Local Oracle smoke verified 60 mixed jobs, 120 flow jobs and 60 outbox jobs at 59.1/44.1/46.0 jobs/s, with end-to-end p95 600/1768/59 ms. Raw reports remain in `artifacts/performance/`; these short workloads are correctness evidence, not production capacity promises.
+
+Oracle-specific checks cover concurrent initialization, interrupted DDL checkpoint resumption, refusal of incomplete schemas and missing admission locks, actual SELECT-only and DML-only logins, denied migration access for runtime credentials, and server-side session disconnection before commit. The earlier failures exposed deferred segment allocation, Oracle character-set binding, archive SELECT syntax and fixture session cleanup; these were corrected. An error trace located an intermittent ORA-08177 in Oracle's recursive `cdef$` dictionary query while other test schemas were being created/dropped. Independent fixtures now run sequentially; intentional claim/scheduler/initializer races inside each test and multi-process workloads remain concurrent. DDL must be coordinated in deployments, and a serialization error fails a read rather than returning partial results.
+
+A separate .NET 8/PostgreSQL clock probe reproduced the previously unexplained immediate-claim failure: the producer clock was a few milliseconds ahead of the database. [ADR-016](adr/0016-immediate-acceptance-clock.md) fixes immediate acceptance using storage time and adds an injected one-hour-skew regression on every provider. Explicit NotBefore precision tests still pass. This supersedes the earlier unresolved local timing observation; it does not weaken scheduled eligibility boundaries.
+
+Native x64 [CI run 38039024967](https://github.com/SDKexplorer/WorkThrough/actions/runs/38039024967) passed at commit `9b68dcff8a537c9c30fa01178a9595e9243515cb`. The SQLite/PostgreSQL/SQL Server job passed 320 tests on each runtime, with three Oracle-only tests explicitly skipped; the separate SQLite/Oracle job passed all 232 applicable tests on each runtime. Both jobs passed package consumers, published relocation, killed-worker recovery and two-worker smoke workloads. The Angular check also passed. Native Oracle verified 60/120/60 mixed/flow/outbox jobs at 41.8/33.7/30.6 jobs/s (end-to-end p95 865/2272/105 ms). SQL Server requalified the shared portability/clock changes at 17.9/16.5/15.8 jobs/s. Raw native logs and Oracle reports are retained under `artifacts/oracle-native-ci*`.
+
+SQL Server 2022 CU27 and Oracle Free 26ai 23.26.3.0 on Linux x64 are the verified initial server matrix. Large investigative contention, two-hour soak, multi-machine network partitions and provider backup/PITR campaigns remain release-readiness work.
+
+## Retained-history investigative contention, 2026-10-10
+
+The corrected version-2 campaign completed six comparisons across SQLite, PostgreSQL (three repetitions), SQL Server and Oracle using .NET 8.0.31, two independent workers and 20 official MCP clients. All 33,720 live jobs completed once with matching outputs; 27,978 measured requests had zero failures or fixture-secret leaks. Full-window metrics explicitly assert coverage of all 200,000 synthetic retained attempts. Queue measurements use stored creation time for this immediate, first-attempt workload; settled AvailableAt is mutable and must not be used. Six timing/overflow regressions passed on both .NET 8 and 10, and the build/readability gates passed with zero warnings/errors.
+
+[Raw reports and methodology](performance.md#initial-retained-history-campaign--2026-10-10) include the 30-second baseline, 60-second investigative phase, provider/runtime versions, workload, distributions and resource observations. Query latency targets were met, but the proposed maximum 10% throughput degradation was not consistent: PostgreSQL varied from 3.3% to 11.7%, Oracle measured 10.8% and emulated SQL Server 16.7%. These results leave the performance-budget gate open. Local SQL Server uses x64 emulation and is not a native capacity claim. Superseded version-1 queue measurements are explicitly excluded from evidence; unavailable memory counters are now null rather than zero.
+
+`scripts/investigation.sh` supplies smoke, repeated full and two-hour soak profiles. `scripts/verify.sh` runs the bounded smoke after engine correctness/performance checks, with artifacts uploaded by both native provider CI jobs. Native [run 38040714240](https://github.com/SDKexplorer/WorkThrough/actions/runs/38040714240) passed all provider/package/relocation/recovery gates and the first investigative smoke at `fab54e2`; its version-1 queue fields are superseded by the correction above. The corrected harness must pass the next native run. Longer repetitions, SQL-plan/server-allocation analysis, two-hour soak, external IdP/desktop AI-client setup, maintenance contention and restore/PITR qualification remain open.
+
+## Execution admission controls, 2026-10-10
+
+ADR-018 (partition limits, rate limits, weighted queue fairness, schema 5) at `e2de671`, on .NET 10 test runs per provider: SQLite + PostgreSQL 17 270 passed / 3 skipped; SQL Server 2022 (emulated x64) 267 passed / 3 skipped; Oracle Free 26ai 270 passed. Eleven provider-theory admission tests cover partition limits across workers, type scope, expired-lease release, sliding-window and per-partition rate limits, readiness reasons, audited policy commands, backlog fairness, weights, idle-burst prevention and flow/query partition keys. `Schema_four_stores_upgrade_to_admission_controls_without_losing_work` upgrades a real schema-4 fixture. A separate process-level check ran schema-4 (`cab5d8a`) code against each of the four databases, then schema-5 code against the same stores: queued work was preserved, an in-flight lease settled, queues gained weight 1 and partition limits applied. The no-policy claim-path rerun is in [performance](performance.md). Both runtimes and NuGet consumers are checked by `scripts/verify.sh` in CI.
+
+Tenant IDs, keyed limits, the rate ledger and `MaxParallelSteps` (2026-10-11), on .NET 10 test runs per provider:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 276 | 3 |
+| SQL Server 2022 (emulated) | 273 | 3 |
+| Oracle Free 26ai | 276 | 0 |
+
+New provider theories cover tenant limits that are independent of partitions, per-tenant rate limits, and gradual fan-out release with `FlowParallelism` readiness. The multi-process admission exercise passed on all four databases ([performance](performance.md)). The schema-4 upgrade fixture passes on every provider with the final schema 5.
+
+Tenant access isolation, schedule seeding, worker/dispatch resilience fixes and the Shop sample (2026-10-11), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 285 | 3 |
+| SQL Server 2022 (emulated) | 282 | 3 |
+| Oracle Free 26ai | 285 | 0 |
+
+New coverage:
+
+- dashboard and MCP tenant scoping on every provider, including absent-looking lookups, store-wide denial and a scoped command;
+- schedule seeding across three racing hosts that respects operator changes;
+- renewal surviving a transient storage failure;
+- outbox and event dispatch draining full batches.
+
+The renewal and drain tests fail without their fixes. `Shop.Api --smoke` and `Shop.Worker --preflight` pass locally. The two-hour PostgreSQL soak passed ([performance](performance.md)).
+
+Write-path throughput (ADR-020), typed flow bindings, trace propagation and health checks (2026-10-11), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 296 | 3 |
+| SQL Server 2022 (emulated) | 293 | 3 |
+| Oracle Free 26ai | 296 | 0 |
+
+New coverage:
+
+- batch claims applying every limit, local budget and queue weight as separate claims would;
+- batch completion with a stale lease;
+- outbox and event dispatch draining;
+- trace continuation from enqueue to attempt;
+- health checks for storage and failing acquisition;
+- typed bindings saving the same definition as property names.
+
+The multi-process admission exercise still holds every limit on PostgreSQL and SQLite after these changes. The full benchmark and throughput exercise ran on all four databases ([performance](performance.md)).
+
+Row-locked settlement, unrestricted claims, journal-last and `AddJobs` (2026-10-11, ADR-020 amendment), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 302 | 3 |
+| SQL Server 2022 (emulated), with and without `READ_COMMITTED_SNAPSHOT` | 303 | 3 |
+| Oracle Free 26ai | 302 | 0 |
+
+New coverage, run on every provider and on SQL Server both ways:
+
+- parallel flow branches settled concurrently in mixed batches activate each join once. The test fails when the flow row lock is removed;
+- concurrent claims without limits lease every job exactly once;
+- a failing flow racing claims leaves each queued sibling either leased or skipped, never both;
+- the event journal stays gap-free under all three.
+
+The multi-process admission exercise holds every limit on PostgreSQL (three runs) and SQLite. It first failed on PostgreSQL: recorded attempt intervals overlapped beyond a tenant limit, because claims timed attempts from before their admission counts while settlements committed concurrently. Claims now start attempts on a clock read after those counts; reverting that change fails the exercise three times out of three. The one-file quick start runs in `verify.sh`, and the package consumer checks that `AddJobs` registers the same jobs as the source generator.
+
+Rolling upgrades and fan-out (2026-10-11, ADR-021, schema 6, engine protocol 2), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 321 | 3 |
+| SQL Server 2022 (emulated), with and without `READ_COMMITTED_SNAPSHOT` | 323 | 3 |
+| Oracle Free 26ai | 321 | 0 |
+
+New coverage on every provider:
+
+- **Schema compatibility:**
+  - a newer schema that still accepts this build is used without migrating;
+  - one that raised `reader_minimum` past it is refused;
+  - an upgraded store keeps the baseline protocol;
+  - a new store starts at this build's protocol.
+- **Protocol enforcement and activation:**
+  - a store above this build's protocol refuses claims, cancellation and signals;
+  - activation waits for live older workers and for leases held by workers that never reported a level;
+  - a fan-out flow cannot start until protocol 2 is active.
+- **Fan-out:**
+  - items receive their elements and run as separate steps;
+  - the join receives every output in order;
+  - an empty array completes immediately and an array over 1,000 items fails the step;
+  - a failed item becomes an incident and recovery resumes the join;
+  - items settled concurrently in mixed batches complete the step once. On SQL Server this runs both ways.
+
+The `dotnet new` templates build with every provider, and their SQLite projects run, in `scripts/check-templates.sh`.
+
+Exact limits without the admission lock (2026-10-11, ADR-022, schema 7, engine protocol 3), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 329 | 3 |
+| SQL Server 2022 (emulated), with and without `READ_COMMITTED_SNAPSHOT` | 335 | 3 |
+| Oracle Free 26ai | 329 | 0 |
+
+- **Race tests:** claims from eight stores at once never exceed tenant, partition, type, fleet, rate or flow limits. They run at protocol 2, the serialized path, and at protocol 3, the lock rows, and on SQL Server both ways. Removing the lock rows makes the protocol-3 tests fail every time on PostgreSQL.
+- **Admission exercise:** the multi-process exercise held every limit on PostgreSQL in three runs, and on SQLite.
+- **Oracle:** the runs found two problems, both fixed.
+  - An ordered `FOR UPDATE` locks every matching row when it opens. Oracle claims now read candidate IDs and lock only what they need.
+  - A claim whose candidates all failed the exact check gave up. Claims on every provider now try two further pages.
+
+Child flows (2026-10-11, ADR-023, schema 8, engine protocol 4), on .NET 10:
+
+| Databases | Passed | Skipped |
+|---|---:|---:|
+| SQLite + PostgreSQL 17 | 339 | 3 |
+| SQL Server 2022 (emulated), with and without `READ_COMMITTED_SNAPSHOT` | 345 | 3 |
+| Oracle Free 26ai | 339 | 0 |
+
+New coverage on every provider:
+
+- **Running a child:**
+  - a child run receives the step's input and links to its parent;
+  - its final outputs complete the step and bind into later steps.
+- **Failure and recovery:**
+  - a failed child fails the step and becomes an incident;
+  - recovery starts a new child run.
+- **Composition:** each fan-out item runs its own child flow, and the join receives every child's outputs in order.
+- **Guards:**
+  - a missing child fails the step;
+  - a flow that starts itself stops at depth 8, and the failure reaches the outermost run;
+  - child flows wait for protocol 4.
+
+`WorkThrough.Testing` (2026-10-11): the test host runs delayed work and retry backoff after `AdvanceAsync`, exposes typed step outputs, and describes every step when an assertion fails. `samples/Shop.Tests` runs the checkout flow through it, and the package consumer uses it from the packed NuGet package. SQLite + PostgreSQL: 341 passed, 3 skipped.
+
+Input upcasts (2026-10-11, ADR-024):
+- v1 jobs stored as JSON and v2 jobs both run on the v3 job through chained upcasts, and so does a flow step pinned to v1.
+- The stored address stays v1, and preflight counts the upcast address as covered.
+- Upcasts across keys, or onto an unregistered job, are refused.
+
+SQLite + PostgreSQL: 344 passed, 3 skipped. No storage code changed.
+
+Input correction (2026-10-11, schema 9): SQLite + PostgreSQL 351, SQL Server (both modes) 357, Oracle 351 passed.
+- A rejected job runs again with the corrected input and keeps the original.
+- The same command is deduplicated; a different input under the same command conflicts.
+- The audit holds digests only.
+- A step in an incident resumes its flow with the corrected input.
+- Running or queued work, and steps of finished flows, are refused.
+- The console endpoint refuses a user who has `inputs.correct` but lacks `payloads.read`.
+
+Compensation (2026-10-11, ADR-025, engine protocol 5): SQLite + PostgreSQL 357, SQL Server (both modes) 363, Oracle 357 passed.
+- A failed flow undoes completed steps in reverse order, each with its input and output, then fails with the original error.
+- A failed undo raises an incident, and recovery finishes compensation.
+- Compensating definitions wait for protocol 5.
+- A step queued in the same planning pass as a failure is now skipped instead of left queued. The test fails without that fix.
+
+Release qualification (2026-10-12):
+
+| Check | Result |
+|---|---|
+| SQL Server soak, 30 min (emulated) | 53,253 jobs, each succeeded once; every window within its limits; worker memory flat at 382 MiB |
+| Oracle soak, 30 min | 58,500 jobs, each succeeded once; every window within its limits; worker memory 451–492 MiB |
+| PostgreSQL restore drill | online `pg_dump` mid-run, restored into a new schema: every job and flow step finished with one successful attempt and a gap-free journal |
+| OIDC against Keycloak 26.4 | operator and tenant viewer sign in through the real login form; role permissions and tenant scoping hold |
+| Suites on the final code | SQLite + PostgreSQL 358, SQL Server 364, Oracle 358 passed |
+
+Findings, all fixed before these results:
+
+- **Flow parallelism race:** the first soak exceeded a flow's `MaxParallelSteps` under concurrent claims. A claim's settings snapshot missed a bounded flow that started during the claim. Flow steps are now always checked against their bound under the flow's lock row. A unit race test could not hit the window reliably, so the soak is the regression check: it failed in the first minute before the fix and passes after.
+- **Oracle soak harness:**
+  - Oracle bound the window parameters by position, so they were swapped and the per-minute limit checks saw no attempts. Results from that run were discarded.
+  - The verification SQL was rejected by Oracle.
+- **Masked failures:** exercise cleanup deadlocked with still-closing sessions and hid the real failure. It now retries.
+
+Raw soak reports: [SQL Server](performance-results/2026-10-12-sqlserver-soak.json), [Oracle](performance-results/2026-10-12-oracle-soak.json).
+
+Checkpoint forks, bounded loops and a network partition (2026-10-13):
+
+- **Forks:** a fork keeps earlier outcomes, including outputs that later steps bind, without attempts. It reruns the checkpoint step and its descendants, and leaves the source run unchanged. It is deduplicated by command ID and refused for running flows and unknown steps.
+- **Loops:**
+  - a loop repeats its child with `iteration` and `previous` until the condition holds;
+  - exhausting its iterations fails the step;
+  - loops wait for protocol 6.
+- **Partition:** two workers ran in separate containers on their own Docker network. One was cut off from PostgreSQL holding 4 leases.
+  - The other finished its work.
+  - The late completions were refused.
+  - All 60 jobs succeeded exactly once.
+  - The isolated worker took new work alone after reconnecting.
+
+  Two runs passed.
+- **Suites:** SQLite + PostgreSQL 369 passed, 3 skipped. CI covers SQL Server and Oracle while the two-hour soaks hold those containers.
+
+Payload protection, failure branches and MySQL/MariaDB (2026-10-13):
+
+- **Payload protection (ADR-027):** on SQLite, PostgreSQL, MySQL and MariaDB, raw rows hold envelopes, not plain JSON, for job inputs and outputs, flow inputs, signal payloads and the signal-wait output; handlers and queries see the original values. Idempotent enqueue still deduplicates. A rotated key writes new work while old work stays readable. Nothing is encrypted below protocol 7. A worker without the key retries the job instead of running or rejecting it. A relabelled envelope fails authentication.
+- **Failure branches (ADR-028):** a branch runs when its step is rejected or its signal wait expires; the failed step's successors are skipped and a join after both paths runs. A succeeding step skips its branch. A failing branch applies the failure policy. Branch definitions wait for protocol 8.
+- **MySQL 8.4.11 and MariaDB 11.4.13 (ADR-029)**, MySqlConnector 2.6.2, local arm64 containers:
+  - every MySQL and MariaDB test passed, in one run of 698 tests with SQLite and PostgreSQL; its only failure was the SQLite case under **Open**;
+  - provider tests: concurrent and interrupted initialization keep the store identity; a missing admission row refuses writes; SELECT-only and DML-only credentials work and cannot exceed their grants;
+  - process-kill recovery, published relocation, the performance smoke and the MCP investigation smoke (20 investigators, 0 request failures) passed on both;
+  - package consumers on .NET 10 ran a hosted worker and metadata queries from the packed packages.
+
+  Found and fixed while qualifying: concurrent claims under a shared limit admitted 2 of 3 jobs, because InnoDB locked more candidate rows than a claim leased. Claims now lock candidates by identity. The trigger-based fault tests needed MySQL trigger syntax, and MySQL reserves `generated`, which a fixture used as an alias.
+- **SQL Server two-hour soak:** stopped at minute 56 with an unhandled deadlock. The victim was the soak's own per-minute measurement query, a large scan that takes shared locks without READ_COMMITTED_SNAPSHOT; the producer and workers were unaffected. The harness now retries a measurement read chosen as a deadlock victim, as the store does for its own reads.
+- **SQLite under contention:** two SQLite tests failed once each with "SQL logic error", one when beginning a read and one at the `synchronous` pragma every open sets, during runs with several providers in parallel. SQLite raises that error for both statements inside an open transaction, so a pooled connection came back still in one. Opening a connection now rolls back such a transaction; what left it open is not yet identified.
+
+Easier adoption (2026-10-13):
+
+- **Delegate jobs:** a job registered with `AddJob(definition, job => ...)` resolves scoped services and returns output; an address takes one delegate.
+- **Flow tests:** `Stub`, `Reject` and `RunFlowAsync` drive the Shop checkout through its review signal and an incident, and the `workthrough-tests` template's two flow tests pass after `dotnet new` against the local packages.
+- **Hangfire import:** against Hangfire's in-memory storage, the importer planned an enqueued job, a scheduled job and a recurring job as ready, and reported an unmapped method and a seconds-level cron. Importing ran the jobs at their due times and created an enabled schedule; a second import created nothing; retiring deleted the jobs and removed the recurring job in Hangfire. Import is refused while Hangfire servers run. The migration sample runs in `verify.sh`.
+- **CI found:** on MariaDB, a claim under a flow's `MaxParallelSteps` gave up after three blocked steps of that flow and left admissible work for the next poll (6 of 7 jobs admitted in one round). A claim now skips the other steps of a flow it finds at its bound. 10 consecutive local runs of the admission tests then passed on MySQL and MariaDB; an earlier batch of 20 that overlapped heavy builds had 4 failures, so this remains under observation.
+
+Oracle two-hour soak (2026-10-13): 205,494 jobs succeeded exactly once, none retried, and every per-minute window stayed within its partition, tenant, rate and flow-parallelism limits. Worker memory ranged between 455 and 495 MiB through the second hour, with no upward trend. [Raw report](performance-results/2026-10-13-oracle-soak-120.json).
+
+SQL Server, Oracle and MySQL/MariaDB throughput (2026-10-13): the full suite passed on SQL Server (both read modes) and Oracle, 553 tests with SQLite; the one failure was the SQLite case above. With a preloaded backlog of 5,000 jobs, three 16-slot workers and 1 ms handlers on the local arm64 host, MySQL 8.4 drained 463 jobs/s (362 with 50 tenant quotas) and MariaDB 11.4 558 (442).
+
+EF Core integration (2026-10-13): `db.Enqueue` with `SaveChangesAsync` committed an entity and its job together, returned the existing job for a repeated idempotency key, and left neither after a failed save (duplicate key) or a rolled-back transaction, with EF Core 8 on SQLite, PostgreSQL, SQL Server, Oracle, MySQL and MariaDB. Found while qualifying: EF Core 8's Npgsql provider cannot load against Npgsql 10, which the PostgreSQL package required; its minimum is now Npgsql 8.0.9, and the full suite passed on it (730 tests on SQLite, PostgreSQL, MySQL and MariaDB).
+
+Message brokers (2026-10-13): against RabbitMQ 4.1, Kafka 3.9.1 (KRaft) and the Azure Service Bus emulator in local containers, a message published through `jobs.Publish` arrived and ran as a job, and a message delivered twice with one message ID became one job. On RabbitMQ an unroutable publish failed its job instead of succeeding. Azure Service Bus itself is not yet verified.
+
+
+MySQL and MariaDB soaks (2026-10-13): 30 minutes each, with partition, tenant, rate and flow-parallelism limits. MySQL completed 57,289 jobs and MariaDB 58,332, each exactly once, with every per-minute window within its limits; worker memory held at 355–357 MiB ([MySQL](performance-results/2026-10-13-mysql-soak.json), [MariaDB](performance-results/2026-10-13-mariadb-soak.json)).
+
+SQL Server soak and indexes (2026-10-14):
+
+- **Finding:** the second two-hour SQL Server soak slowed as history grew; offers fell from 1,465 to about 830 a minute, and at minute 103 an enqueue exceeded the 30-second command timeout and stopped the producer. The harness only surfaced it at the end; it now fails in the minute the producer faults.
+- **Cause:** `SELECT * FROM dj_jobs WHERE workflow_run_id=@id` scanned the table, because SQL Server cannot seek the filtered unique `(workflow_run_id, step_id)` index for a run alone. Its reads grew from 135 to 982 pages per call. The worker's maintenance probe also scanned for expired leases and queued expiries.
+- **Fix:** `ix_dj_jobs_run`, and two filtered indexes holding only running leases and expiring queued jobs, created at every initialization. Live, the run lookup dropped from 982 to 15 logical reads and from 6 ms to 0.09 ms.
+- **Check:** a 30-minute soak with the indexes added mid-run completed 57,419 jobs exactly once within limits, offering 44,162, level with MySQL ([results](performance-results/2026-10-14-sqlserver-soak-index-fix.json)). A new two-hour run with the indexes passed; see below.
+
+Native AOT (2026-10-14):
+
+- `samples/NativeAot` published with `PublishAot` on .NET 10 (osx-arm64) with no trimming or AOT warnings. The binary ran a two-step flow and a one-second schedule against SQLite, and again against an existing database.
+- A PostgreSQL variant of the same program ran the flow and schedule against a throwaway schema. SQL Server, Oracle, MySQL, EF Core, the dashboard and MCP are not AOT-compatible.
+- With `JsonSerializerIsReflectionEnabledByDefault=false`, the suite's remaining JSON failures were test-owned types; the engine gaps it found (`ProcessorAliasMapping[]`, audit results by runtime type) were fixed.
+- Fingerprint compatibility tests show that job receipts, flow starts and operator commands hash exactly as the anonymous objects they replaced, including timestamps with offsets.
+
+Controlled MCP actions, named calendars and verification tooling (2026-10-14):
+
+- **MCP actions (ADR-031):** on all six providers, an approved retry ran once and a repeated execute returned the first result with one audit entry. On SQLite: a target changed after approval was not acted on; another caller, an expired proposal and a revoked permission were refused; a queue pause ran through approval; unenrolled actions and a read-only endpoint refused action calls.
+- **Named calendars (ADR-032):** on all six providers, editing a calendar moved and restored the next occurrence of a schedule naming it; publish and enable needed the calendar; delete was refused while a draft or enabled schedule named it; schedules naming calendars waited for protocol 10. Oracle, MySQL and MariaDB stores set back to schema 10 upgraded in place. The console saved and listed a calendar.
+- **Suites:** 1,085 passed across SQLite, PostgreSQL, SQL Server, Oracle, MySQL and MariaDB. The three failures were the broker tests, whose containers were stopped to free memory for the databases.
+- **Hosted identity tooling:** `scripts/check-hosted-idp.py --local-keycloak` passed against Keycloak 26.4 over HTTPS with client-credentials tokens: a role-mapped client listed 9 read tools and searched executions; a broken signature got 401 with the resource metadata challenge; an unmapped client saw no tools. No hosted provider has been run.
+- **Managed database tooling:** with `WT_REQUIRE_TLS=1`, the encryption check passed on SQL Server (encrypted by default) and failed on the local PostgreSQL container, which does not use TLS. No managed server has been run.
+
+SQL Server two-hour soak (2026-10-14): with the run, lease and expiry indexes from the start, 231,845 jobs (178,328 offered, 17,839 flows) succeeded exactly once, none retried, and every per-minute window stayed within its partition, tenant, rate and flow-parallelism limits. Offers held at about 1,490 a minute and completions at about 1,950 through minute 120, with queue-wait p95 between 370 and 620 ms; worker memory stayed between 376 and 380 MiB after warm-up ([results](performance-results/2026-10-14-sqlserver-soak-120.json)).
+
+SQLite removed (2026-10-14, ADR-033): the provider and its tests are gone; the test host, samples, templates, relocation proof, exercises and CI use PostgreSQL. With only `DURABLEJOBS_POSTGRES` set, the shared suite passed 274 tests; the 3 failures were the broker tests, whose containers were stopped. Earlier SQLite evidence above is history.
+
+Sign-in after the tenant change (2026-10-14): `scripts/check-oidc.py` passed against Keycloak 26.4 with the fail-closed tenant resolver and the PostgreSQL shop store. The operator, whose role maps to `tenants.all`, saw all 12 jobs; the tenant-a viewer saw only its 6.

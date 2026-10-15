@@ -1,7 +1,5 @@
 using System.Data.Common;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Npgsql;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -49,7 +47,7 @@ public sealed class DeploymentTests
             Assert.Equal(0, x.ReadyJobs);
             Assert.Null(x.OldestReadyAt);
         });
-        await harness.Store.RecoverStepAsync(first.Id, 1, Command());
+        await harness.Store.RecoverStepAsync(first.Id, 1, Command()).SucceedsAsync();
         var retry = (await harness.Store.ClaimAsync(new("w", [JobContractId.For<Alpha>()], ["default"], TimeSpan.FromMinutes(1))))!;
         var before = (await harness.Store.DeploymentRequirementsAsync()).ObservedAt;
         await Task.Delay(30);
@@ -58,7 +56,7 @@ public sealed class DeploymentTests
         Assert.Equal(JobContractId.For<Beta>(), successor.Processor);
         Assert.Equal(1, successor.ReadyJobs);
         Assert.True(successor.OldestReadyAt > before);
-        await harness.Store.SetFlowPausedAsync(run, true, Command());
+        await harness.Store.SetFlowPausedAsync(run, true, Command()).SucceedsAsync();
         Assert.Equal(0, Assert.Single((await harness.Store.DeploymentRequirementsAsync()).Items).ReadyJobs);
     }
 
@@ -69,11 +67,11 @@ public sealed class DeploymentTests
         var store = harness.Store;
         await new JobClient(store).EnqueueAsync(new Alpha("future"), new(NotBefore: DateTimeOffset.UtcNow.AddDays(1)));
         var schedule = new ScheduleDefinition("tests.nightly", 1, "0 0 * * *", "UTC", JobContractId.For<Beta>(), JsonSerializer.SerializeToElement("secret"));
-        await store.SaveScheduleDraftAsync(schedule, 0, Command());
+        await store.SaveScheduleDraftAsync(schedule, 0, Command()).SucceedsAsync();
         Assert.Single((await store.DeploymentRequirementsAsync()).Items);
-        await store.PublishScheduleAsync(schedule.Key, 1, 1, Command());
+        await store.PublishScheduleAsync(schedule.Key, 1, 1, Command()).SucceedsAsync();
         Assert.Single((await store.DeploymentRequirementsAsync()).Items);
-        await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command());
+        await store.SetScheduleEnabledAsync(schedule.Key, 1, 2, true, Command()).SucceedsAsync();
         var report = await store.DeploymentRequirementsAsync();
         Assert.Equal(2, report.Items.Count);
         Assert.All(report.Items, x =>
@@ -91,7 +89,7 @@ public sealed class DeploymentTests
     public async Task A_truncated_requirement_inventory_cannot_report_complete_coverage(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await using DbConnection connection = provider == "postgres" ? new NpgsqlConnection(harness.ConnectionString) : new SqliteConnection(harness.ConnectionString);
+        await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -99,6 +97,30 @@ public sealed class DeploymentTests
             INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,status,attempt,max_attempts,created_at,available_at)
             SELECT CAST(n AS TEXT),'tests.group',n,'{}','default','Queued',0,3,0,0 FROM numbers
             """;
+        if (provider == "sqlserver")
+        {
+            command.CommandText = command.CommandText.Replace("WITH RECURSIVE", "WITH", StringComparison.Ordinal)
+                .Replace("AS TEXT", "AS nvarchar(36)", StringComparison.Ordinal) + " OPTION(MAXRECURSION 0)";
+        }
+
+        if (provider == "oracle")
+        {
+            command.CommandText = """
+                INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,status,attempt,max_attempts,created_at,available_at)
+                SELECT TO_CHAR(LEVEL),'tests.group',LEVEL,'{}','default','Queued',0,3,0,0 FROM dual CONNECT BY LEVEL<=1001
+                """;
+        }
+
+        if (provider is "mysql" or "mariadb")
+        {
+            // MySQL puts the common table expression after INSERT. Both stop recursion at 1000 rows by default, under different names.
+            command.CommandText = (provider == "mysql" ? "SET SESSION cte_max_recursion_depth=2000;\n" : "SET SESSION max_recursive_iterations=2000;\n") + """
+                INSERT INTO dj_jobs(id,job_key,contract_version,payload,queue,status,attempt,max_attempts,created_at,available_at)
+                WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM numbers WHERE n<1001)
+                SELECT CAST(n AS CHAR),'tests.group',n,'{}','default','Queued',0,3,0,0 FROM numbers
+                """;
+        }
+
         await command.ExecuteNonQueryAsync();
         var requirements = await harness.Store.DeploymentRequirementsAsync();
         Assert.Equal(1000, requirements.Items.Count);

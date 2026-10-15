@@ -8,15 +8,15 @@ internal sealed class JobScheduler(IJobSchedules schedules, IServiceProvider ser
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        using var timer = new PeriodicTimer(WorkThroughBuilder.DispatchInterval);
         do
         {
             try
             {
-                await schedules.DispatchDueSchedulesAsync(cancellationToken: stoppingToken);
+                await DispatchLoop.DrainAsync(schedules.DispatchDueSchedulesAsync, stoppingToken);
                 if (services.GetService<IWorkflowSignals>() is { } signals)
                 {
-                    await signals.DispatchSignalsAsync(cancellationToken: stoppingToken);
+                    await DispatchLoop.DrainAsync(signals.DispatchSignalsAsync, stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

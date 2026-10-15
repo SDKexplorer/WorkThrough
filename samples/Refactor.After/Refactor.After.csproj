@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><IsPackable>false</IsPackable><OutputType>Exe</OutputType></PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../../samples/Refactor.MovedHandlers/Refactor.MovedHandlers.csproj" />
-    <ProjectReference Include="../../src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
-    <ProjectReference Include="../../src/WorkThrough.Generators/WorkThrough.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-  </ItemGroup>
-</Project>

@@ -4,12 +4,32 @@ namespace WorkThrough;
 public interface IJobStore
 {
     Task InitializeAsync(CancellationToken cancellationToken = default);
+    /// <summary>Commits acceptance and any receipt; immediate envelopes use the storage clock before persistence.</summary>
     Task<Guid> EnqueueAsync(JobRecord job, CancellationToken cancellationToken = default);
     Task SeedLimitsAsync(IReadOnlyList<ConcurrencyLimit> limits, CancellationToken cancellationToken = default);
     Task SetLimitAsync(ConcurrencyLimit limit, CancellationToken cancellationToken = default);
     Task<JobRecord?> ClaimAsync(ClaimRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Leases up to <see cref="ClaimRequest.MaximumJobs"/> jobs in one admission transaction, applying every shared limit and
+    /// the request's budgets before each lease. Providers without batching lease one job.
+    /// </summary>
+    async Task<IReadOnlyList<JobRecord>> ClaimBatchAsync(ClaimRequest request, CancellationToken cancellationToken = default) =>
+        await ClaimAsync(request, cancellationToken) is { } job ? [job] : [];
     Task<bool> RenewAsync(Guid jobId, Guid leaseToken, TimeSpan duration, CancellationToken cancellationToken = default);
     Task<bool> CompleteAsync(Guid jobId, Guid leaseToken, JobResult result, CancellationToken cancellationToken = default);
+
+    /// <summary>Settles several attempts at once, each under its own lease check. Providers without batching settle one by one.</summary>
+    async Task<IReadOnlyList<bool>> CompleteBatchAsync(IReadOnlyList<AttemptCompletion> completions, CancellationToken cancellationToken = default)
+    {
+        var settled = new bool[completions.Count];
+        for (var index = 0; index < completions.Count; index++)
+        {
+            settled[index] = await CompleteAsync(completions[index].JobId, completions[index].LeaseToken, completions[index].Result, cancellationToken);
+        }
+
+        return settled;
+    }
     Task<bool> FailAsync(Guid jobId, Guid leaseToken, string error, TimeSpan retryDelay, CancellationToken cancellationToken = default);
     Task<bool> RejectAsync(Guid jobId, Guid leaseToken, JobFailure failure, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("This provider does not implement permanent rejection.");
@@ -21,6 +41,10 @@ public interface IJobStore
     /// <summary>Atomically persists the request receipt, run, and steps; rejects conflicting reuse of a key.</summary>
     Task<Guid> StartWorkflowAsync(FlowDefinition definition, System.Text.Json.JsonElement input, string? correlationId, string idempotencyKey, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("This provider does not support idempotent flow starts.");
+
+    /// <summary>Starts a run with optional correlation, idempotency key and admission partition for every step.</summary>
+    Task<Guid> StartWorkflowAsync(FlowDefinition definition, System.Text.Json.JsonElement input, FlowStart start, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This provider does not support flow start options.");
 }
 
 /// <summary>Assembly-independent read models used by the dashboard and diagnostics.</summary>
@@ -32,4 +56,13 @@ public interface IJobQueries
     Task<JobStatistics> StatisticsAsync(CancellationToken cancellationToken = default);
     Task<WorkflowRun?> GetWorkflowAsync(Guid runId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<JobRecord>> ListFlowJobsAsync(Guid runId, CancellationToken cancellationToken = default);
+
+    /// <summary>Up to <see cref="MaximumChildRuns"/> runs that child steps of this run started, oldest first.</summary>
+    Task<IReadOnlyList<WorkflowRun>> ChildRunsAsync(Guid runId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<WorkflowRun>>([]);
+
+    public const int MaximumChildRuns = 100;
 }
+
+/// <summary>A result reported by the owner of an attempt's lease.</summary>
+public sealed record AttemptCompletion(Guid JobId, Guid LeaseToken, JobResult Result);

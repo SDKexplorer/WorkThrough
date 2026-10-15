@@ -33,8 +33,49 @@ public sealed class TransactionalJobs
 
 public abstract partial class RelationalJobStore : IJobOutbox
 {
+    private const int MaximumOutboxBatch = 100;
+    private static readonly TimeSpan OutboxDeliveryLease = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan OutboxReleaseTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Takes the lock that serializes writes which admit work, inside a transaction already open on <paramref name="connection"/>. The
+    /// default takes none; providers that need one override it.
+    /// </summary>
+    protected virtual Task LockAdmissionAsync(DbConnection connection, DbTransaction transaction, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>
+    /// Accepts jobs and outbox requests inside a transaction the caller opened on this store's database, such as an EF Core
+    /// <c>DbContext</c>'s. Nothing is visible until the caller commits, and nothing remains if it rolls back. Commit soon: until then the
+    /// transaction holds the store's admission lock.
+    /// </summary>
+    /// <returns>Each accepted job's ID, or its existing job's ID when its idempotency key was already used; outbox receipt IDs for outbox requests.</returns>
+    public async Task<IReadOnlyList<Guid>> EnqueueInTransactionAsync(DbConnection connection, DbTransaction transaction,
+        IReadOnlyList<(JobRecord Job, bool Outbox)> work, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(work);
+        if (connection.GetType() != CreateConnection().GetType())
+        {
+            throw new ArgumentException($"This store uses {CreateConnection().GetType().Name} connections, not {connection.GetType().Name}.", nameof(connection));
+        }
+
+        await LockAdmissionAsync(connection, transaction, cancellationToken);
+        var accepted = new List<Guid>(work.Count);
+        foreach (var (job, outbox) in work)
+        {
+            accepted.Add(outbox
+                ? await AcceptOutboxAsync(connection, transaction, job, cancellationToken)
+                : await AcceptJobAsync(connection, transaction, job, cancellationToken));
+        }
+
+        await FlushJournalAsync(connection, transaction, cancellationToken);
+
+        return accepted;
+    }
+
     /// <summary>Commits business SQL and accepted jobs/outbox requests atomically in this database.</summary>
-    /// <remarks>Keep callbacks short, await every command, and do not call external services or commit/dispose the supplied transaction.</remarks>
+    /// <remarks>Keep callbacks short and DML-only. Await every command; do not run DDL, autonomous transactions, external calls, or commit/dispose the supplied transaction.</remarks>
     public Task<T> InTransactionAsync<T>(Func<DbConnection, DbTransaction, TransactionalJobs, CancellationToken, Task<T>> action, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(action);
@@ -55,7 +96,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
         }, cancellationToken);
     }
 
-    private static async Task<Guid> AcceptOutboxAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
+    private async Task<Guid> AcceptOutboxAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
     {
         var fingerprint = JobFingerprint(job);
         if (job.IdempotencyKey is not null)
@@ -76,10 +117,12 @@ public abstract partial class RelationalJobStore : IJobOutbox
         var source = (string)(await ScalarAsync(connection, transaction, "SELECT id FROM dj_store", ct))!;
         var envelope = job with
         {
-            IdempotencyKey = job.IdempotencyKey ?? $"outbox:{source}:{job.Id:N}"
+            IdempotencyKey = job.IdempotencyKey ?? $"outbox:{source}:{job.Id:N}",
+            Payload = await ProtectedAsync(connection, transaction, job.Payload, ct)
         };
-        await ExecuteAsync(connection, transaction, "INSERT INTO dj_outbox(id,request,status,idempotency_key,fingerprint) VALUES (@id,@request,'Pending',@key,@hash)", ct,
-            ("id", job.Id.ToString()), ("request", JsonSerializer.Serialize(envelope, JobJson.Options)), ("key", job.IdempotencyKey), ("hash", fingerprint));
+        await ExecuteAsync(connection, transaction, "INSERT INTO dj_outbox(id,request,status,idempotency_key,fingerprint) VALUES (@id,@request,@status,@key,@hash)", ct,
+            ("id", job.Id.ToString()), ("request", JobJson.Serialize(envelope)), ("status", OutboxStatuses.Pending),
+            ("key", job.IdempotencyKey), ("hash", fingerprint));
 
         return job.Id;
     }
@@ -87,7 +130,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
     public async Task<int> DispatchOutboxAsync(IJobStore destination, int batchSize = 20, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(destination);
-        if (batchSize is < 1 or > 100)
+        if (batchSize is < 1 or > MaximumOutboxBatch)
         {
             throw new ArgumentOutOfRangeException(nameof(batchSize));
         }
@@ -95,23 +138,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
         var delivered = 0;
         for (var i = 0; i < batchSize; i++)
         {
-            var claimed = await WriteAsync<(JobRecord Job, Guid Token)?>(async (connection, transaction, ct) =>
-            {
-                var now = await NowAsync(connection, transaction, ct);
-                var json = await ScalarAsync(connection, transaction, "SELECT request FROM dj_outbox WHERE status='Pending' OR (status='Delivering' AND lease_expires_at<=@now) ORDER BY id LIMIT 1", ct, ("now", now));
-                if (json is not string payload)
-                {
-                    return null;
-                }
-
-                var job = JsonSerializer.Deserialize<JobRecord>(payload, JobJson.Options)!;
-                var token = Guid.NewGuid();
-                await ExecuteAsync(connection, transaction, "UPDATE dj_outbox SET status='Delivering',lease_token=@token,lease_expires_at=@expiry WHERE id=@id", ct,
-                    ("token", token.ToString()), ("expiry", checked(now + 30000)), ("id", job.Id.ToString()));
-
-                return (job, token);
-            }, cancellationToken);
-            if (claimed is not { } item)
+            if (await ClaimOutboxAsync(cancellationToken) is not { } item)
             {
                 break;
             }
@@ -120,10 +147,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
             {
                 // No source transaction is held across the destination write.
                 var accepted = await destination.EnqueueAsync(item.Job, cancellationToken);
-                var acknowledged = await WriteAsync(async (connection, transaction, ct) =>
-                    await ExecuteAsync(connection, transaction, "UPDATE dj_outbox SET status='Delivered',request='{}',delivered_job_id=@job,lease_token=NULL,lease_expires_at=NULL WHERE id=@id AND lease_token=@token", ct,
-                        ("job", accepted.ToString()), ("id", item.Job.Id.ToString()), ("token", item.Token.ToString())) == 1, cancellationToken);
-                if (acknowledged)
+                if (await AcknowledgeOutboxAsync(item, accepted, cancellationToken))
                 {
                     delivered++;
                 }
@@ -131,9 +155,7 @@ public abstract partial class RelationalJobStore : IJobOutbox
             catch
             {
                 // A destination commit may have succeeded. Repeating the stable envelope reconciles it.
-                using var release = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await WriteAsync((connection, transaction, ct) => ExecuteAsync(connection, transaction, "UPDATE dj_outbox SET status='Pending',lease_token=NULL,lease_expires_at=NULL WHERE id=@id AND lease_token=@token", ct,
-                    ("id", item.Job.Id.ToString()), ("token", item.Token.ToString())), release.Token);
+                await ReleaseOutboxAsync(item);
                 throw;
             }
         }
@@ -141,12 +163,59 @@ public abstract partial class RelationalJobStore : IJobOutbox
         return delivered;
     }
 
-    public async Task<OutboxDelivery?> OutboxDeliveryAsync(Guid id, CancellationToken cancellationToken = default)
-    {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = Command(connection, null, "SELECT status,delivered_job_id FROM dj_outbox WHERE id=@id", ("id", id.ToString()));
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    private sealed record OutboxClaim(JobRecord Job, Guid Token);
 
-        return await reader.ReadAsync(cancellationToken) ? new(id, reader.GetString(0), reader.IsDBNull(1) ? null : Guid.Parse(reader.GetString(1))) : null;
+    private Task<OutboxClaim?> ClaimOutboxAsync(CancellationToken cancellationToken) => WriteAsync<OutboxClaim?>(async (connection, transaction, ct) =>
+    {
+        var now = await NowAsync(connection, transaction, ct);
+        var json = await ScalarAsync(connection, transaction, $"""
+            SELECT request FROM dj_outbox WHERE status=@pending OR (status=@delivering AND lease_expires_at<=@now) ORDER BY id {PageSql(1)}
+            """, ct, ("pending", OutboxStatuses.Pending), ("delivering", OutboxStatuses.Delivering), ("now", now));
+        if (json is not string payload)
+        {
+            return null;
+        }
+
+        var request = JobJson.Deserialize<JobRecord>(payload)!;
+        var claim = new OutboxClaim(request with { Payload = Required(request.Payload) }, Guid.NewGuid());
+        await ExecuteAsync(connection, transaction, "UPDATE dj_outbox SET status=@status,lease_token=@token,lease_expires_at=@expiry WHERE id=@id", ct,
+            ("status", OutboxStatuses.Delivering), ("token", claim.Token.ToString()),
+            ("expiry", checked(now + (long)OutboxDeliveryLease.TotalMilliseconds)), ("id", claim.Job.Id.ToString()));
+
+        return claim;
+    }, cancellationToken);
+
+    private Task<bool> AcknowledgeOutboxAsync(OutboxClaim claim, Guid jobId, CancellationToken cancellationToken) =>
+        WriteAsync(async (connection, transaction, ct) => await ExecuteAsync(connection, transaction, """
+            UPDATE dj_outbox SET status=@status,request='{}',delivered_job_id=@job,lease_token=NULL,lease_expires_at=NULL
+            WHERE id=@id AND lease_token=@token
+            """, ct, ("status", OutboxStatuses.Delivered), ("job", jobId.ToString()), ("id", claim.Job.Id.ToString()), ("token", claim.Token.ToString())) == 1,
+            cancellationToken);
+
+    /// <summary>Returns the claim for prompt redelivery. If this fails too, the delivery lease expires and the claim is retried.</summary>
+    private async Task ReleaseOutboxAsync(OutboxClaim claim)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(OutboxReleaseTimeout);
+            await WriteAsync((connection, transaction, ct) => ExecuteAsync(connection, transaction, """
+                UPDATE dj_outbox SET status=@status,lease_token=NULL,lease_expires_at=NULL WHERE id=@id AND lease_token=@token
+                """, ct, ("status", OutboxStatuses.Pending), ("id", claim.Job.Id.ToString()), ("token", claim.Token.ToString())), timeout.Token);
+        }
+        catch (Exception)
+        {
+            // The caller rethrows the delivery failure, which is the actionable error.
+        }
+    }
+
+    public Task<OutboxDelivery?> OutboxDeliveryAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return ReadAsync<OutboxDelivery?>(async (connection, transaction, ct) =>
+        {
+            await using var command = Command(connection, transaction, "SELECT status,delivered_job_id FROM dj_outbox WHERE id=@id", ("id", id.ToString()));
+            await using var reader = await command.ExecuteReaderAsync(ct);
+
+            return await reader.ReadAsync(ct) ? new(id, reader.GetString(0), reader.IsDBNull(1) ? null : Guid.Parse(reader.GetString(1))) : null;
+        }, cancellationToken);
     }
 }

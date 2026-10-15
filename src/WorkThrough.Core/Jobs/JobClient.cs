@@ -3,8 +3,9 @@ using System.Text.Json;
 namespace WorkThrough;
 
 public sealed record EnqueueOptions(
-    string Queue = "default", string? CorrelationId = null, DateTimeOffset? NotBefore = null,
-    int MaxAttempts = 3, string? IdempotencyKey = null, DateTimeOffset? ExpiresAt = null);
+    string Queue = JobDefaults.Queue, string? CorrelationId = null, DateTimeOffset? NotBefore = null,
+    int MaxAttempts = JobDefaults.MaxAttempts, string? IdempotencyKey = null, DateTimeOffset? ExpiresAt = null,
+    string? PartitionKey = null, string? TenantId = null);
 
 /// <summary>Accepts work durably without requiring any handler registrations.</summary>
 public sealed class JobClient(IJobStore store)
@@ -14,17 +15,29 @@ public sealed class JobClient(IJobStore store)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
-        return EnqueueAsync(definition.Identity, input, options, cancellationToken);
+        return EnqueueAsync(definition.Identity, input, options ?? definition.DefaultOptions, cancellationToken);
     }
+
+    /// <summary>
+    /// Starts an enqueue that takes the definition's defaults; refine it fluently and await it.
+    /// </summary>
+    /// <example><c>await jobs.Enqueue(Emails.Welcome, new WelcomeEmail("ada@example.com")).After(TimeSpan.FromMinutes(5)).Idempotent("welcome:ada");</c></example>
+    public EnqueueRequest<TInput> Enqueue<TInput>(JobDefinition<TInput> definition, TInput input)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        return new(this, definition.Identity, input, definition.DefaultOptions);
+    }
+
+    /// <summary>Starts an enqueue at the address of <typeparamref name="TInput"/>'s [JobContract].</summary>
+    public EnqueueRequest<TInput> Enqueue<TInput>(TInput input) => new(this, JobContractId.For<TInput>(), input, new());
 
     public Task<Guid> EnqueueAsync<TJob>(TJob job, EnqueueOptions? options = null, CancellationToken cancellationToken = default)
         => EnqueueAsync(JobContractId.For<TJob>(), job, options, cancellationToken);
 
     /// <summary>Enqueues typed or raw-string input without referencing the processor assembly.</summary>
-    public Task<Guid> EnqueueAsync<TInput>(JobContractId processor, TInput job, EnqueueOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        return store.EnqueueAsync(CreateRecord(processor, job, options), cancellationToken);
-    }
+    public Task<Guid> EnqueueAsync<TInput>(JobContractId processor, TInput job, EnqueueOptions? options = null, CancellationToken cancellationToken = default) =>
+        store.EnqueueAsync(CreateRecord(processor, job, options), cancellationToken);
 
     /// <summary>Builds the validated envelope used by direct and transactional acceptance.</summary>
     public static JobRecord CreateRecord<TInput>(JobContractId processor, TInput job, EnqueueOptions? options = null)
@@ -47,17 +60,19 @@ public sealed class JobClient(IJobStore store)
             throw new ArgumentException("Queue must be non-empty.", nameof(options));
         }
 
+        AdmissionKeys.Validate(options.PartitionKey, KeyScope.Partition, nameof(options));
+        AdmissionKeys.Validate(options.TenantId, KeyScope.Tenant, nameof(options));
         if (options.IdempotencyKey is { Length: 0 })
         {
             throw new ArgumentException("IdempotencyKey must be non-empty when supplied.", nameof(options));
         }
 
         var now = DateTimeOffset.UtcNow;
-        // Immediate work has no not-before boundary. Use the current storage-resolution instant;
-        // explicit NotBefore values keep their precision and are rounded up by the provider.
+        // Immediate work has no not-before boundary. Storage replaces these provisional times
+        // on acceptance; explicit NotBefore values retain their requested precision.
         var available = options.NotBefore ?? DateTimeOffset.FromUnixTimeMilliseconds(now.ToUnixTimeMilliseconds());
-        var payload = JsonSerializer.SerializeToElement(job, JobJson.Options);
-        if (System.Text.Encoding.UTF8.GetByteCount(payload.GetRawText()) > 1_048_576)
+        var payload = JobJson.ToElement(job);
+        if (JobLimits.ExceedsInlineSize(payload))
         {
             throw new ArgumentException("Inline input exceeds 1 MiB. Store large documents externally and enqueue a reference.", nameof(job));
         }
@@ -70,6 +85,12 @@ public sealed class JobClient(IJobStore store)
         return new(Guid.NewGuid(), processor,
             payload, options.Queue, options.CorrelationId,
             JobStatus.Queued, 0, options.MaxAttempts, now, available,
-            options.IdempotencyKey, ExpiresAt: options.ExpiresAt);
+            options.IdempotencyKey, ExpiresAt: options.ExpiresAt)
+        {
+            UseStorageTime = options.NotBefore is null,
+            PartitionKey = options.PartitionKey,
+            TenantId = options.TenantId,
+            TraceParent = TraceContext.Capture()
+        };
     }
 }

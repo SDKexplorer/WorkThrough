@@ -32,6 +32,7 @@ Read `README.md`, `docs/architecture.md`, and `docs/plan.md` before changing beh
 
 - Enable nullable references and forward cancellation tokens through I/O.
 - Keep persisted schema and API changes additive where practical. Write an ADR for changes to compatibility or delivery guarantees.
+- Follow ADR-021 for upgrades. State whether each migration is additive for older readers; raise `reader_minimum` only when it is not. Ship any change to semantics that all hosts share as a new engine protocol level, keeping the old behaviour until that level is active.
 - Add tests for observable failure modes, especially restarts, multiple independent hosts, expired ownership, and published artifact composition.
 - Never claim a provider is supported based only on compilation or an in-memory substitute.
 - Never claim a runtime is supported based only on adding a TFM. Execute package consumers on the advertised runtime and check the oldest supported compiler for generators.
@@ -39,7 +40,7 @@ Read `README.md`, `docs/architecture.md`, and `docs/plan.md` before changing beh
 - Do not log full payloads by default. HTML-encode untrusted dashboard text and protect dashboard endpoints through host authorization.
 - Follow ADR-007 for dashboard security work: reuse host identity, derive actors from trusted server context, enforce action/resource permissions on the server, and commit administrative changes with their audit records atomically. Preserve permission separation and the same-transaction audit/command receipt invariant.
 - Keep README/plan status honest: implemented, verified, experimental, and planned are different.
-- Angular is the accepted dashboard frontend. The live Angular entry point must only display real API data. Keep archived concept fixtures isolated and unreachable from the production entry point. Build static assets before .NET packaging so NuGet consumers do not need Node.
+- Angular is the accepted dashboard frontend. The Angular console must only display real API data; do not add fictional fixtures to it. Build static assets before .NET packaging so NuGet consumers do not need Node.
 - Do not publish packages or choose a project license without an explicit maintainer decision.
 
 ## Verification

@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../WorkThrough.Storage.Relational/WorkThrough.Storage.Relational.csproj" />
     <ProjectReference Include="../WorkThrough.Hosting/WorkThrough.Hosting.csproj" />
-    <PackageReference Include="Npgsql" Version="10.0.3" />
+    <!-- The lowest supported version, so applications on EF Core 8 and its Npgsql 8 provider can use this package too. -->
+    <PackageReference Include="Npgsql" Version="8.0.9" />
   </ItemGroup>
 </Project>

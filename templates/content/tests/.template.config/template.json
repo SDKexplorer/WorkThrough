@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "WorkThrough contributors",
+  "classifications": ["Test", "xUnit", "Background jobs"],
+  "identity": "WorkThrough.Templates.Tests",
+  "name": "WorkThrough tests",
+  "description": "xUnit tests for WorkThrough jobs and flows: a flow's logic with stubbed jobs, on the real engine in a throwaway PostgreSQL schema (set WORKTHROUGH_TEST_POSTGRES).",
+  "shortName": "workthrough-tests",
+  "sourceName": "WorkThroughTests",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "project" },
+  "symbols": {
+    "WorkThroughVersion": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "0.1.0-alpha.1",
+      "replaces": "WORKTHROUGH_VERSION",
+      "description": "The WorkThrough package version."
+    }
+  },
+  "primaryOutputs": [{ "path": "WorkThroughTests.csproj" }]
+}

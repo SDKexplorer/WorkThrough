@@ -11,8 +11,8 @@
         </div>
         <p class="nav-label">WORKSPACE</p>
         <nav aria-label="Console sections">
-            @if (can('executions.read')) { @for (item of ['executions', 'definitions', 'schedules',
-            'workers', 'archives']; track item) {
+            @if (can(permission.ReadExecutions)) { @for (item of storeWide() ? ['executions',
+            'definitions', 'schedules', 'workers', 'archives'] : ['executions']; track item) {
             <button
                 type="button"
                 [attr.aria-current]="section() === item ? 'page' : null"
@@ -22,7 +22,7 @@
                 : item === 'workers' ? 'Workers & capacity' : item === 'archives' ? 'Archives' :
                 'Executions' }}
             </button>
-            } } @if (can('audit.read')) {
+            } } @if (storeWide() && can(permission.ReadAudit)) {
             <button
                 type="button"
                 [attr.aria-current]="section() === 'audit' ? 'page' : null"
@@ -33,10 +33,14 @@
             }
         </nav>
         <div class="live-sidebar-bottom">
-            <span class="muted">{{ user() }}</span
-            ><button class="outline" type="button" (click)="light.set(!light())">
-                {{ light() ? 'Dark appearance' : 'Light appearance' }}</button
-            ><small class="muted">WorkThrough · alpha</small>
+            <span class="muted">{{ user() }}</span>
+            @if (tenants(); as visible) {
+            <small class="muted">Tenants: {{ visible.join(', ') || 'none' }}</small>
+            }
+            <button class="outline" type="button" (click)="toggleAppearance()">
+                {{ light() ? 'Dark appearance' : 'Light appearance' }}
+            </button>
+            <small class="muted">WorkThrough · alpha</small>
         </div>
     </aside>
     <main id="live-content" class="live-main">
@@ -65,17 +69,58 @@
         </header>
         @if (error()) {
         <p class="live-alert" role="alert">{{ error() }} Displayed data may be stale.</p>
-        } @if (can('executions.read')) {
+        } @if (storeWide() && can(permission.ReadExecutions)) {
         <section class="live-metrics" aria-label="Stored job totals">
-            @for (state of ['Queued', 'Running', 'Succeeded', 'Failed']; track state) {
+            @for (total of totals(); track total.label) {
             <article>
-                <span class="muted">{{ state }}</span
-                ><strong>{{ stats().counts[state] ?? 0 }}</strong
-                ><small class="muted">Current stored jobs</small>
+                <span class="muted">{{ total.label }}</span><strong>{{ total.count }}</strong
+                ><small class="muted">{{ total.detail }}</small>
             </article>
             }
         </section>
-        } @if (section() === 'executions' && can('executions.read')) {
+        @if (metrics(); as window) {
+        <section class="live-panel" aria-label="Attempt metrics">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Attempt metrics · last hour</h2>
+                    <p class="muted">
+                        {{ window.from | date:'mediumTime' }} – {{ window.until | date:'mediumTime'
+                        }} · Archived attempts excluded
+                    </p>
+                </div>
+            </div>
+            <div class="live-metrics">
+                <article>
+                    <span class="muted">Successful attempts</span
+                    ><strong>{{ window.succeededAttempts }}</strong
+                    ><small class="muted"
+                        >{{ window.successfulAttemptsPerSecond | number:'1.0-2' }} per second</small
+                    >
+                </article>
+                <article>
+                    <span class="muted">Failed attempts</span
+                    ><strong>{{ window.failedAttempts }}</strong
+                    ><small class="muted">Includes subsequently recovered jobs</small>
+                </article>
+                <article>
+                    <span class="muted">Mean duration</span
+                    ><strong
+                        >{{ window.meanDurationMilliseconds === null ? '—' :
+                        (window.meanDurationMilliseconds | number:'1.0-0') + ' ms' }}</strong
+                    ><small class="muted">Finished attempts in this window</small>
+                </article>
+                <article>
+                    <span class="muted">Longest duration</span
+                    ><strong
+                        >{{ window.maximumDurationMilliseconds === null ? '—' :
+                        (window.maximumDurationMilliseconds | number:'1.0-0') + ' ms' }}</strong
+                    ><small class="muted">Finished attempts in this window</small>
+                </article>
+            </div>
+        </section>
+        } @else if (metricsError()) {
+        <p class="muted" role="status">{{ metricsError() }}</p>
+        } } @if (section() === 'executions' && can(permission.ReadExecutions)) {
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
@@ -176,6 +221,11 @@
                     <p class="eyebrow">EXECUTION INSPECTOR</p>
                     <h2>{{ detail.job.contract.key }}</h2>
                     <code class="muted">{{ detail.job.id }}</code>
+                    @if (detail.job.partitionKey) {
+                    <p class="muted">Partition <code>{{ detail.job.partitionKey }}</code></p>
+                    } @if (detail.job.tenantId) {
+                    <p class="muted">Tenant <code>{{ detail.job.tenantId }}</code></p>
+                    }
                 </div>
                 <span class="badge" [attr.data-status]="detail.job.status"
                     >{{ detail.job.status }}</span
@@ -189,8 +239,8 @@
             @if (flow(); as flow) {
             <div class="live-graph-header">
                 <strong>{{ flow.flow.flowKey }} · v{{ flow.flow.version }}</strong
-                ><span class="badge">{{ flow.flow.status }}</span>@if (can('flows.recover') &&
-                ['Running', 'Paused'].includes(flow.flow.status)) {
+                ><span class="badge">{{ flow.flow.status }}</span>@if (can(permission.RecoverFlows)
+                && ['Running', 'Paused'].includes(flow.flow.status)) {
                 <button
                     class="outline"
                     (click)="flowAction(flow.flow.status === 'Paused' ? 'resume' : 'pause')"
@@ -205,7 +255,27 @@
                 [selected]="detail.job.stepId"
                 (choose)="inspectStep($event)"
             />
-            }
+            @if (flow.flow.parentJobId || flow.flow.forkedFromRunId || flow.children.length) {
+            <div class="live-graph-header">
+                @if (flow.flow.forkedFromRunId) {
+                <button class="outline" (click)="inspectFirstJob(flow.flow.forkedFromRunId)">
+                    Forked from
+                </button>
+                } @if (flow.flow.parentJobId) {
+                <button
+                    class="outline"
+                    (click)="inspectRun(flow.flow.parentJobId, flow.flow.parentRunId)"
+                >
+                    Parent flow
+                </button>
+                } @for (child of flow.children; track child.run.id) {
+                <button class="outline" (click)="inspectRun(child.jobId, child.run.id)">
+                    {{ child.run.flowKey }} · v{{ child.run.version }}
+                    <span class="badge">{{ child.run.status }}</span>
+                </button>
+                }
+            </div>
+            } }
             <div class="live-inspector-body">
                 <section>
                     <h3>Attempt history</h3>
@@ -232,6 +302,12 @@
                         <summary>Input</summary>
                         <pre>{{ detail.payload | json }}</pre>
                     </details>
+                    @if (detail.originalPayload) {
+                    <details>
+                        <summary>Original input, before correction</summary>
+                        <pre>{{ detail.originalPayload | json }}</pre>
+                    </details>
+                    }
                     <details>
                         <summary>Output</summary>
                         <pre>{{ detail.output | json }}</pre>
@@ -252,20 +328,34 @@
                 </section>
             </div>
             <div class="live-actions">
-                @if (can('jobs.retry') && !detail.job.workflowRunId &&
+                @if (can(permission.RetryJobs) && !detail.job.workflowRunId &&
                 ['Failed','Cancelled'].includes(detail.job.status)) {
                 <button class="primary" (click)="openAction('retry', detail.job)">Retry job</button>
-                } @if (can('flows.recover') && flow()?.flow?.status === 'Incident' &&
+                } @if (can(permission.RecoverFlows) && flow()?.flow?.status === 'Incident' &&
                 ['Failed','Cancelled','Rejected','Expired'].includes(detail.job.status)) {
                 <button class="primary" (click)="openAction('recover', detail.job)">
                     Recover failed step
                 </button>
-                } @if (can('jobs.cancel') &&
+                } @if (can(permission.RecoverFlows) && detail.job.stepId && flow() &&
+                ['Succeeded','Failed','Incident'].includes(flow()!.flow.status) &&
+                !detail.job.stepId.includes('[') && !detail.job.stepId.includes(':')) {
+                <button class="outline" (click)="openFork(flow()!, detail.job.stepId)">
+                    Fork from this step
+                </button>
+                } @if (can(permission.CorrectInputs) && detail.sensitive && ![signalProcessorKey,
+                childFlowProcessorKey].includes(detail.job.contract.key) &&
+                ['Failed','Cancelled','Rejected','Expired'].includes(detail.job.status) &&
+                (!detail.job.workflowRunId || flow()?.flow?.status === 'Incident')) {
+                <button class="outline" (click)="openCorrection(detail.job, detail.payload)">
+                    Correct input
+                </button>
+                } @if (can(permission.CancelJobs) &&
                 ['Waiting','Queued','Running','AwaitingSignal'].includes(detail.job.status)) {
                 <button class="outline" (click)="openAction('cancel', detail.job)">
                     Cancel job
                 </button>
-                } @if (can('jobs.replay') && detail.job.contract.key !== 'workthrough.signal' &&
+                } @if (can(permission.ReplayJobs) && detail.job.contract.key !== signalProcessorKey
+                &&
                 ['Succeeded','Failed','Cancelled','Rejected','Expired','Skipped'].includes(detail.job.status))
                 {
                 <button class="outline" (click)="openAction('replay', detail.job)">
@@ -297,7 +387,7 @@
                     <h2>Flow definitions</h2>
                     <p class="muted">Drafts cannot run. Published versions stay immutable.</p>
                 </div>
-                @if (can('definitions.edit')) {
+                @if (can(permission.EditDefinitions)) {
                 <button class="primary" (click)="openFlowEditor()">
                     {{ draftEditor() ? 'Close editor' : 'Draft editor' }}
                 </button>
@@ -347,7 +437,8 @@
                             <td>{{ definition.revision }}</td>
                             <td>{{ definition.graph.steps.length }}</td>
                             <td>
-                                @if (definition.status === 'Draft' && can('definitions.publish')) {
+                                @if (definition.status === 'Draft' &&
+                                can(permission.PublishDefinitions)) {
                                 <button
                                     class="outline"
                                     (click)="definitionAction('publish', definition)"
@@ -355,7 +446,7 @@
                                     Publish
                                 </button>
                                 } @if (definition.status === 'Published' &&
-                                can('definitions.retire')) {
+                                can(permission.RetireDefinitions)) {
                                 <button
                                     class="outline"
                                     (click)="definitionAction('retire', definition)"
@@ -384,7 +475,7 @@
                         intact.
                     </p>
                 </div>
-                @if (can('schedules.manage')) {
+                @if (can(permission.ManageSchedules)) {
                 <button class="primary" (click)="openScheduleEditor()">
                     {{ draftEditor() ? 'Close editor' : 'New schedule draft' }}
                 </button>
@@ -430,7 +521,11 @@
                                 <code>{{ schedule.cron }}</code
                                 ><small class="muted"
                                     >{{ schedule.timeZone }} · {{ schedule.overlap }}</small
+                                >@if (schedule.calendars?.length) {
+                                <small class="muted"
+                                    >Skips {{ schedule.calendars!.join(', ') }}</small
                                 >
+                                }
                             </td>
                             <td>
                                 <span class="badge" [attr.data-status]="schedule.status"
@@ -442,7 +537,8 @@
                                 date:'medium') : '—' }}
                             </td>
                             <td>
-                                @if (can('schedules.manage')) { @if (schedule.status === 'Draft') {
+                                @if (can(permission.ManageSchedules)) { @if (schedule.status ===
+                                'Draft') {
                                 <button
                                     class="outline"
                                     (click)="scheduleAction('publish',schedule)"
@@ -471,7 +567,110 @@
                 </table>
             </div>
         </section>
-        } @if (section() === 'workers') { @if (deployment(); as report) {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Calendars</h2>
+                    <p class="muted">
+                        Times that schedules naming a calendar skip. Saving one moves those
+                        schedules' next occurrences at once.
+                    </p>
+                </div>
+                @if (can(permission.ManageSchedules)) {
+                <button
+                    class="primary"
+                    (click)="calendarEditor() ? calendarEditor.set(false) : editCalendar()"
+                >
+                    {{ calendarEditor() ? 'Close editor' : 'New calendar' }}
+                </button>
+                }
+            </div>
+            @if (calendarEditor()) {
+            <div class="live-editor">
+                <label
+                    >Name<input
+                        [value]="calendarName()"
+                        [readonly]="calendarRevision() > 0"
+                        (input)="calendarName.set($any($event.target).value)" /></label
+                ><label for="calendar-json">Calendar JSON</label
+                ><textarea
+                    id="calendar-json"
+                    rows="10"
+                    [value]="calendarJson()"
+                    (input)="calendarJson.set($any($event.target).value)"
+                ></textarea
+                ><button class="primary" (click)="saveCalendar()">Save calendar</button>
+            </div>
+            }
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Calendar</th>
+                            <th>Skips</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (calendar of calendars(); track calendar.name) {
+                        <tr>
+                            <td>
+                                <strong>{{ calendar.name }}</strong
+                                ><small class="muted">Revision {{ calendar.revision }}</small>
+                            </td>
+                            <td><code>{{ calendar.calendar | json }}</code></td>
+                            <td>
+                                @if (can(permission.ManageSchedules)) {
+                                <button class="outline" (click)="editCalendar(calendar)">
+                                    Edit
+                                </button>
+                                <button class="outline" (click)="deleteCalendar(calendar)">
+                                    Delete
+                                </button>
+                                }
+                            </td>
+                        </tr>
+                        } @empty {
+                        <tr>
+                            <td colspan="3" class="live-empty">
+                                No calendars. A schedule names one with
+                                <code>ExcludingCalendar("holidays")</code>.
+                            </td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        } @if (section() === 'workers') { @if (protocol(); as engine) {
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Engine protocol</h2>
+                    <p class="muted">
+                        Shared execution semantics every worker must understand. A higher level
+                        activates once no older worker is live or holds a lease.
+                    </p>
+                </div>
+                <span class="badge" [class.failed]="engine.active > engine.supported"
+                    >Level {{ engine.active }}</span
+                >
+            </div>
+            @if (engine.active > engine.supported) {
+            <p class="live-alert" role="alert">
+                The store requires level {{ engine.active }}; this console understands {{
+                engine.supported }}. Upgrade this host.
+            </p>
+            } @else if (engine.blockers.length) {
+            <p class="muted">
+                Level {{ engine.supported }} waits for these workers to upgrade or stop:
+                <code>{{ engine.blockers.join(', ') }}</code>
+            </p>
+            } @else {
+            <p class="muted">Every live worker runs at the active level.</p>
+            }
+        </section>
+        } @if (deployment(); as report) {
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
@@ -563,6 +762,8 @@
                             <th>Queues</th>
                             <th>Processors</th>
                             <th>Admission</th>
+                            <th>Engine</th>
+                            <th>Acquisition health</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -578,24 +779,37 @@
                                 <small
                                     >{{ processorName(worker, processor) }} · v{{ processor.version
                                     }}</small
-                                ><small class="muted">{{ processor.key }}</small> }
+                                ><small class="muted">{{ processor.key }}</small>
+                                @if (upcastTarget(worker, processor); as target) {
+                                <small class="muted">runs as v{{ target.version }}</small>
+                                } }
                             </td>
                             <td>
                                 <span class="badge"
                                     >{{ workerControl(worker.workerId).draining ? 'Draining' :
                                     'Accepting' }}</span
                                 >
-                                @if (can('workers.manage')) {
+                                @if (can(permission.ManageWorkers)) {
                                 <button class="outline" (click)="workerAction(worker.workerId)">
                                     {{ workerControl(worker.workerId).draining ? 'Resume' : 'Drain'
                                     }}
                                 </button>
                                 }
                             </td>
+                            <td>Level {{ worker.protocol ?? 1 }}</td>
+                            <td>
+                                {{ acquisitionStatus(worker) }} @if
+                                (worker.acquisition?.lastSucceededAt) {
+                                <small class="muted"
+                                    >{{ worker.acquisition!.lastSucceededAt | date:'mediumTime'
+                                    }}</small
+                                >
+                                }
+                            </td>
                         </tr>
                         } @empty {
                         <tr>
-                            <td colspan="6" class="live-empty">No worker heartbeats recorded.</td>
+                            <td colspan="8" class="live-empty">No worker heartbeats recorded.</td>
                         </tr>
                         }
                     </tbody>
@@ -619,6 +833,37 @@
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
+                    <h2>Keyed and rate limits</h2>
+                    <p class="muted">
+                        Keyed limits cap running attempts per partition key or tenant. Rate limits
+                        cap starts per window.
+                    </p>
+                </div>
+            </div>
+            <div class="live-limits">
+                @for (limit of admission().keyedLimits; track limit.scope + ':' + limit.jobKey) {
+                <article>
+                    <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
+                    ><strong>{{ limit.maximumPerKey }}</strong
+                    ><small class="muted">Running per {{ keyScopeLabel(limit.scope) }}</small>
+                </article>
+                } @for (limit of admission().rateLimits; track limit.jobKey + ':' + limit.perKey) {
+                <article>
+                    <span class="muted">{{ limit.jobKey ?? 'All processors' }}</span
+                    ><strong>{{ limit.permits }}</strong
+                    ><small class="muted"
+                        >Starts per {{ duration(limit.window) }}{{ limit.perKey ? ' per ' +
+                        keyScopeLabel(limit.perKey) : '' }}</small
+                    >
+                </article>
+                } @if (!admission().keyedLimits.length && !admission().rateLimits.length) {
+                <p class="muted">No keyed or rate limits configured.</p>
+                }
+            </div>
+        </section>
+        <section class="live-panel">
+            <div class="live-panel-heading">
+                <div>
                     <h2>Queue admission</h2>
                     <p class="muted">Pausing stops new attempts. Running processors can finish.</p>
                 </div>
@@ -629,6 +874,7 @@
                         <tr>
                             <th>Queue</th>
                             <th>State</th>
+                            <th>Weight</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -637,8 +883,9 @@
                         <tr>
                             <td><code>{{ queue.queue }}</code></td>
                             <td>{{ queue.paused ? 'Paused' : 'Accepting' }}</td>
+                            <td>{{ queue.weight }}</td>
                             <td>
-                                @if (can('queues.manage')) {
+                                @if (can(permission.ManageQueues)) {
                                 <button class="outline" (click)="queueAction(queue)">
                                     {{ queue.paused ? 'Resume' : 'Pause' }}
                                 </button>
@@ -647,14 +894,97 @@
                         </tr>
                         } @empty {
                         <tr>
-                            <td colspan="3" class="live-empty">No queues observed.</td>
+                            <td colspan="4" class="live-empty">No queues observed.</td>
                         </tr>
                         }
                     </tbody>
                 </table>
             </div>
         </section>
-        } @if (section() === 'archives') {
+        } @if (section() === 'archives') { @if (retentionError()) {
+        <p class="live-alert" role="status">{{ retentionError() }}</p>
+        } @if (retention(); as maintenance) {
+        <section class="live-panel" aria-label="Automatic retention">
+            <div class="live-panel-heading">
+                <div>
+                    <h2>Automatic retention</h2>
+                    @if (maintenance.lastFailureCode) {
+                    <p class="live-alert">
+                        {{ label(maintenance.lastFailureCode) }} · {{ maintenance.lastFailureAt |
+                        date:'medium' }}
+                    </p>
+                    }
+                    <p class="muted">
+                        {{ maintenance.configuration?.policy?.enabled ? 'Enabled' : 'Disabled' }} ·
+                        {{ maintenance.maintenanceActive ? 'Batch in progress' :
+                        maintenance.pendingBatchId ? 'Batch awaiting recovery' : 'No active batch'
+                        }}
+                    </p>
+                </div>
+            </div>
+            <div class="live-panel-heading">
+                <div>
+                    @if (maintenance.configuration; as configuration) {
+                    <p>
+                        Policy revision {{ configuration.revision }} · Up to {{
+                        configuration.policy.batchSize }} units per batch
+                    </p>
+                    <p class="muted">
+                        Archive successful work after {{ configuration.policy.succeededAfter }}.
+                        Failure retention: {{ configuration.policy.failedAfter ?? 'Indefinite' }}.
+                    </p>
+                    <p class="muted">
+                        Body purge: {{ configuration.policy.purgeAfter ?? 'Disabled' }} · Verified
+                        destination: {{ configuration.policy.exportDestination ?? 'None' }}
+                    </p>
+                    } @else {
+                    <p class="muted">
+                        No automatic policy is configured. Manual archival remains available.
+                    </p>
+                    }
+                    <p>
+                        {{ maintenance.heldUnits }} held units · {{ maintenance.incidentCount }}
+                        maintenance incidents
+                    </p>
+                    @if (maintenance.lastBatch; as batch) {
+                    <p class="muted">
+                        Last batch: {{ batch.completedAt | date:'medium' }} · {{
+                        label(batch.outcome) }} · {{ batch.archived.length }} archived, {{
+                        batch.purged.length }} bodies purged, {{ batch.eventsTrimmed }} events
+                        trimmed
+                    </p>
+                    }
+                    <p class="muted">
+                        Journal retained after {{ maintenance.retainedAfterEvent }} · Latest event
+                        {{ maintenance.lastEventSequence }} · Slowest subscriber {{
+                        maintenance.slowestSubscriberPosition ?? 'None registered' }}
+                    </p>
+                </div>
+            </div>
+            @if (maintenance.incidentExamples.length) {
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Retained unit</th>
+                            <th>Maintenance issue</th>
+                            <th>Observed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (incident of maintenance.incidentExamples; track incident.unitId) {
+                        <tr>
+                            <td><code>{{ incident.unitId }}</code></td>
+                            <td>{{ label(incident.code) }}</td>
+                            <td>{{ incident.at | date:'medium' }}</td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            }
+        </section>
+        }
         <section class="live-panel">
             <div class="live-panel-heading">
                 <div>
@@ -673,7 +1003,7 @@
                         placeholder="All correlations" /></label
                 ><button class="outline" (click)="applyFilters()">Filter</button>
             </div>
-            @if (can('archives.manage')) {
+            @if (can(permission.ManageArchives)) {
             <div class="live-filters">
                 <label
                     >Succeeded before (UTC)<input
@@ -720,7 +1050,7 @@
                             <td>{{ archive.archivedAt | date:'medium' }}</td>
                             <td>{{ archive.jobs }}</td>
                             <td>
-                                @if (can('payloads.read') && archive.bodyAvailable) {
+                                @if (can(permission.ReadPayloads) && archive.bodyAvailable) {
                                 <a
                                     class="outline"
                                     [href]="base + '/api/archives/' + archive.id + '/export'"
@@ -796,6 +1126,17 @@
     >
         <h2 id="command-title">{{ pending()?.title }}</h2>
         <p class="muted">This action records your identity and reason in the audit trail.</p>
+        @if (pending()?.input !== undefined) {
+        <label for="command-input">Input (JSON)</label
+        ><textarea
+            id="command-input"
+            rows="10"
+            spellcheck="false"
+            [disabled]="!!pending()?.command"
+            [value]="inputJson()"
+            (input)="inputJson.set($any($event.target).value)"
+        ></textarea>
+        }
         <label for="command-reason">Reason</label
         ><textarea
             id="command-reason"

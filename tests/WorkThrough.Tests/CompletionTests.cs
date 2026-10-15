@@ -19,11 +19,11 @@ public sealed class CompletionTests
         var store = harness.Store;
         var client = new JobClient(store);
         var id = await client.EnqueueAsync(Work, new Alpha("work"));
-        await store.SetQueuePausedAsync("default", true, 0, Command());
+        await store.SetQueuePausedAsync("default", true, 0, Command()).SucceedsAsync();
         Assert.Null(await store.ClaimAsync(Claim()));
-        await store.SetQueuePausedAsync("default", false, 1, Command());
+        await store.SetQueuePausedAsync("default", false, 1, Command()).SucceedsAsync();
         var first = (await store.ClaimAsync(Claim()))!;
-        await store.SetWorkerDrainingAsync("worker", true, 0, Command());
+        await store.SetWorkerDrainingAsync("worker", true, 0, Command()).SucceedsAsync();
         Assert.True(await store.CompleteAsync(id, first.LeaseToken!.Value, JobResult.Defer(TimeSpan.FromMilliseconds(10), "Wait for capacity")));
         await Task.Delay(30);
         Assert.Null(await store.ClaimAsync(Claim()));
@@ -33,7 +33,7 @@ public sealed class CompletionTests
         Assert.True(await store.CompleteAsync(id, next.LeaseToken!.Value, JobResult.Reject("Invalid business request")));
         Assert.Equal(JobStatus.Rejected, (await store.GetAsync(id))!.Status);
         Assert.Null(await store.ClaimAsync(Claim("replacement")));
-        var replay = await store.ReplayAsync(id, Command());
+        var replay = await store.ReplayAsync(id, Command()).SucceedsAsync();
         Assert.NotEqual(id, replay);
         Assert.Equal(id, (await store.GetAsync(replay))!.CausationJobId);
         await store.CancelAsync(replay);
@@ -41,8 +41,8 @@ public sealed class CompletionTests
         Assert.Null(await store.ClaimAsync(Claim("replacement")));
         Assert.Equal(JobStatus.Expired, (await store.GetAsync(expired))!.Status);
         Assert.Empty(await store.AttemptsAsync(expired));
-        Assert.Equal(["Deferred", "Rejected"], (await store.AttemptsAsync(id)).Select(a => a.Status));
-        await store.SetWorkerDrainingAsync("worker", false, 1, Command());
+        Assert.Equal([AttemptStatus.Deferred, AttemptStatus.Rejected], (await store.AttemptsAsync(id)).Select(a => a.Status));
+        await store.SetWorkerDrainingAsync("worker", false, 1, Command()).SucceedsAsync();
         var audit = await store.AuditAsync();
         Assert.Contains(audit, entry => entry.Action == "queues.pause" && entry.Target == "default");
         Assert.Contains(audit, entry => entry.Action == "queues.resume" && entry.Target == "default");
@@ -74,7 +74,7 @@ public sealed class CompletionTests
         await resumed.CompleteAsync(finish.Id, finish.LeaseToken!.Value, JobResult.Done());
         Assert.True(await client.SignalAsync(run, Approval, new Alpha("accepted"), "receipt"));
         await Assert.ThrowsAsync<StateConflictException>(() => client.SignalAsync(run, Approval, new Alpha("different"), "receipt"));
-        Assert.Equal("Succeeded", (await store.GetWorkflowAsync(run))!.Status);
+        Assert.Equal(FlowStatus.Succeeded, (await store.GetWorkflowAsync(run))!.Status);
     }
 
     [Theory, MemberData(nameof(Providers))]
@@ -88,13 +88,13 @@ public sealed class CompletionTests
         });
         await Task.Delay(30);
         await store.DispatchSignalsAsync();
-        Assert.Equal("Incident", (await store.GetWorkflowAsync(run))!.Status);
+        Assert.Equal(FlowStatus.Incident, (await store.GetWorkflowAsync(run))!.Status);
         var wait = Assert.Single(await store.ListFlowJobsAsync(run));
         Assert.Equal(JobStatus.Expired, wait.Status);
         await new WorkflowClient(store).SignalAsync(run, Approval, new Alpha("late"), "late-signal");
         Assert.Equal(JobStatus.Expired, (await store.GetAsync(wait.Id))!.Status);
-        await store.RecoverStepAsync(wait.Id, 0, Command());
-        Assert.Equal("Succeeded", (await store.GetWorkflowAsync(run))!.Status);
+        await store.RecoverStepAsync(wait.Id, 0, Command()).SucceedsAsync();
+        Assert.Equal(FlowStatus.Succeeded, (await store.GetWorkflowAsync(run))!.Status);
         Assert.Empty(await store.AttemptsAsync(wait.Id));
     }
 
@@ -121,9 +121,9 @@ public sealed class CompletionTests
         var policy = new ArchivePolicy(DateTimeOffset.UtcNow.AddMinutes(1));
         Assert.Equal(2, (await store.ArchiveCandidatesAsync(policy)).Count);
         var command = Command();
-        var archived = await store.ArchiveCompletedAsync(policy, command);
+        var archived = await store.ArchiveCompletedAsync(policy, command).SucceedsAsync();
         Assert.Equal(2, archived.Count);
-        Assert.Equal(archived, await store.ArchiveCompletedAsync(policy, command));
+        Assert.Equal(archived, await store.ArchiveCompletedAsync(policy, command).SucceedsAsync());
         Assert.NotNull(await store.GetAsync(active));
         Assert.Null(await store.GetAsync(id));
         Assert.Empty(await store.ListFlowJobsAsync(run));
@@ -136,8 +136,8 @@ public sealed class CompletionTests
         Assert.Equal(run, await new WorkflowClient(store).StartAsync(flow, new
         {
         }, null, "flow-receipt"));
-        await Assert.ThrowsAsync<StateConflictException>(() => store.PurgeArchiveAsync(run, "incorrect", Command()));
-        Assert.True(await store.PurgeArchiveAsync(run, exported.Summary.Sha256, Command()));
+        await store.PurgeArchiveAsync(run, "incorrect", Command()).FailsAsync(ErrorType.Conflict);
+        Assert.True(await store.PurgeArchiveAsync(run, exported.Summary.Sha256, Command()).SucceedsAsync());
         Assert.Null(await store.ExportArchiveAsync(run));
         Assert.Equal(2, (await store.ArchivesAsync()).Count);
         Assert.Equal(run, await new WorkflowClient(store).StartAsync(flow, new
@@ -150,12 +150,7 @@ public sealed class CompletionTests
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
         var store = harness.Store;
-        await store.InTransactionAsync(async (connection, transaction, _, ct) =>
-        {
-            await ExecuteAsync(connection, transaction, "CREATE TABLE business_orders(id INTEGER PRIMARY KEY)", ct);
-
-            return true;
-        });
+        await harness.ExecuteAsync("CREATE TABLE business_orders(id INTEGER PRIMARY KEY)");
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.InTransactionAsync<bool>(async (connection, transaction, jobs, ct) =>
         {
             await ExecuteAsync(connection, transaction, "INSERT INTO business_orders(id) VALUES (1)", ct);

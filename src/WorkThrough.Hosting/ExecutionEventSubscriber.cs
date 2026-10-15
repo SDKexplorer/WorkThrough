@@ -11,10 +11,13 @@ internal sealed class ExecutionEventSubscriber<THandler>(string name, long start
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            var caughtUp = true;
             try
             {
                 var cursor = await events.SubscribeAsync(name, startAfter, stoppingToken);
-                foreach (var entry in await events.ReadEventsAsync(cursor, cancellationToken: stoppingToken))
+                var batch = await events.ReadEventsAsync(cursor, DispatchLoop.BatchSize, stoppingToken);
+                caughtUp = batch.Count < DispatchLoop.BatchSize;
+                foreach (var entry in batch)
                 {
                     await using var scope = scopes.CreateAsyncScope();
                     await scope.ServiceProvider.GetRequiredService<THandler>().HandleAsync(entry, stoppingToken);
@@ -33,9 +36,14 @@ internal sealed class ExecutionEventSubscriber<THandler>(string name, long start
             catch (Exception exception)
             {
                 logger.LogError(exception, "Subscription {Subscriber} did not advance; delivery will be retried", name);
+                caughtUp = true;
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            // A full batch means more events are waiting; read them now instead of after the next interval.
+            if (caughtUp)
+            {
+                await Task.Delay(WorkThroughBuilder.DispatchInterval, stoppingToken);
+            }
         }
     }
 }

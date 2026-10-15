@@ -517,6 +517,10 @@
     stroke: var(--muted);
     stroke-width: 1.5;
 }
+.saved-edge.failure-edge {
+    stroke: var(--warning);
+    stroke-dasharray: 5 4;
+}
 .live-console .saved-node {
     position: absolute;
     width: 240px;

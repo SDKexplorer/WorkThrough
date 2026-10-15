@@ -4,16 +4,27 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore : IExecutionEvents
 {
-    public async Task<EventPosition> EventPositionAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = await OpenAsync(cancellationToken);
+    private const string EventPositionSql = "SELECT value,floor FROM dj_event_sequence WHERE id=1";
+    private const int MaximumEventPage = 500;
+    private const int MaximumSubscriberLength = 200;
 
-        return await ReadEventPositionAsync(connection, null, cancellationToken);
+    public Task<EventPosition> EventPositionAsync(CancellationToken cancellationToken = default)
+    {
+        return ReadAsync<EventPosition>(async (connection, transaction, ct) =>
+        {
+            return await ReadEventPositionAsync(connection, transaction, ct);
+        }, cancellationToken);
     }
 
-    private static async Task<EventPosition> ReadEventPositionAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
+    private async Task<EventPosition> ReadEventPositionAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
     {
-        await using var command = Command(connection, transaction, "SELECT value,floor FROM dj_event_sequence WHERE id=1");
+        await using var command = Command(connection, transaction, EventPositionSql);
+
+        return await ReadEventPositionAsync(command, ct);
+    }
+
+    private static async Task<EventPosition> ReadEventPositionAsync(DbCommand command, CancellationToken ct)
+    {
         await using var reader = await command.ExecuteReaderAsync(ct);
         await reader.ReadAsync(ct);
 
@@ -46,34 +57,29 @@ public abstract partial class RelationalJobStore : IExecutionEvents
 
     public async Task<IReadOnlyList<ExecutionEvent>> ReadEventsAsync(long after, int limit = 100, CancellationToken cancellationToken = default)
     {
-        if (after < 0 || limit is < 1 or > 500)
+        ArgumentOutOfRangeException.ThrowIfNegative(after);
+        if (limit is < 1 or > MaximumEventPage)
         {
             throw new ArgumentOutOfRangeException(nameof(limit));
         }
 
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var transaction = await BeginReadAsync(connection, cancellationToken);
-        var position = await ReadEventPositionAsync(connection, transaction, cancellationToken);
-        if (after < position.RetainedAfter)
+        return await ReadAsync<IReadOnlyList<ExecutionEvent>>(async (connection, transaction, ct) =>
         {
-            throw new StateConflictException("Requested events have been trimmed. Resume from an explicit retained position.");
-        }
-
-        var entries = new List<ExecutionEvent>();
-        await using (var command = Command(connection, transaction, "SELECT * FROM dj_events WHERE sequence>@after ORDER BY sequence LIMIT @limit", ("after", after), ("limit", limit)))
-        {
-            await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+            var position = await ReadEventPositionAsync(connection, transaction, ct);
+            if (after < position.RetainedAfter)
             {
-                while (await reader.ReadAsync(cancellationToken))
-                {
-                    entries.Add(new(reader.GetInt64(0), Guid.Parse(reader.GetString(1)), ParseGuid(Text(reader, "run_id")), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3)), reader.GetString(4), reader.GetInt32(5)));
-                }
+                throw new StateConflictException("Requested events have been trimmed. Resume from an explicit retained position.");
             }
-        }
 
-        await transaction.CommitAsync(cancellationToken);
+            List<ExecutionEvent> entries;
+            await using (var command = Command(connection, transaction, $"SELECT {EventColumns} FROM dj_events WHERE sequence>@after ORDER BY sequence {PageSql("@limit")}",
+                ("after", after), ("limit", limit)))
+            {
+                entries = await ReadEventsAsync(command, ct);
+            }
 
-        return entries;
+            return entries;
+        }, cancellationToken);
     }
 
     public Task<bool> AcknowledgeAsync(string subscriber, long expectedSequence, long sequence, CancellationToken cancellationToken = default)
@@ -97,11 +103,8 @@ public abstract partial class RelationalJobStore : IExecutionEvents
         }, cancellationToken);
     }
 
-    public Task<int> TrimEventsAsync(long through, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
-        AdminAsync(command, "events.trim", "event journal", new
-        {
-            through
-        }, async (connection, transaction, ct) =>
+    public Task<Result<int>> TrimEventsAsync(long through, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.TrimEvents, "event journal", Args(("through", through)), async (connection, transaction, ct) =>
         {
             var position = await ReadEventPositionAsync(connection, transaction, ct);
             if (through < position.RetainedAfter || through > position.LastSequence)
@@ -109,24 +112,35 @@ public abstract partial class RelationalJobStore : IExecutionEvents
                 throw new StateConflictException("Invalid trim position.");
             }
 
-            var behind = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_subscriptions WHERE sequence<@through", ct, ("through", through)));
-            var unarchived = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_events e WHERE e.sequence<=@through AND EXISTS (SELECT 1 FROM dj_jobs j WHERE j.id=e.job_id)", ct, ("through", through)));
-            if (behind > 0 || unarchived > 0)
+            var behind = await CountAsync("SELECT COUNT(*) FROM dj_subscriptions WHERE sequence<@through");
+            var unarchived = await CountAsync("SELECT COUNT(*) FROM dj_events e WHERE e.sequence<=@through AND EXISTS (SELECT 1 FROM dj_jobs j WHERE j.id=e.job_id)");
+            var held = await CountAsync("""
+                SELECT COUNT(*) FROM dj_events e WHERE e.sequence<=@through
+                AND EXISTS (SELECT 1 FROM dj_retention_holds h WHERE h.unit_id=COALESCE(e.run_id,e.job_id) AND h.held=1)
+                """);
+            if (behind > 0 || unarchived > 0 || held > 0)
             {
-                throw new StateConflictException("Archive the affected executions and advance every subscriber before trimming.");
+                throw new StateConflictException("Archive the affected executions, release applicable holds and advance every subscriber before trimming.");
             }
 
-            var removed = await ExecuteAsync(connection, transaction, "DELETE FROM dj_events WHERE sequence<=@through", ct, ("through", through));
-            await ExecuteAsync(connection, transaction, "UPDATE dj_event_sequence SET floor=@through WHERE id=1", ct, ("through", through));
+            return await DeleteEventsThroughAsync(connection, transaction, through, ct);
 
-            return removed;
+            async Task<long> CountAsync(string sql) => Convert.ToInt64(await ScalarAsync(connection, transaction, sql, ct, ("through", through)));
         }, cancellationToken);
+
+    private async Task<int> DeleteEventsThroughAsync(DbConnection connection, DbTransaction transaction, long through, CancellationToken ct)
+    {
+        var removed = await ExecuteAsync(connection, transaction, "DELETE FROM dj_events WHERE sequence<=@through", ct, ("through", through));
+        await ExecuteAsync(connection, transaction, "UPDATE dj_event_sequence SET floor=@through WHERE id=1", ct, ("through", through));
+
+        return removed;
+    }
 
     private static void ValidateSubscriber(string subscriber)
     {
-        if (string.IsNullOrWhiteSpace(subscriber) || subscriber.Length > 200)
+        if (string.IsNullOrWhiteSpace(subscriber) || subscriber.Length > MaximumSubscriberLength)
         {
-            throw new ArgumentException("Subscriber names contain 1–200 characters.", nameof(subscriber));
+            throw new ArgumentException($"Subscriber names contain 1–{MaximumSubscriberLength} characters.", nameof(subscriber));
         }
     }
 }

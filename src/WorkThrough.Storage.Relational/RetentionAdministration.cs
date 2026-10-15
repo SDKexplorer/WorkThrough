@@ -1,0 +1,168 @@
+using System.Data.Common;
+using System.Text.Json;
+
+namespace WorkThrough.Storage;
+
+public abstract partial class RelationalJobStore : IRetentionAdministration, IRetentionQueries
+{
+    private const int MaximumIncidentExamples = 100;
+    private const int MaximumDestinationLength = 100;
+    private static readonly TimeSpan MaximumRetention = TimeSpan.FromDays(36500);
+
+    public Task<Result<int>> ConfigureRetentionAsync(RetentionPolicy policy, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.ConfigureRetention, "retention policy", Args(("policy", policy), ("expectedRevision", expectedRevision)), async (connection, transaction, ct) =>
+        {
+            var current = await ReadRetentionPolicyAsync(connection, transaction, ct);
+            if ((current?.Revision ?? 0) != expectedRevision)
+            {
+                throw new StateConflictException("Retention policy changed. Refresh before configuring it.");
+            }
+
+            var revision = checked(expectedRevision + 1);
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_policy", "id,revision,policy", "1,@revision,@policy", "id", "revision,policy"), ct,
+                ("revision", revision), ("policy", JobJson.Serialize(policy)));
+
+            return revision;
+        }, cancellationToken, validate: () => ValidateRetentionPolicy(policy));
+
+    public Task<Result<RetentionHold>> SetRetentionHoldAsync(Guid unitId, bool held, int expectedRevision, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.SetRetentionHold, unitId.ToString(), Args(("held", held), ("expectedRevision", expectedRevision)), async (connection, transaction, ct) =>
+        {
+            var resolved = await ScalarAsync(connection, transaction, "SELECT COALESCE(workflow_run_id,id) FROM dj_jobs WHERE id=@id", ct, ("id", unitId.ToString())) as string ?? unitId.ToString();
+            var exists = Convert.ToInt64(await ScalarAsync(connection, transaction, """
+                SELECT (SELECT COUNT(*) FROM dj_jobs WHERE id=@id)+(SELECT COUNT(*) FROM dj_flows WHERE id=@id)
+                  +(SELECT COUNT(*) FROM dj_archives WHERE id=@id)
+                """, ct, ("id", resolved))) > 0;
+            if (!exists)
+            {
+                throw new MissingStateException("No live or archived retention unit has this ID.");
+            }
+
+            var revision = Convert.ToInt32(await ScalarAsync(connection, transaction, "SELECT revision FROM dj_retention_holds WHERE unit_id=@id", ct, ("id", resolved)) ?? 0);
+            if (revision != expectedRevision)
+            {
+                throw new StateConflictException("Retention hold changed. Refresh before acting.");
+            }
+
+            var next = checked(revision + 1);
+            await ExecuteAsync(connection, transaction, UpsertSql("dj_retention_holds", "unit_id,held,revision", "@id,@held,@revision", "unit_id", "held,revision"), ct,
+                ("id", resolved), ("held", held ? 1 : 0), ("revision", next));
+
+            return new RetentionHold(Guid.Parse(resolved), held, next);
+        }, cancellationToken);
+
+    public Task<Result<bool>> RetryRetentionIncidentAsync(Guid unitId, AdministrativeCommand command, CancellationToken cancellationToken = default) =>
+        AdminAsync(command, AuditActions.RetryRetentionIncident, unitId.ToString(), Args(("unitId", unitId)), async (connection, transaction, ct) =>
+            await ExecuteAsync(connection, transaction, "DELETE FROM dj_retention_incidents WHERE unit_id=@id", ct, ("id", unitId.ToString())) == 1, cancellationToken);
+
+    public async Task<RetentionHold?> FindRetentionHoldAsync(Guid unitId, CancellationToken cancellationToken = default)
+    {
+        return await ReadOperationAsync<RetentionHold?>(async (connection, transaction, ct) =>
+        {
+            await using var command = OperationCommand(connection, transaction, "SELECT held,revision FROM dj_retention_holds WHERE unit_id=@id", ("id", unitId.ToString()));
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+            {
+                return null;
+            }
+
+            return new(unitId, reader.GetInt32(0) == 1, reader.GetInt32(1));
+        }, cancellationToken);
+    }
+
+    public async Task<RetentionStatus> ReadRetentionStatusAsync(CancellationToken cancellationToken = default)
+    {
+        return await ReadOperationAsync<RetentionStatus>(async (connection, transaction, ct) =>
+        {
+            var (storeId, now) = await ReadOperationContextAsync(connection, transaction, ct);
+            var configuration = await ReadRetentionPolicyAsync(connection, transaction, ct);
+            Guid? pending;
+            DateTimeOffset? expires;
+            MaintenanceResult? last;
+            string? failure;
+            DateTimeOffset? failedAt;
+            await using (var command = OperationCommand(connection, transaction, """
+                SELECT m.batch_id,m.lease_expires_at,b.result,m.failure_code,m.failed_at FROM dj_maintenance m
+                LEFT JOIN dj_maintenance_batches b ON b.id=m.last_batch_id WHERE m.id=1
+                """))
+            {
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                await reader.ReadAsync(ct);
+                pending = ParseGuid(Text(reader, "batch_id"));
+                expires = Date(reader, "lease_expires_at");
+                last = reader.IsDBNull(2) ? null : JobJson.Deserialize<MaintenanceResult>(reader.GetString(2));
+                failure = Text(reader, "failure_code");
+                failedAt = Date(reader, "failed_at");
+            }
+
+            var holds = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_holds WHERE held=1", ct));
+            var incidents = Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_incidents", ct));
+            var examples = new List<RetentionIncident>();
+            await using (var command = OperationCommand(connection, transaction, $"SELECT unit_id,code,at FROM dj_retention_incidents ORDER BY at DESC,unit_id {PageSql(MaximumIncidentExamples)}"))
+            {
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    examples.Add(new(Guid.Parse(reader.GetString(0)), reader.GetString(1), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2))));
+                }
+            }
+
+            var position = await ReadEventPositionAsync(connection, transaction, ct);
+            var slowest = await ReadSlowestSubscriberAsync(connection, transaction, ct);
+
+            return new(storeId, now, configuration, pending, expires > now, expires, last, holds, incidents, examples,
+                position.RetainedAfter, position.LastSequence, slowest, failure, failedAt);
+        }, cancellationToken);
+    }
+
+    private async Task<long?> ReadSlowestSubscriberAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
+    {
+        var slowest = await ScalarAsync(connection, transaction, "SELECT MIN(sequence) FROM dj_subscriptions", ct);
+
+        return slowest is null or DBNull ? null : Convert.ToInt64(slowest);
+    }
+
+    private async Task<StoredRetentionPolicy?> ReadRetentionPolicyAsync(DbConnection connection, DbTransaction transaction, CancellationToken ct)
+    {
+        await using var command = OperationCommand(connection, transaction, "SELECT policy,revision FROM dj_retention_policy WHERE id=1");
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
+        {
+            return null;
+        }
+
+        return new(JobJson.Deserialize<RetentionPolicy>(reader.GetString(0))!, reader.GetInt32(1));
+    }
+
+    private async Task RejectHeldArchiveAsync(DbConnection connection, DbTransaction transaction, Guid id, CancellationToken ct)
+    {
+        if (Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COUNT(*) FROM dj_retention_holds WHERE unit_id=@id AND held=1", ct, ("id", id.ToString()))) > 0)
+        {
+            throw new StateConflictException("This archive is on hold. Its evidence must be retained.");
+        }
+    }
+
+    private static void ValidateRetentionPolicy(RetentionPolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        foreach (var duration in new[] { policy.SucceededAfter, policy.FailedAfter, policy.PurgeAfter, policy.EventsAfter })
+        {
+            if (duration is { } value && (value < JobLimits.MinimumDelay || value > MaximumRetention))
+            {
+                throw new ArgumentOutOfRangeException(nameof(policy), "Retention durations must be between one millisecond and 100 years.");
+            }
+        }
+
+        if (policy.BatchSize is < 1 or > ArchivePolicy.MaximumBatchSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(policy), $"A maintenance batch contains 1–{ArchivePolicy.MaximumBatchSize} units.");
+        }
+
+        if ((policy.PurgeAfter is null) != (policy.ExportDestination is null)
+            || policy.ExportDestination is { } destination && (string.IsNullOrWhiteSpace(destination) || destination.Length > MaximumDestinationLength))
+        {
+            throw new ArgumentException(
+                $"Automatic purge needs an explicit export destination of 1–{MaximumDestinationLength} characters and a separate retention duration.", nameof(policy));
+        }
+    }
+}

@@ -5,97 +5,85 @@ namespace WorkThrough.Storage;
 
 public abstract partial class RelationalJobStore
 {
-    private static async Task EnsureArchiveFitsAsync(DbConnection connection, DbTransaction transaction, ArchiveCandidate candidate, string predicate, CancellationToken ct)
+    private const int MaximumArchiveJobs = 500;
+    private const long MaximumArchiveEvidenceBytes = 8_000_000;
+    private const long MaximumArchiveRows = 10_000;
+
+    private static string ArchivePredicate(ArchiveKind kind) => kind == ArchiveKind.Flow ? "workflow_run_id=@id" : "id=@id";
+
+    /// <summary>Rejects a unit whose evidence cannot be archived within one bounded batch, before anything is written.</summary>
+    private async Task EnsureArchiveFitsAsync(DbConnection connection, DbTransaction transaction, ArchiveCandidate candidate, CancellationToken ct)
     {
-        var size = Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM(LENGTH(payload)+LENGTH(COALESCE(output,''))),0) FROM dj_jobs WHERE {predicate}", ct, ("id", candidate.Id.ToString())));
-        size += Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM(LENGTH(exception_type)+LENGTH(message)+LENGTH(COALESCE(stack_trace,''))),0) FROM dj_failures WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));
-        size += Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COALESCE(SUM(LENGTH(COALESCE(error,''))+LENGTH(COALESCE(handler,''))),0) FROM dj_attempts WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));
-        if (candidate.Kind == "Flow")
+        if (candidate.Jobs > MaximumArchiveJobs)
         {
-            size += Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT LENGTH(f.input)+LENGTH(d.definition) FROM dj_flows f JOIN dj_definitions d ON f.flow_key=d.flow_key AND f.version=d.version WHERE f.id=@id", ct, ("id", candidate.Id.ToString())));
-            size += Convert.ToInt64(await ScalarAsync(connection, transaction, "SELECT COALESCE(SUM(LENGTH(payload)),0) FROM dj_signals WHERE run_id=@id", ct, ("id", candidate.Id.ToString())));
+            throw new StateConflictException($"Archive exceeds the {MaximumArchiveJobs}-job evidence limit; export this execution separately.");
         }
 
-        var attemptCount = Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COUNT(*) FROM dj_attempts WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));
-        var eventCount = Convert.ToInt64(await ScalarAsync(connection, transaction, $"SELECT COUNT(*) FROM dj_events WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate})", ct, ("id", candidate.Id.ToString())));
-        if (size > 8_000_000 || attemptCount > 10000 || eventCount > 10000)
+        var jobs = $"SELECT id FROM dj_jobs WHERE {ArchivePredicate(candidate.Kind)}";
+        var queries = new List<string>
+        {
+            $"SELECT COALESCE(SUM({LengthSql("payload")}+COALESCE({LengthSql("output")},0)),0) FROM dj_jobs WHERE {ArchivePredicate(candidate.Kind)}",
+            $"SELECT COALESCE(SUM({LengthSql("exception_type")}+{LengthSql("message")}+COALESCE({LengthSql("stack_trace")},0)),0) FROM dj_failures WHERE job_id IN ({jobs})",
+            $"SELECT COALESCE(SUM(COALESCE({LengthSql("error")},0)+COALESCE({LengthSql("handler")},0)),0) FROM dj_attempts WHERE job_id IN ({jobs})"
+        };
+        if (candidate.Kind == ArchiveKind.Flow)
+        {
+            queries.Add($"SELECT {LengthSql("f.input")}+{LengthSql("d.definition")} FROM dj_flows f JOIN dj_definitions d ON f.flow_key=d.flow_key AND f.version=d.version WHERE f.id=@id");
+            queries.Add($"SELECT COALESCE(SUM({LengthSql("payload")}),0) FROM dj_signals WHERE run_id=@id");
+        }
+
+        var size = 0L;
+        foreach (var query in queries)
+        {
+            size += await CountAsync(query);
+        }
+
+        var attempts = await CountAsync($"SELECT COUNT(*) FROM dj_attempts WHERE job_id IN ({jobs})");
+        var events = await CountAsync($"SELECT COUNT(*) FROM dj_events WHERE job_id IN ({jobs})");
+        if (size > MaximumArchiveEvidenceBytes || attempts > MaximumArchiveRows || events > MaximumArchiveRows)
         {
             throw new StateConflictException("Archive exceeds bounded batch evidence limits; export this execution separately.");
         }
+
+        async Task<long> CountAsync(string sql) => Convert.ToInt64(await ScalarAsync(connection, transaction, sql, ct, ("id", candidate.Id.ToString())));
     }
 
-    private static async Task<ArchivedJob> ReadArchivedJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct)
+    private async Task<ArchivedJob> ReadArchivedJobAsync(DbConnection connection, DbTransaction transaction, JobRecord job, CancellationToken ct) =>
+        new(job, await ReadAttemptsAsync(connection, transaction, job.Id, ct), await ReadFailuresAsync(connection, transaction, job.Id, ct));
+
+    private async Task<IReadOnlyList<ExecutionEvent>> ReadArchivedEventsAsync(DbConnection connection, DbTransaction transaction, ArchiveCandidate candidate, CancellationToken ct)
     {
-        var attempts = new List<JobAttempt>();
-        await using (var query = Command(connection, transaction, "SELECT * FROM dj_attempts WHERE job_id=@id ORDER BY number", ("id", job.Id.ToString())))
-        {
-            await using (var reader = await query.ExecuteReaderAsync(ct))
-            {
-                while (await reader.ReadAsync(ct))
-                {
-                    attempts.Add(new(job.Id, reader.GetInt32(reader.GetOrdinal("number")), reader.GetString(reader.GetOrdinal("worker_id")), Date(reader, "started_at")!.Value, Date(reader, "finished_at"), reader.GetString(reader.GetOrdinal("status")), Text(reader, "error"), Text(reader, "handler")));
-                }
-            }
-        }
+        await using var command = Command(connection, transaction,
+            $"SELECT {EventColumns} FROM dj_events WHERE job_id IN (SELECT id FROM dj_jobs WHERE {ArchivePredicate(candidate.Kind)}) ORDER BY sequence",
+            ("id", candidate.Id.ToString()));
 
-        var failures = new List<AttemptFailure>();
-        await using (var query = Command(connection, transaction, "SELECT attempt,exception_type,message,stack_trace FROM dj_failures WHERE job_id=@id ORDER BY attempt", ("id", job.Id.ToString())))
-        {
-            await using (var reader = await query.ExecuteReaderAsync(ct))
-            {
-                while (await reader.ReadAsync(ct))
-                {
-                    failures.Add(new(reader.GetInt32(0), new(reader.GetString(1), reader.GetString(2), Text(reader, "stack_trace"))));
-                }
-            }
-        }
-
-        return new(job, attempts, failures);
+        return await ReadEventsAsync(command, ct);
     }
 
-    private static async Task<IReadOnlyList<ExecutionEvent>> ReadArchivedEventsAsync(DbConnection connection, DbTransaction transaction, ArchiveCandidate candidate, string predicate, CancellationToken ct)
-    {
-        var events = new List<ExecutionEvent>();
-        await using (var query = Command(connection, transaction, $"SELECT * FROM dj_events WHERE job_id IN (SELECT id FROM dj_jobs WHERE {predicate}) ORDER BY sequence", ("id", candidate.Id.ToString())))
-        {
-            await using (var reader = await query.ExecuteReaderAsync(ct))
-            {
-                while (await reader.ReadAsync(ct))
-                {
-                    events.Add(new(reader.GetInt64(0), Guid.Parse(reader.GetString(1)), ParseGuid(Text(reader, "run_id")), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3)), reader.GetString(4), reader.GetInt32(5)));
-                }
-            }
-        }
-
-        return events;
-    }
-
-    private static async Task<(WorkflowRun? Flow, FlowDefinition? Definition, JsonElement? Input, IReadOnlyList<ArchivedSignal> Signals)> ReadArchivedFlowAsync(DbConnection connection, DbTransaction transaction, ArchiveCandidate candidate, CancellationToken ct)
+    private async Task<ArchivedFlow> ReadArchivedFlowAsync(DbConnection connection, DbTransaction transaction, Guid runId, CancellationToken ct)
     {
         var signals = new List<ArchivedSignal>();
-        if (candidate.Kind == "Flow")
+        await using (var command = Command(connection, transaction, "SELECT name,payload,received_at FROM dj_signals WHERE run_id=@id ORDER BY name", ("id", runId.ToString())))
         {
-            await using var signalQuery = Command(connection, transaction, "SELECT name,payload,received_at FROM dj_signals WHERE run_id=@id ORDER BY name", ("id", candidate.Id.ToString()));
-            await using var signalReader = await signalQuery.ExecuteReaderAsync(ct);
-            while (await signalReader.ReadAsync(ct))
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
             {
-                signals.Add(new(signalReader.GetString(0), Json(signalReader.GetString(1)), DateTimeOffset.FromUnixTimeMilliseconds(signalReader.GetInt64(2))));
+                signals.Add(new(reader.GetString(0), Json(reader.GetString(1)), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2))));
             }
         }
 
-        WorkflowRun? flow = null;
-        FlowDefinition? definition = null;
-        JsonElement? input = null;
-        if (candidate.Kind == "Flow")
+        await using (var command = Command(connection, transaction, """
+            SELECT f.flow_key,f.version,f.correlation_id,f.status,f.error,f.parent_run_id,f.parent_job_id,f.forked_from_run_id,f.input,d.definition
+            FROM dj_flows f JOIN dj_definitions d ON f.flow_key=d.flow_key AND f.version=d.version WHERE f.id=@id
+            """, ("id", runId.ToString())))
         {
-            await using var query = Command(connection, transaction, "SELECT f.*,d.definition FROM dj_flows f JOIN dj_definitions d ON f.flow_key=d.flow_key AND f.version=d.version WHERE f.id=@id", ("id", candidate.Id.ToString()));
-            await using var reader = await query.ExecuteReaderAsync(ct);
+            await using var reader = await command.ExecuteReaderAsync(ct);
             await reader.ReadAsync(ct);
-            flow = new(candidate.Id, reader.GetString(reader.GetOrdinal("flow_key")), reader.GetInt32(reader.GetOrdinal("version")), candidate.CorrelationId, reader.GetString(reader.GetOrdinal("status")), Text(reader, "error"));
-            input = Json(reader.GetString(reader.GetOrdinal("input")));
-            definition = JsonSerializer.Deserialize<FlowDefinition>(reader.GetString(reader.GetOrdinal("definition")), JobJson.Options);
-        }
+            var definition = JobJson.Deserialize<FlowDefinition>(reader.GetString(reader.GetOrdinal("definition")));
 
-        return (flow, definition, input, signals);
+            return new(ReadWorkflowRun(reader, runId), definition, Json(reader.GetString(reader.GetOrdinal("input"))), signals);
+        }
     }
+
+    private sealed record ArchivedFlow(WorkflowRun Run, FlowDefinition? Definition, JsonElement Input, IReadOnlyList<ArchivedSignal> Signals);
 }

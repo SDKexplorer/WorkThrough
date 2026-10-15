@@ -1,146 +1,191 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WorkThrough;
 
 public sealed record InputBinding(string TargetProperty, string? SourceStep, string SourceProperty);
+
 public sealed record FlowCondition(string SourceStep, string Property, JsonElement Expected);
+
+/// <summary>
+/// Runs a published flow as one step. The step's bound input is the child run's input. The step succeeds when the child succeeds,
+/// with <c>{"stepId": output}</c> for each of the child's final steps, and fails when the child fails. Like a signal wait, it holds no
+/// worker while the child runs.
+/// </summary>
+public sealed record FlowChild(string FlowKey, int FlowVersion, TimeSpan Timeout)
+{
+    /// <summary>The built-in address of child steps. No worker executes it.</summary>
+    public static JobContractId Processor { get; } = new("workthrough.child-flow", 1);
+
+    /// <summary>The deepest nesting of child runs, which stops a flow from starting itself without end.</summary>
+    public const int MaximumDepth = 8;
+
+    /// <summary>The longest a child step waits for its run, the longest supported delay.</summary>
+    public static TimeSpan MaximumTimeout { get; } = TimeSpan.FromDays(365);
+
+    /// <summary>The parent-run signal that carries a child run's outcome.</summary>
+    public static string SignalName(Guid childRun) => $"child:{childRun:N}";
+
+    /// <summary>
+    /// The child definition when the parent was built in code. Not saved: starting the parent publishes it if the store lacks it, so
+    /// only its key and version persist.
+    /// </summary>
+    [JsonIgnore]
+    public FlowDefinition? Definition { get; init; }
+
+    /// <summary>True for signals that carry a child outcome rather than external input.</summary>
+    public static bool IsChildSignal(string name) => name.StartsWith("child:", StringComparison.Ordinal);
+}
+
+/// <summary>
+/// Repeats a child step's flow until <paramref name="UntilProperty"/> of final step <paramref name="UntilStep"/>'s output equals
+/// <paramref name="Expected"/>, at most <paramref name="MaximumIterations"/> times. Each run receives the step's input plus
+/// <c>iteration</c> (1, 2, …) and <c>previous</c>, the last iteration's output. The step's output is the final iteration's.
+/// </summary>
+public sealed record FlowLoop(string UntilStep, string UntilProperty, JsonElement Expected, int MaximumIterations)
+{
+    /// <summary>The most iterations a loop may declare.</summary>
+    public const int Limit = 1000;
+
+    public const string IterationProperty = "iteration";
+    public const string PreviousProperty = "previous";
+}
+
+/// <summary>
+/// Undoes a completed step when its flow fails under <see cref="FlowFailurePolicy.Compensate"/>. The compensating job receives
+/// <see cref="CompensationInput{TInput, TOutput}"/>: the step's input and output. Steps are undone in reverse dependency order.
+/// </summary>
+public sealed record FlowCompensation(JobContractId Contract, string Queue, int MaxAttempts)
+{
+    /// <summary>The step ID of the job that undoes step <paramref name="stepId"/>.</summary>
+    public static string UndoStepId(string stepId) => $"{stepId}:undo";
+
+    public static bool IsUndoStep(string? stepId) => stepId?.EndsWith(":undo", StringComparison.Ordinal) == true;
+}
+
+/// <summary>What a failure branch adds to its input: the step that failed and why.</summary>
+public sealed record FlowFailure(string Step, string? Error)
+{
+    /// <summary>The input property that carries the failure.</summary>
+    public const string Property = "failure";
+}
+
+/// <summary>What a compensating job receives: the completed step's input and output.</summary>
+public sealed record CompensationInput<TInput, TOutput>(TInput Input, TOutput? Output);
+
+/// <summary>
+/// Runs a step once per element of an array in an earlier step's output. Each item step receives its element in
+/// <paramref name="TargetProperty"/>; the step succeeds with <c>{"items":[...]}</c>, the item outputs in order, after every item succeeds.
+/// </summary>
+public sealed record FlowFanOut(string SourceStep, string SourceProperty, string TargetProperty)
+{
+    /// <summary>The most item steps one fan-out may create. A larger array fails the step.</summary>
+    public const int MaximumItems = 1000;
+
+    /// <summary>The output property that holds the item outputs.</summary>
+    public const string ItemsProperty = "items";
+
+    /// <summary>The step ID of item <paramref name="index"/> of fan-out step <paramref name="stepId"/>.</summary>
+    public static string ItemStepId(string stepId, int index) => $"{stepId}[{index}]";
+
+    /// <summary>The definition step of a job: the step itself, or the fan-out step an item belongs to.</summary>
+    public static string BaseStepId(string stepId) => stepId.IndexOf('[', StringComparison.Ordinal) is var bracket and >= 0 ? stepId[..bracket] : stepId;
+}
+
 public sealed record FlowStep(
     string Id, JobContractId Contract, JsonElement Input, string Queue,
     string[] After, InputBinding[] Bindings, FlowCondition? Condition, int MaxAttempts,
-    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] SignalWait? Signal = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalWait? Signal = null)
+{
+    /// <summary>Optional saved display label. Dependencies and dispatch continue to use permanent identities.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; init; }
+
+    /// <summary>Expands the step into one item step per array element; see <see cref="FlowFanOut"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FlowFanOut? ForEach { get; init; }
+
+    /// <summary>Runs another flow instead of a job; see <see cref="FlowChild"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FlowChild? Child { get; init; }
+
+    /// <summary>Repeats this child step until its output meets a condition; see <see cref="FlowLoop"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FlowLoop? Loop { get; init; }
+
+    /// <summary>Undoes this step if the flow fails under <see cref="FlowFailurePolicy.Compensate"/>; see <see cref="FlowCompensation"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FlowCompensation? Compensation { get; init; }
+
+    /// <summary>
+    /// Makes this step a failure branch: it runs only when this predecessor ends unsuccessfully, and skips otherwise. The failure is then
+    /// handled, so the flow's failure policy does not apply to it; the step receives <see cref="FlowFailure"/> in its input.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OnFailureOf { get; init; }
+}
+
 public enum FlowFailurePolicy
 {
-    Stop, Suspend
-}
-public sealed record FlowDefinition(string Key, int Version, FlowStep[] Steps, FlowFailurePolicy FailurePolicy = FlowFailurePolicy.Stop);
-public sealed record WorkflowRun(Guid Id, string FlowKey, int Version, string? CorrelationId, string Status, string? Error);
+    /// <summary>Skips remaining work and fails the flow.</summary>
+    Stop,
 
-/// <summary>Creates a data-only acyclic workflow. Step IDs are stable within a definition.</summary>
-public sealed class FlowBuilder
-{
-    private readonly string key;
-    private readonly int version;
-    private readonly List<FlowStep> steps = [];
-    private FlowFailurePolicy failurePolicy = FlowFailurePolicy.Suspend;
+    /// <summary>Keeps remaining work and raises an incident for operators to recover.</summary>
+    Suspend,
 
-    /// <summary>Suspend retains dependent work for recovery; Stop permanently skips remaining work.</summary>
-    public FlowBuilder OnFailure(FlowFailurePolicy policy)
-    {
-        failurePolicy = policy;
-
-        return this;
-    }
-
-    public FlowBuilder(string key, int version)
-    {
-        _ = new JobContractId(key, version);
-        this.key = key;
-        this.version = version;
-    }
-
-    public FlowBuilder Step<TJob>(string id, object? input = null, string queue = "default", int maxAttempts = 3)
-        => Step(id, JobContractId.For<TJob>(), input, queue, maxAttempts);
-
-    /// <summary>Adds an invocation using a shared typed definition.</summary>
-    public FlowBuilder Step<TInput>(string id, JobDefinition<TInput> definition, TInput input, string queue = "default", int maxAttempts = 3)
-        => Step(id, definition.Identity, input, queue, maxAttempts);
-
-    /// <summary>Adds a processor invocation without a dependency on its implementation assembly.</summary>
-    public FlowBuilder Step(string id, JobContractId processor, object? input = null, string queue = "default", int maxAttempts = 3)
-    {
-        ArgumentNullException.ThrowIfNull(processor);
-        if (string.IsNullOrWhiteSpace(id) || steps.Any(x => x.Id == id))
-        {
-            throw new ArgumentException("Step IDs must be non-empty and unique.", nameof(id));
-        }
-
-        if (string.IsNullOrWhiteSpace(queue) || maxAttempts < 1)
-        {
-            throw new ArgumentException("Invalid queue or retry policy.");
-        }
-
-        steps.Add(new(id, processor, JsonSerializer.SerializeToElement(input ?? new
-        {
-        }, JobJson.Options),
-            queue, [], [], null, maxAttempts));
-
-        return this;
-    }
-
-    /// <summary>Persists a signal wait without invoking a processor or holding a worker lease.</summary>
-    public FlowBuilder WaitForSignal<TInput>(string id, SignalDefinition<TInput> signal, TimeSpan timeout)
-    {
-        Step(id, SignalWait.Processor);
-
-        return Change(step => step with { Signal = new(signal.Name, timeout) });
-    }
-
-    public FlowBuilder After(params string[] predecessors) => Change(step => step with { After = predecessors.Distinct().ToArray() });
-
-    public FlowBuilder BindInput(string targetProperty, string sourceProperty, string? sourceStep = null) =>
-        Change(step => step with { Bindings = [.. step.Bindings, new(targetProperty, sourceStep, sourceProperty)] });
-
-    public FlowBuilder WhenOutput<T>(string sourceStep, string property, T equals) =>
-        Change(step => step with { Condition = new(sourceStep, property, JsonSerializer.SerializeToElement(equals, JobJson.Options)) });
-
-    public FlowDefinition Build()
-    {
-        var definition = new FlowDefinition(key, version, steps.ToArray(), failurePolicy);
-        FlowValidator.Validate(definition);
-
-        return definition;
-    }
-
-    private FlowBuilder Change(Func<FlowStep, FlowStep> change)
-    {
-        if (steps.Count == 0)
-        {
-            throw new InvalidOperationException("Add a step first.");
-        }
-
-        steps[^1] = change(steps[^1]);
-
-        return this;
-    }
+    /// <summary>Skips remaining work, undoes completed steps that declare a compensation in reverse order, then fails the flow.</summary>
+    Compensate
 }
 
-public sealed class WorkflowClient(IJobStore store)
+/// <summary>Run lifecycle. Persisted and archived by name.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<FlowStatus>))]
+public enum FlowStatus
 {
-    public Task<bool> SignalAsync<TInput>(Guid runId, SignalDefinition<TInput> signal, TInput input, string idempotencyKey, CancellationToken cancellationToken = default)
+    Running, Paused, Incident, Succeeded, Failed
+}
+
+public sealed record FlowDefinition(string Key, int Version, FlowStep[] Steps, FlowFailurePolicy FailurePolicy = FlowFailurePolicy.Stop)
+{
+    /// <summary>Every step that depends on <paramref name="stepId"/>, directly or through other steps.</summary>
+    public IReadOnlySet<string> Descendants(string stepId)
     {
-        ArgumentNullException.ThrowIfNull(input);
-        if (store is not IWorkflowSignals signals)
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>([stepId]);
+        while (pending.TryPop(out var id))
         {
-            throw new NotSupportedException("This provider does not support durable signals.");
+            foreach (var next in Steps.Where(step => step.After.Contains(id)).Select(step => step.Id))
+            {
+                if (found.Add(next))
+                {
+                    pending.Push(next);
+                }
+            }
         }
 
-        return signals.SignalAsync(runId, signal.Name, JsonSerializer.SerializeToElement(input, JobJson.Options), idempotencyKey, cancellationToken);
+        return found;
     }
 
-    /// <summary>Starts a new run. Correlation groups observations and does not deduplicate requests.</summary>
-    public Task<Guid> StartAsync<T>(FlowDefinition definition, T input, string? correlationId = null, CancellationToken cancellationToken = default)
-    {
-        FlowValidator.Validate(definition);
+    /// <summary>True when a failure branch handles the failure of <paramref name="stepId"/>.</summary>
+    public bool IsHandled(string stepId) => Steps.Any(step => step.OnFailureOf == stepId);
 
-        return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), correlationId, cancellationToken);
-    }
+    /// <summary>The engine protocol every host must understand before a run of this definition may start.</summary>
+    [JsonIgnore]
+    public int RequiredProtocol => Steps.Any(step => step.OnFailureOf is not null) ? EngineProtocol.FailureBranches
+        : Steps.Any(step => step.Loop is not null) ? EngineProtocol.Loops
+        : FailurePolicy == FlowFailurePolicy.Compensate || Steps.Any(step => step.Compensation is not null) ? EngineProtocol.Compensation
+        : Steps.Any(step => step.Child is not null) ? EngineProtocol.ChildFlows
+        : Steps.Any(step => step.ForEach is not null) ? EngineProtocol.FanOut
+        : EngineProtocol.Baseline;
+}
 
-    /// <summary>Returns the same logical run when an identical request is repeated with the same store-scoped key.</summary>
-    /// <remarks>Reusing a key with different serialized definition, input, or correlation fails. Effects remain at least once.</remarks>
-    public Task<Guid> StartAsync<T>(FlowDefinition definition, T input, string? correlationId, string idempotencyKey, CancellationToken cancellationToken = default)
-    {
-        FlowValidator.Validate(definition);
-        ValidateIdempotencyKey(idempotencyKey);
+public sealed record WorkflowRun(Guid Id, string FlowKey, int Version, string? CorrelationId, FlowStatus Status, string? Error)
+{
+    /// <summary>The run whose child step started this run, if any.</summary>
+    public Guid? ParentRunId { get; init; }
 
-        return store.StartWorkflowAsync(definition, JsonSerializer.SerializeToElement(input, JobJson.Options), correlationId, idempotencyKey, cancellationToken);
-    }
+    /// <summary>The parent's step job that waits for this run, if any.</summary>
+    public Guid? ParentJobId { get; init; }
 
-    /// <summary>Validates the store-scoped flow-start request key.</summary>
-    public static void ValidateIdempotencyKey(string idempotencyKey)
-    {
-        if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 256)
-        {
-            throw new ArgumentException("Flow idempotency keys must contain 1–256 characters and cannot be whitespace.", nameof(idempotencyKey));
-        }
-    }
+    /// <summary>The run this one was forked from at a checkpoint, if any.</summary>
+    public Guid? ForkedFromRunId { get; init; }
 }

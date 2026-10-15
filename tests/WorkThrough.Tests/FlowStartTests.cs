@@ -1,6 +1,4 @@
 using System.Data.Common;
-using Microsoft.Data.Sqlite;
-using Npgsql;
 using Xunit;
 
 namespace WorkThrough.Tests;
@@ -32,7 +30,7 @@ public sealed class FlowStartTests
         var restarted = harness.NewStore();
         await restarted.InitializeAsync();
         await restarted.RetireAsync(definition.Key, 1, 1,
-            new(Guid.NewGuid(), new("test", "maintainer"), "Prevent new starts"));
+            new(Guid.NewGuid(), new("test", "maintainer"), "Prevent new starts")).SucceedsAsync();
         Assert.Equal(id, await new WorkflowClient(restarted).StartAsync(definition, new
         {
             order = 123
@@ -88,18 +86,25 @@ public sealed class FlowStartTests
     public async Task Receipt_write_failure_rolls_back_the_run_steps_and_definition(string provider)
     {
         await using var harness = await StoreHarness.CreateAsync(provider);
-        await using DbConnection connection = provider == "postgres"
-            ? new NpgsqlConnection(harness.ConnectionString) : new SqliteConnection(harness.ConnectionString);
+        await using DbConnection connection = harness.CreateConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = provider == "postgres" ? """
-            CREATE FUNCTION reject_start() RETURNS trigger LANGUAGE plpgsql AS $$
-            BEGIN RAISE EXCEPTION 'injected start receipt failure'; END; $$;
-            CREATE TRIGGER reject_start BEFORE INSERT ON dj_flow_starts FOR EACH ROW EXECUTE FUNCTION reject_start();
-            """ : """
-            CREATE TRIGGER reject_start BEFORE INSERT ON dj_flow_starts
-            BEGIN SELECT RAISE(ABORT, 'injected start receipt failure'); END;
-            """;
+        command.CommandText = provider switch
+        {
+            "oracle" => "CREATE TRIGGER reject_start BEFORE INSERT ON dj_flow_starts BEGIN raise_application_error(-20001, 'injected start receipt failure'); END;",
+            "sqlserver" => "CREATE TRIGGER reject_start ON dj_flow_starts AFTER INSERT AS THROW 51000,'injected start receipt failure',1;",
+            "postgres" => """
+                CREATE FUNCTION reject_start() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'injected start receipt failure'; END; $$;
+                CREATE TRIGGER reject_start BEFORE INSERT ON dj_flow_starts FOR EACH ROW EXECUTE FUNCTION reject_start();
+                """,
+            "mysql" or "mariadb" =>
+                "CREATE TRIGGER reject_start BEFORE INSERT ON dj_flow_starts FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected start receipt failure'",
+            _ => """
+                CREATE TRIGGER reject_start BEFORE INSERT ON dj_flow_starts
+                BEGIN SELECT RAISE(ABORT, 'injected start receipt failure'); END;
+                """
+        };
         await command.ExecuteNonQueryAsync();
         var client = new WorkflowClient(harness.Store);
         await Assert.ThrowsAnyAsync<DbException>(() => client.StartAsync(Definition(), new { }, null, "retry-after-failure"));

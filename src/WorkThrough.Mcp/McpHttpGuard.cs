@@ -1,0 +1,111 @@
+using System.Security.Claims;
+using System.Text.Json;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Http;
+
+namespace WorkThrough;
+
+internal sealed class McpHttpGuard(WorkThroughMcpOptions options) : IDisposable
+{
+    private const int MaximumRequestBytes = 16 * 1024;
+    private const int MaximumRequestIdLength = 128;
+    private static readonly TimeSpan RateWindow = TimeSpan.FromMinutes(1);
+
+    private readonly SemaphoreSlim concurrency = new(options.ConcurrentRequests);
+
+    // The endpoint policy requires both claims before this guard runs.
+    private readonly PartitionedRateLimiter<ClaimsPrincipal> requests = PartitionedRateLimiter.Create<ClaimsPrincipal, string>(user =>
+        RateLimitPartition.GetFixedWindowLimiter(user.FindFirst(McpClaims.Issuer)!.Value + "\n" + user.FindFirst(McpClaims.Subject)!.Value,
+            _ => new() { PermitLimit = options.RequestsPerMinute, Window = RateWindow, QueueLimit = 0 }));
+
+    internal async Task InvokeAsync(HttpContext context, RequestDelegate next)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        if (!context.Request.IsHttps && !options.AllowLoopbackHttp)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+
+            return;
+        }
+
+        // Bearer credentials are the only input. Reject cross-origin browser calls unless they match the configured public origin.
+        var origin = context.Request.Headers.Origin;
+        if (origin.Count > 0 && (origin.Count != 1 || origin[0] != options.Resource.GetLeftPart(UriPartial.Authority)))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+
+            return;
+        }
+
+        using var rate = requests.AttemptAcquire(context.User);
+        if (!rate.IsAcquired || !await concurrency.WaitAsync(0, context.RequestAborted))
+        {
+            context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            context.Response.Headers.RetryAfter = ((int)RateWindow.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            return;
+        }
+
+        var originalBody = context.Request.Body;
+        try
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+            deadline.CancelAfter(OperationQueryLimits.Deadline);
+
+            // One extra byte distinguishes an oversized body from one that exactly fills the limit.
+            var buffer = new byte[MaximumRequestBytes + 1];
+            var length = await originalBody.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, deadline.Token);
+            if (length == buffer.Length)
+            {
+                context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+
+                return;
+            }
+
+            if (length > 0 && !HasBoundedRequestId(buffer.AsMemory(0, length)))
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+
+                return;
+            }
+
+            await using var body = new MemoryStream(buffer, 0, length, writable: false);
+            context.Request.Body = body;
+            await next(context);
+        }
+        catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
+        {
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = StatusCodes.Status408RequestTimeout;
+            }
+        }
+        finally
+        {
+            context.Request.Body = originalBody;
+            concurrency.Release();
+        }
+    }
+
+    public void Dispose()
+    {
+        concurrency.Dispose();
+        requests.Dispose();
+    }
+
+    private static bool HasBoundedRequestId(ReadOnlyMemory<byte> body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            return root.ValueKind == JsonValueKind.Object && (!root.TryGetProperty("id", out var id)
+                || id.ValueKind != JsonValueKind.String || id.GetString()!.Length <= MaximumRequestIdLength);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+}

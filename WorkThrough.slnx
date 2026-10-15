@@ -1,24 +1,38 @@
 <Solution>
   <Folder Name="/samples/">
-    <Project Path="samples/Demo.Lifecycle/Demo.Lifecycle.csproj" />
-    <Project Path="samples/Demo.Contracts/Demo.Contracts.csproj" />
-    <Project Path="samples/Demo.Dashboard/Demo.Dashboard.csproj" />
-    <Project Path="samples/Demo.Host/Demo.Host.csproj" />
-    <Project Path="samples/Demo.Processors/Demo.Processors.csproj" />
-    <Project Path="samples/Demo.Processor/Demo.Processor.csproj" />
-    <Project Path="samples/Demo.Worker/Demo.Worker.csproj" />
-    <Project Path="samples/Refactor.After/Refactor.After.csproj" />
-    <Project Path="samples/Refactor.Before/Refactor.Before.csproj" />
-    <Project Path="samples/Refactor.MovedHandlers/Refactor.MovedHandlers.csproj" />
+    <Project Path="samples/HangfireMigration/HangfireMigration.csproj" />
+    <Project Path="samples/QuartzMigration/QuartzMigration.csproj" />
+    <Project Path="samples/NativeAot/NativeAot.csproj" />
+    <Project Path="samples/QuickStart/QuickStart.csproj" />
+    <Project Path="samples/QuickStart.Web/QuickStart.Web.csproj" />
+    <Project Path="samples/Shop.Shared/Shop.Shared.csproj" />
+    <Project Path="samples/Shop.Jobs/Shop.Jobs.csproj" />
+    <Project Path="samples/Shop.Api/Shop.Api.csproj" />
+    <Project Path="samples/Shop.Worker/Shop.Worker.csproj" />
+    <Project Path="samples/Shop.Dashboard/Shop.Dashboard.csproj" />
+    <Project Path="samples/Shop.Mcp/Shop.Mcp.csproj" />
+    <Project Path="samples/Shop.Tests/Shop.Tests.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/WorkThrough.Core/WorkThrough.Core.csproj" />
     <Project Path="src/WorkThrough.Dashboard/WorkThrough.Dashboard.csproj" />
+    <Project Path="src/WorkThrough.EntityFrameworkCore/WorkThrough.EntityFrameworkCore.csproj" />
     <Project Path="src/WorkThrough.Generators/WorkThrough.Generators.csproj" />
     <Project Path="src/WorkThrough.Hosting/WorkThrough.Hosting.csproj" />
+    <Project Path="src/WorkThrough.Mcp/WorkThrough.Mcp.csproj" />
+    <Project Path="src/WorkThrough.Messaging/WorkThrough.Messaging.csproj" />
+    <Project Path="src/WorkThrough.Messaging.AzureServiceBus/WorkThrough.Messaging.AzureServiceBus.csproj" />
+    <Project Path="src/WorkThrough.Messaging.Kafka/WorkThrough.Messaging.Kafka.csproj" />
+    <Project Path="src/WorkThrough.Messaging.RabbitMQ/WorkThrough.Messaging.RabbitMQ.csproj" />
+    <Project Path="src/WorkThrough.Migration.Hangfire/WorkThrough.Migration.Hangfire.csproj" />
+    <Project Path="src/WorkThrough.Migration.Quartz/WorkThrough.Migration.Quartz.csproj" />
     <Project Path="src/WorkThrough.Storage.PostgreSql/WorkThrough.Storage.PostgreSql.csproj" />
     <Project Path="src/WorkThrough.Storage.Relational/WorkThrough.Storage.Relational.csproj" />
-    <Project Path="src/WorkThrough.Storage.Sqlite/WorkThrough.Storage.Sqlite.csproj" />
+    <Project Path="src/WorkThrough.Storage.MySql/WorkThrough.Storage.MySql.csproj" />
+    <Project Path="src/WorkThrough.Storage.Oracle/WorkThrough.Storage.Oracle.csproj" />
+    <Project Path="src/WorkThrough.Storage.SqlServer/WorkThrough.Storage.SqlServer.csproj" />
+    <Project Path="src/WorkThrough.Testing/WorkThrough.Testing.csproj" />
+    <Project Path="templates/WorkThrough.Templates.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/WorkThrough.CodeStyle/WorkThrough.CodeStyle.csproj" />
@@ -26,5 +40,8 @@
   <Folder Name="/tests/">
     <Project Path="tests/WorkThrough.Exercises/WorkThrough.Exercises.csproj" />
     <Project Path="tests/WorkThrough.Tests/WorkThrough.Tests.csproj" />
+    <Project Path="tests/Relocation/Refactor.Before/Refactor.Before.csproj" />
+    <Project Path="tests/Relocation/Refactor.MovedHandlers/Refactor.MovedHandlers.csproj" />
+    <Project Path="tests/Relocation/Refactor.After/Refactor.After.csproj" />
   </Folder>
 </Solution>

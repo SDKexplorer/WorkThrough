@@ -1,41 +1,62 @@
 #!/usr/bin/env bash
+# Full release gate by default. --quick, for pull requests: build, format and the test suites only; packages, consumers,
+# templates, samples, the relocation proof and the smoke campaigns run on merges and before a release.
 set -euo pipefail
+quick=false
+if [[ "${1:-}" == --quick ]]; then quick=true; fi
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_dir"
 mkdir -p artifacts/packages
 runtime8="${WORKTHROUGH_DOTNET8:-dotnet}"
+if [[ -z "${DURABLEJOBS_POSTGRES:-}" ]]; then echo 'Set DURABLEJOBS_POSTGRES to a disposable PostgreSQL database; see docs/providers.md.' >&2; exit 2; fi
+export WORKTHROUGH_TEST_POSTGRES="${WORKTHROUGH_TEST_POSTGRES:-$DURABLEJOBS_POSTGRES}"
+run_id="$(date +%s)$$"
+# Each sample runs in its own fresh schema of the test database.
+sample_store() { echo "$DURABLEJOBS_POSTGRES;Search Path=wt_sample_${1}_$run_id"; }
 (cd dashboard-ui && npm ci && npm run format:check && npm run build)
 dotnet restore WorkThrough.slnx --disable-parallel -m:1 -nr:false
 dotnet build WorkThrough.slnx -c Release --no-restore -m:1 -nr:false -p:UseSharedCompilation=false
 ./scripts/format.sh --check
 dotnet test tests/WorkThrough.Tests -c Release -f net10.0 --no-build --no-restore -m:1 -nr:false
+dotnet test samples/Shop.Tests -c Release --no-build --no-restore -m:1 -nr:false
+if [[ "$quick" == true ]]; then
+  echo 'PASS: quick verification (build, format and test suites).'
+  exit 0
+fi
 sdk8_dir="$(mktemp -d "$repo_dir/artifacts/consumer-sdk8-XXXXXXXX")"
-cp tests/PackageConsumer/PackageConsumer.csproj tests/PackageConsumer/Program.cs "$sdk8_dir/"
+cp tests/PackageConsumer/PackageConsumer.csproj tests/PackageConsumer/*.cs "$sdk8_dir/"
 cat > "$sdk8_dir/global.json" <<'JSON'
 {"sdk":{"version":"8.0.100","rollForward":"latestFeature","allowPrerelease":false}}
 JSON
 (cd "$sdk8_dir" && "$runtime8" --version && "$runtime8" vstest "$repo_dir/tests/WorkThrough.Tests/bin/Release/net8.0/WorkThrough.Tests.dll")
 "$repo_dir/scripts/check-refactor.sh"
-for project in src/*/*.csproj; do
+for project in src/*/*.csproj templates/WorkThrough.Templates.csproj; do
   dotnet pack "$project" -c Release --no-build --no-restore -o "$repo_dir/artifacts/packages" -m:1 -nr:false
 done
 package_cache="$(mktemp -d "$repo_dir/artifacts/package-cache-XXXXXXXX")"
 (cd "$sdk8_dir" && "$runtime8" restore --configfile "$repo_dir/tests/PackageConsumer/NuGet.Config" --packages "$package_cache" --disable-parallel -m:1 -nr:false && "$runtime8" run -c Release --no-restore -p:UseSharedCompilation=false)
 dotnet restore tests/PackageConsumer -p:TargetFramework=net10.0 --configfile tests/PackageConsumer/NuGet.Config --packages "$package_cache" --disable-parallel -m:1 -nr:false
 dotnet run --project tests/PackageConsumer -c Release -f net10.0 -p:TargetFramework=net10.0 --no-restore -p:UseSharedCompilation=false
-sample_dir="$(mktemp -d "$repo_dir/artifacts/processor-sample-XXXXXXXX")"
-Jobs__ConnectionString="Data Source=$sample_dir/jobs.db" "$runtime8" samples/Demo.Processor/bin/Release/net8.0/Demo.Processor.dll --once
-if Jobs__ConnectionString="Data Source=$sample_dir/jobs.db" "$runtime8" samples/Demo.Worker/bin/Release/net8.0/Demo.Worker.dll --preflight > artifacts/preflight-smoke.json; then
-  echo 'FAIL: the order worker incorrectly claimed coverage for the invoice sample.' >&2
-  exit 1
-else
-  preflight_status=$?
-  test "$preflight_status" -eq 2
-  echo 'PASS: deployment preflight rejected a worker that does not support persisted invoice work.'
-fi
-
-lifecycle_dir="$(mktemp -d "$repo_dir/artifacts/lifecycle-sample-XXXXXXXX")"
-Lifecycle__BusinessConnection="Data Source=$lifecycle_dir/business.db" Lifecycle__JobsConnection="Data Source=$lifecycle_dir/jobs.db" "$runtime8" samples/Demo.Lifecycle/bin/Release/net8.0/Demo.Lifecycle.dll
+WORKTHROUGH_DOTNET8="$runtime8" "$repo_dir/scripts/check-templates.sh"
+sample_dir="$(mktemp -d "$repo_dir/artifacts/shop-sample-XXXXXXXX")"
+Shop__PostgreSql="$(sample_store shop)" "$runtime8" samples/Shop.Api/bin/Release/net8.0/Shop.Api.dll --smoke
+Shop__PostgreSql="$(sample_store shop)" "$runtime8" samples/Shop.Worker/bin/Release/net8.0/Shop.Worker.dll --preflight > artifacts/preflight-smoke.json
+echo 'PASS: deployment preflight confirmed the shop worker covers stored work and its seeded schedule.'
+(cd "$sample_dir" && WORKTHROUGH_POSTGRES="$(sample_store quickstart)" "$runtime8" "$repo_dir/samples/QuickStart/bin/Release/net8.0/QuickStart.dll" > quickstart.log)
+echo 'PASS: the one-file quick start registered its job by reflection and ran it.'
+(cd "$sample_dir" && WORKTHROUGH_POSTGRES="$(sample_store hangfire)" "$runtime8" "$repo_dir/samples/HangfireMigration/bin/Release/net8.0/HangfireMigration.dll" > hangfire-migration.log)
+grep -q "Imported 3, skipped 0" "$sample_dir/hangfire-migration.log"
+echo 'PASS: the Hangfire migration sample imported, retired and ran its jobs.'
+(cd "$sample_dir" && WORKTHROUGH_POSTGRES="$(sample_store quartz)" "$runtime8" "$repo_dir/samples/QuartzMigration/bin/Release/net8.0/QuartzMigration.dll" > quartz-migration.log)
+grep -q "Imported 2, skipped 0" "$sample_dir/quartz-migration.log"
+echo 'PASS: the Quartz.NET migration sample imported its triggers as schedules and retired them.'
+dotnet publish samples/NativeAot -c Release -o "$sample_dir/native-aot" -m:1 -nr:false -p:UseSharedCompilation=false
+(cd "$sample_dir" && WORKTHROUGH_POSTGRES="$(sample_store aot)" "$sample_dir/native-aot/NativeAot" > native-aot.log)
+grep -q "The scheduled stock count ran." "$sample_dir/native-aot.log"
+echo 'PASS: the native AOT sample ran a flow and a schedule on PostgreSQL without reflection-based JSON.'
 
 # Independent process termination and a bounded performance/correctness smoke campaign.
 WORKTHROUGH_DOTNET8="$runtime8" ./scripts/performance.sh --smoke
+
+# Official MCP clients must remain bounded and redacted while real workers make progress.
+WORKTHROUGH_DOTNET8="$runtime8" ./scripts/investigation.sh --smoke
