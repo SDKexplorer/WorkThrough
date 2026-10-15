@@ -6,6 +6,6 @@
     <ProjectReference Include="../WorkThrough.Core/WorkThrough.Core.csproj" />
     <PackageReference Include="Hangfire.Core" Version="1.8.25" />
     <!-- Hangfire.Core accepts Newtonsoft.Json 11.0.1, which has a known vulnerability; consumers get a patched version. -->
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
 </Project>
