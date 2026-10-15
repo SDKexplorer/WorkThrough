@@ -72,7 +72,7 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: dashboard-ui/package-lock.json
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
@@ -146,7 +146,7 @@ jobs:
           GRANT EXECUTE ON SYS.DBMS_LOCK TO SYSTEM WITH GRANT OPTION;
           EXIT;
           SQL
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
@@ -237,7 +237,7 @@ jobs:
         run: |
           docker exec "$MYSQL_CONTAINER" mysql -uroot -pWorkThrough_MySql_2026 -e "SET GLOBAL max_connections=2000"
           docker exec "$MARIADB_CONTAINER" mariadb -uroot -pWorkThrough_MariaDb_2026 -e "SET GLOBAL max_connections=2000"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
