@@ -267,6 +267,7 @@ public sealed class WorkThroughBuilder
     public WorkThroughBuilder AddScheduler()
     {
         Services.AddHostedService<JobScheduler>();
+        Initialization.SchedulerHosted = true;
 
         return this;
     }

@@ -56,7 +56,7 @@ public sealed class WorkThroughTestHost : IAsyncDisposable
     public JobClient Jobs => Services.GetRequiredService<JobClient>();
     public WorkflowClient Flows => Services.GetRequiredService<WorkflowClient>();
     public IJobQueries Queries => Services.GetRequiredService<IJobQueries>();
-    public RelationalJobStore Store => (RelationalJobStore)Services.GetRequiredService<IJobStore>();
+    public RelationalJobStore Store => Services.GetRequiredService<RelationalJobStore>();
 
     /// <summary>The store's current time: the real time plus every <see cref="AdvanceAsync"/>.</summary>
     public DateTimeOffset UtcNow => DateTimeOffset.UtcNow + clock.Offset;

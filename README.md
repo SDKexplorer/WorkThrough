@@ -6,7 +6,7 @@
 
 Durable background jobs, flows and schedules for .NET 8 and 10, stored in PostgreSQL, SQL Server, Oracle, MySQL or MariaDB. Stored work names a stable address such as `invoices.generate` v1, never a CLR type, so job classes can move between classes, namespaces, projects and assemblies while jobs are queued.
 
-> **Status: alpha.** All six databases pass their [verification](docs/verification.md), packages are built locally and not yet published, and there is no production certification. See [release boundaries](#release-boundaries).
+> **Status: release candidate.** 1.0.0-rc.1 is on nuget.org. All five databases pass their [verification](docs/verification.md), and there is no production certification. See [release boundaries](#release-boundaries).
 
 ## Why WorkThrough
 
@@ -19,6 +19,13 @@ Durable background jobs, flows and schedules for .NET 8 and 10, stored in Postgr
 - **Testable and easy to adopt:** a test host runs flows on the real engine with stubbed jobs, `dotnet new` templates start a worker, a web app or a test project, and importers move existing Hangfire and Quartz.NET jobs and schedules ([Hangfire](docs/migrating-from-hangfire.md), [Quartz.NET](docs/migrating-from-quartz.md)).
 
 ## Quick start
+
+Add the hosting package and one storage package:
+
+```bash
+dotnet add package WorkThrough.Hosting --prerelease
+dotnet add package WorkThrough.Storage.PostgreSql --prerelease   # or .SqlServer, .Oracle, .MySql (MySQL and MariaDB)
+```
 
 A job is a class that implements `IJob<TInput>`. Its input type carries the address that the database stores:
 
@@ -47,6 +54,8 @@ builder.Services.AddWorkThrough()
     .AddWorker(options => options.MaxConcurrentJobs = 8);
 ```
 
+The store creates and upgrades its tables when the host starts; there is no separate migration step.
+
 Enqueue from anywhere that can reach the store, refining the request fluently:
 
 ```csharp
@@ -56,6 +65,8 @@ await jobs.Enqueue(new GenerateInvoice("INV-42"))
 ```
 
 ### One place per job
+
+There are two ways to register a job, and both store the same address. Use attributes and `AddJobs(assembly)` for job classes with nothing to configure. Use `Job(...)` when a job has a schedule or limits, is a delegate, or needs to work under Native AOT.
 
 `Job(...)` declares everything about a job together: what runs it, when it recurs and how much of it may run. A small job can be a delegate instead of a class; its address stays explicit:
 
@@ -73,7 +84,7 @@ builder.Services.AddWorkThrough()
     .Job(Reports.Daily, job => job
         .RunWith<DailyReportJob>()
         .Every("0 6 * * *", new DailyReport(Days: 1), "Europe/Bucharest"))
-    .AddScheduler()
+    .AddScheduler()   // dispatches schedules; a host that seeds schedules without it logs a warning
     .AddWorker(options => options.Queues = ["default", "emails"]);
 
 await jobs.Enqueue(Emails.Welcome, new WelcomeEmail("ada@example.com")).ForTenant("acme");
@@ -94,10 +105,10 @@ Compared with Hangfire:
 
 Run several processes, or several machines on a server database, against the same store. Workers claim work under leases; a crashed worker's attempt is recovered when its lease expires.
 
-Or start from a template. Packages are not published yet, so install it from a local build (`./scripts/verify.sh` packs it):
+Or start from a template:
 
 ```bash
-dotnet new install artifacts/packages/WorkThrough.Templates.1.0.0-rc.1.nupkg
+dotnet new install WorkThrough.Templates::1.0.0-rc.1
 dotnet new workthrough-web -n MyApp --storage postgresql    # API + worker + console; or workthrough-worker
 dotnet new workthrough-tests -n MyApp.Tests                  # xUnit tests of a flow with stubbed jobs
 ```

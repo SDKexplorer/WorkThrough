@@ -10,6 +10,7 @@ internal sealed class StorageInitialization
     public List<KeyedLimit> KeyedLimits { get; } = [];
     public List<RateLimit> RateLimits { get; } = [];
     public List<ScheduleDefinition> Schedules { get; } = [];
+    public bool SchedulerHosted { get; set; }
     public IPayloadProtector? PayloadProtector { get; set; }
 }
 
@@ -42,6 +43,11 @@ internal sealed class JobStorageInitializer(IJobStore store, StorageInitializati
         if (initialization.Schedules.Count > 0)
         {
             await SeedSchedulesAsync(store as IJobSchedules ?? throw new NotSupportedException("This provider does not support schedules."), cancellationToken);
+            if (!initialization.SchedulerHosted)
+            {
+                logger.LogWarning("This host seeds {Count} schedules but does not run the scheduler; they fire only while a host that calls AddScheduler() runs",
+                    initialization.Schedules.Count);
+            }
         }
     }
 
