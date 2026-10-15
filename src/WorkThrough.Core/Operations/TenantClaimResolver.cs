@@ -1,7 +1,6 @@
 using System.Security.Claims;
-using WorkThrough;
 
-namespace Shop;
+namespace WorkThrough;
 
 /// <summary>
 /// Users carrying tenant claims, issued by the identity provider, see only those tenants' executions in the dashboard and MCP.

@@ -14,7 +14,7 @@ The console uses the host's ASP.NET Core authentication, whatever it is. The MCP
 ## What WorkThrough needs from a signed-in caller
 
 1. **Who they are.** The `iss` and `sub` claims (the console falls back to `NameIdentifier`). Every command records them as its actor in the audit trail. A request without them cannot change anything.
-2. **What they may do.** Claims of type `workthrough.permission`, one per permission below. Providers do not issue these. The host maps the provider's roles to permissions when the caller signs in, as both Shop samples do with `RolePermissions`. A role the host does not map grants nothing.
+2. **What they may do.** Claims of type `workthrough.permission`, one per permission below. Providers do not issue these. The host maps the provider's roles to permissions when the caller signs in, with `RolePermissions` ([below](#mapping-roles-and-tenants)). A role the host does not map grants nothing.
 3. **Which tenants they see.** Only when the host registers an `ITenantAccessResolver` ([tenants](#tenants)).
 
 ## Permissions
@@ -53,13 +53,36 @@ The samples map these roles, which you can copy or rename:
 
 Without an `ITenantAccessResolver`, every signed-in caller sees the whole store. With one, a caller limited to some tenants sees only those tenants' executions; other work looks absent, and store-wide pages (statistics, audit, limits, queues, workers, schedules, definitions, retention) answer 403 ([ADR-019](adr/0019-tenant-access-isolation.md)).
 
-The samples' [TenantClaimResolver](../samples/Shop.Shared/TenantClaimResolver.cs) reads tenants from a claim the provider issues (`tenant` by default, set by `TenantClaim`):
+`TenantClaimResolver` reads tenants from a claim the provider issues (`tenant` by default):
 
 - a caller with tenant claims sees those tenants;
 - a caller whose roles map to `tenants.all` sees the whole store;
 - anyone else sees nothing.
 
 So a provider that forgets to issue a tenant claim hides data rather than revealing it. Take tenants only from the provider, never from the request.
+
+## Mapping roles and tenants
+
+Both pieces ship with WorkThrough. Map roles when the token is validated, and register the tenant resolver once:
+
+```csharp
+var permissions = new RolePermissions(new Dictionary<string, string[]>
+{
+    ["workthrough-viewer"] = [OperationPermissions.ReadExecutions],
+    ["workthrough-operator"] = [OperationPermissions.ReadExecutions, TenantClaimResolver.AllTenants, OperationPermissions.RetryJobs],
+});
+builder.Services.AddSingleton<ITenantAccessResolver>(new TenantClaimResolver("tenant"));
+
+// Console: in AddOpenIdConnect(options => ...). MCP: in the JWT bearer events passed to AddWorkThroughMcp.
+options.Events.OnTokenValidated = context =>
+{
+    permissions.Grant((ClaimsIdentity)context.Principal!.Identity!, roleClaim: "roles");
+
+    return Task.CompletedTask;
+};
+```
+
+`RolePermissions` throws at startup when the map names a permission WorkThrough does not check, so a typo cannot silently grant nothing. The map usually comes from configuration, as in the Shop samples.
 
 ## Setting up a provider
 

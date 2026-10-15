@@ -23,6 +23,7 @@ if (!anonymousDevelopment)
 
     // Users whose ID token carries tenant claims see only those tenants; tenants.all sees the store; anyone else sees nothing.
     builder.Services.AddSingleton<ITenantAccessResolver>(new TenantClaimResolver(identity.TenantClaim));
+    var permissions = new RolePermissions(identity.RolePermissions);
 
     builder.Services.AddAuthentication(options =>
     {
@@ -67,18 +68,8 @@ if (!anonymousDevelopment)
             };
             options.Events.OnTokenValidated = context =>
             {
-                var claims = (ClaimsIdentity)context.Principal!.Identity!;
                 // Roles come from the validated ID token; their permission mapping is controlled by this host.
-                foreach (var role in identity.RolePermissions)
-                {
-                    if (context.Principal.IsInRole(role.Key))
-                    {
-                        foreach (var permission in role.Value.Where(p => DashboardPermissions.All.Contains(p) || p == TenantClaimResolver.AllTenants))
-                        {
-                            claims.AddClaim(new(DashboardPermissions.ClaimType, permission, ClaimValueTypes.String, "WorkThroughHost"));
-                        }
-                    }
-                }
+                permissions.Grant((ClaimsIdentity)context.Principal!.Identity!, identity.RoleClaim);
 
                 return Task.CompletedTask;
             };

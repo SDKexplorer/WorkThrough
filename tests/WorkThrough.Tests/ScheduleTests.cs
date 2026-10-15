@@ -71,6 +71,21 @@ public sealed class ScheduleTests
         Assert.Equal(warnings, logs.Entries.Count(entry => entry.Contains("does not run the scheduler", StringComparison.Ordinal)));
     }
 
+    [Fact]
+    public async Task A_scheduled_flow_is_seeded_under_the_flow_key_and_targets_the_built_in_start_job()
+    {
+        await using var harness = await StoreHarness.CreateAsync("postgres");
+        var flow = new FlowBuilder("tests.nightly-flow", 1).Step("collect", new JobDefinition<Alpha>("tests.alpha"), new Alpha("report")).Build();
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddWorkThrough().UseStore(harness.NewStore()).ScheduleFlow(flow, "0 2 * * *", new { });
+        using var host = builder.Build();
+        await host.StartAsync();
+        await host.StopAsync();
+        var seeded = Assert.Single(await harness.Store.SchedulesAsync());
+        Assert.Equal((flow.Key, ScheduledFlows.Start.Identity), (seeded.Definition.Key, seeded.Definition.Processor));
+    }
+
     private static IHost SeedingHost(StoreHarness harness, ScheduleDefinition schedule, ILoggerProvider? logs = null, bool scheduler = false)
     {
         var builder = Host.CreateApplicationBuilder();

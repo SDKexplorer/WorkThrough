@@ -313,6 +313,19 @@ public sealed class WorkThroughBuilder
     }
 
     /// <summary>
+    /// Starts <paramref name="flow"/> with <paramref name="input"/> on the cron expression, in <paramref name="timeZone"/>. The schedule is named
+    /// after the flow unless <paramref name="key"/> names it, and is seeded like <see cref="SeedSchedules"/>.
+    /// </summary>
+    public WorkThroughBuilder ScheduleFlow<TInput>(FlowDefinition flow, string cron, TInput input, string timeZone = ScheduleDefinition.DefaultTimeZone,
+        string? key = null, Func<ScheduleDefinition, ScheduleDefinition>? schedule = null)
+    {
+        ArgumentNullException.ThrowIfNull(flow);
+        var seeded = ScheduledFlows.Create(key ?? flow.Key, cron, flow, input, timeZone);
+
+        return SeedSchedules(schedule is null ? seeded : schedule(seeded));
+    }
+
+    /// <summary>
     /// Encrypts job inputs and outputs, flow inputs and signal payloads at rest with AES-256-GCM (ADR-027). New values use
     /// <paramref name="currentKey"/>; keep retired keys in <paramref name="keys"/> while stored work still uses them. Every host that runs
     /// or advances work needs the same key ring. Encryption starts once engine protocol 7 is active.

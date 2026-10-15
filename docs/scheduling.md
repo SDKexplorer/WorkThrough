@@ -74,8 +74,11 @@ var nightly = new FlowBuilder("reports.nightly", 1)
     .Build();
 
 builder.Services.AddWorkThrough()
-    .SeedSchedules(ScheduledFlows.Create("reports.nightly", "0 2 * * *", nightly, new { }));
+    .ScheduleFlow(nightly, "0 2 * * *", new { })
+    .AddScheduler();
 ```
+
+`ScheduleFlow` names the schedule after the flow; pass `key` for a second schedule of the same flow. `ScheduledFlows.Create(...)` builds the same schedule for `SeedSchedules`.
 
 The schedule targets the built-in `workthrough.flows.start` job, which every host registers. A flow can also start later without a schedule: `new FlowStart { NotBefore = tomorrowAtNine }`.
 
@@ -86,7 +89,6 @@ The schedule targets the built-in `workthrough.flows.start` job, which every hos
 ## Not supported
 
 - **Fixed intervals and daylight saving:** a 1-day `Every(TimeSpan)` shifts by an hour across a change; use `EveryCalendar` or cron for "every day at 09:00".
-- **Recurring flow starts:** a schedule creates a job. To start a flow on a schedule, schedule a job that starts it with a flow idempotency key derived from its occurrence.
 - **Encryption:** schedule inputs are stored as plain JSON even with payload protection ([ADR-027](adr/0027-payload-protection.md)).
 
 Hangfire recurring jobs import as schedules, including their time zone and seconds ([migrating from Hangfire](migrating-from-hangfire.md)). Quartz.NET triggers import as cron or interval schedules with their bounds and holiday calendars ([migrating from Quartz.NET](migrating-from-quartz.md)).
