@@ -8,7 +8,7 @@ This is a chronological evidence log. Earlier package counts and pending states 
 |---|---|---|
 | PostgreSQL | Full suite on every change; two-hour soak (233k jobs) and restore drill passed. SQLite was removed (ADR-033) | — |
 | SQL Server, Oracle | Full suite; Oracle two-hour soak passed (2026-10-13); SQL Server two-hour soak passed after the index fix (2026-10-14) | — |
-| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers; 30-minute soaks passed (2026-10-13) | — |
+| MySQL 8.4, MariaDB 11.4 | Full suite, provider tests, process kills, relocation, MCP smoke and package consumers; MySQL two-hour soak passed (2026-10-15), MariaDB 30-minute soak (2026-10-13) | — |
 | Multi-host | Container network-partition exercise passed (2026-10-13) | Separate physical machines |
 | Identity | OIDC against a local Keycloak 26.4 (2026-10-12); MCP bearer check script validated against Keycloak over HTTPS (2026-10-14) | Hosted providers (Entra ID, Auth0): `scripts/check-hosted-idp.py` |
 | Managed databases | Encryption gate and runner script (2026-10-14) | Azure SQL MI, RDS and others: `scripts/check-managed-db.sh` |
@@ -430,3 +430,5 @@ SQL Server two-hour soak (2026-10-14): with the run, lease and expiry indexes fr
 SQLite removed (2026-10-14, ADR-033): the provider and its tests are gone; the test host, samples, templates, relocation proof, exercises and CI use PostgreSQL. With only `DURABLEJOBS_POSTGRES` set, the shared suite passed 274 tests; the 3 failures were the broker tests, whose containers were stopped. Earlier SQLite evidence above is history.
 
 Sign-in after the tenant change (2026-10-14): `scripts/check-oidc.py` passed against Keycloak 26.4 with the fail-closed tenant resolver and the PostgreSQL shop store. The operator, whose role maps to `tenants.all`, saw all 12 jobs; the tenant-a viewer saw only its 6.
+
+MySQL two-hour soak (2026-10-15): on MySQL 8.4.11 with partition, tenant, rate and flow-parallelism limits, 233,943 jobs (179,946 offered, 17,999 flows) succeeded exactly once, none retried, and every per-minute window stayed within its limits. Completions held at about 1,950 a minute, queue-wait p95 between 85 and 110 ms, and worker memory between 239 and 244 MiB ([results](performance-results/2026-10-15-mysql-soak-120.json)). PostgreSQL, SQL Server, Oracle and MySQL now each have a passing two-hour soak.
