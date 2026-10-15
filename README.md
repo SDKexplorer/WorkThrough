@@ -97,7 +97,7 @@ Run several processes, or several machines on a server database, against the sam
 Or start from a template. Packages are not published yet, so install it from a local build (`./scripts/verify.sh` packs it):
 
 ```bash
-dotnet new install artifacts/packages/WorkThrough.Templates.0.1.0-alpha.1.nupkg
+dotnet new install artifacts/packages/WorkThrough.Templates.1.0.0-rc.1.nupkg
 dotnet new workthrough-web -n MyApp --storage postgresql    # API + worker + console; or workthrough-worker
 dotnet new workthrough-tests -n MyApp.Tests                  # xUnit tests of a flow with stubbed jobs
 ```
@@ -291,6 +291,6 @@ The full gate:
 - Sign-in, role permissions and tenant scoping are verified against a local Keycloak 26.4 (`scripts/check-oidc.py`), not yet against Entra ID or Auth0 ([what is verified](docs/sign-in.md#what-has-been-verified)). `scripts/check-hosted-idp.py` checks MCP bearer authorization against a hosted provider once one is configured, and `scripts/check-managed-db.sh` qualifies a managed database server.
 - Throughput per store, on the documented test host with near-instant handlers: about 800/s on PostgreSQL without limits, and 500/s on PostgreSQL with 50 tenant quotas. SQL Server with `READ_COMMITTED_SNAPSHOT` reached 430/s and Oracle 280/s without limits; MySQL reached 460/s and MariaDB 560/s. Claims under limits lock only the rows of the limits they touch, so tenants do not wait on each other, and limits stay exact ([ADR-020](docs/adr/0020-write-path-throughput.md), [ADR-022](docs/adr/0022-limit-locks.md)). A fleet-wide limit still serializes claims. WorkThrough suits business workflows; for high-volume event streams, use a message broker.
 - There is no production certification. Native AOT runs with PostgreSQL storage, explicit job registration and a source-generated JSON context for job data ([samples/NativeAot](samples/NativeAot/Program.cs)); the dashboard, MCP, EF Core and the SQL Server, Oracle and MySQL providers are not AOT-compatible. Performance figures describe the documented test host.
-- Licensed under [MIT](LICENSE). NuGet packages are not published yet; the first release will be 1.0.0-rc.1.
+- Licensed under [MIT](LICENSE). The first release is 1.0.0-rc.1.
 
 Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Security reports: [SECURITY.md](SECURITY.md). Branching and releases: [branching and release](docs/branching-and-release.md).
