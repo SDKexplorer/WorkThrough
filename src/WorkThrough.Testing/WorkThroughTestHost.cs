@@ -29,6 +29,7 @@ public sealed class WorkThroughTestHost : IAsyncDisposable
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(10);
     private const int IdleScanLimit = 500;
+    private const int RequiredIdleChecks = 2;
 
     private readonly IHost host;
     private readonly string database;
@@ -158,14 +159,18 @@ public sealed class WorkThroughTestHost : IAsyncDisposable
     public Task WaitUntilIdleAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         IReadOnlyList<JobRecord> busy = [];
+        var idleChecks = 0;
 
         return WaitAsync(async ct =>
         {
-            var running = await Queries.ListAsync(new(Status: JobStatus.Running, Limit: IdleScanLimit), ct);
+            // Queued before running: a job claimed between the two reads is still seen by one of them. Two idle checks in a row
+            // cover a job that was settled and became due again in between.
             var queued = await Queries.ListAsync(new(Status: JobStatus.Queued, Limit: IdleScanLimit), ct);
+            var running = await Queries.ListAsync(new(Status: JobStatus.Running, Limit: IdleScanLimit), ct);
             busy = [.. running, .. queued.Where(job => job.AvailableAt <= UtcNow)];
+            idleChecks = busy.Count == 0 ? idleChecks + 1 : 0;
 
-            return busy.Count == 0;
+            return idleChecks >= RequiredIdleChecks;
         }, () => $"{busy.Count} job(s) are still running or due, such as {string.Join(", ", busy.Take(5).Select(job => $"{job.Contract} ({job.Status})"))}."
             + UnservedQueues(busy), timeout, cancellationToken);
     }
