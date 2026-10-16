@@ -13,7 +13,7 @@
     "WorkThroughVersion": {
       "type": "parameter",
       "datatype": "text",
-      "defaultValue": "1.0.0-rc.1",
+      "defaultValue": "1.0.0-rc.2",
       "replaces": "WORKTHROUGH_VERSION",
       "description": "The WorkThrough package version."
     }
