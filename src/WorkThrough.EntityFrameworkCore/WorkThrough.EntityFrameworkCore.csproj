@@ -4,6 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../WorkThrough.Storage.Relational/WorkThrough.Storage.Relational.csproj" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.31" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.32" />
   </ItemGroup>
 </Project>

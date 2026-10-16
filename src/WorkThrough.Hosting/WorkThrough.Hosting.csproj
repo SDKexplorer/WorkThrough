@@ -4,7 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../WorkThrough.Core/WorkThrough.Core.csproj" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.13" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
   </ItemGroup>
 </Project>
