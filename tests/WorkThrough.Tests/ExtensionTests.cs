@@ -9,6 +9,23 @@ namespace WorkThrough.Tests;
 
 public sealed class ExtensionTests
 {
+    public static TheoryData<Func<WorkThroughBuilder, WorkThroughBuilder>> StorageRegistrations() => new()
+    {
+        builder => builder.UsePostgreSql("Host=localhost;Database=registration"),
+        builder => builder.UseSqlServer("Server=localhost;Database=registration"),
+        builder => builder.UseOracle("User Id=registration;Data Source=localhost/registration"),
+        builder => builder.UseMySql("Server=localhost;Database=registration")
+    };
+
+    [Theory, MemberData(nameof(StorageRegistrations))]
+    public void Storage_registration_exposes_the_relational_store_for_transactional_intake(Func<WorkThroughBuilder, WorkThroughBuilder> register)
+    {
+        var services = new ServiceCollection();
+        register(services.AddWorkThrough());
+        using var provider = services.BuildServiceProvider();
+        Assert.Same(provider.GetRequiredService<IJobStore>(), provider.GetRequiredService<RelationalJobStore>());
+    }
+
     [Theory]
     [InlineData("valid", JobStatus.Succeeded)]
     [InlineData("invalid", JobStatus.Rejected)]

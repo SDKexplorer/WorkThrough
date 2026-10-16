@@ -143,6 +143,15 @@ public sealed class FlowBuilder
 
     public FlowBuilder After(params string[] predecessors) => Change(step => step with { After = predecessors.Distinct().ToArray() });
 
+    /// <summary>Captures the last step, so later steps refer to it without repeating its ID.</summary>
+    /// <example><c>.Step("reserve", Stock.Reserve).As(out var reserve).Step("ship", Shipping.Ship).After(reserve)</c></example>
+    public FlowBuilder As(out FlowStepRef step)
+    {
+        step = new(Last.Id);
+
+        return this;
+    }
+
     /// <summary>Labels the last step for operators without changing its permanent step ID.</summary>
     public FlowBuilder Named(string displayName) => Change(step => step with { DisplayName = displayName });
 
@@ -173,14 +182,12 @@ public sealed class FlowBuilder
         return definition;
     }
 
+    private FlowStep Last => steps.Count == 0 ? throw new InvalidOperationException("Add a step first.") : steps[^1];
+
     private FlowBuilder Change(Func<FlowStep, FlowStep> change)
     {
-        if (steps.Count == 0)
-        {
-            throw new InvalidOperationException("Add a step first.");
-        }
-
-        steps[^1] = change(steps[^1]);
+        var last = Last;
+        steps[^1] = change(last);
 
         return this;
     }

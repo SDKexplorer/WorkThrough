@@ -267,6 +267,7 @@ public sealed class WorkThroughBuilder
     public WorkThroughBuilder AddScheduler()
     {
         Services.AddHostedService<JobScheduler>();
+        Initialization.SchedulerHosted = true;
 
         return this;
     }
@@ -309,6 +310,19 @@ public sealed class WorkThroughBuilder
         Initialization.Schedules.AddRange(schedules);
 
         return this;
+    }
+
+    /// <summary>
+    /// Starts <paramref name="flow"/> with <paramref name="input"/> on the cron expression, in <paramref name="timeZone"/>. The schedule is named
+    /// after the flow unless <paramref name="key"/> names it, and is seeded like <see cref="SeedSchedules"/>.
+    /// </summary>
+    public WorkThroughBuilder ScheduleFlow<TInput>(FlowDefinition flow, string cron, TInput input, string timeZone = ScheduleDefinition.DefaultTimeZone,
+        string? key = null, Func<ScheduleDefinition, ScheduleDefinition>? schedule = null)
+    {
+        ArgumentNullException.ThrowIfNull(flow);
+        var seeded = ScheduledFlows.Create(key ?? flow.Key, cron, flow, input, timeZone);
+
+        return SeedSchedules(schedule is null ? seeded : schedule(seeded));
     }
 
     /// <summary>

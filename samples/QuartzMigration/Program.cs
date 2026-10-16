@@ -52,7 +52,7 @@ foreach (var item in plan.Items)
     Console.WriteLine($"{item.TriggerKey,-22} {item.JobType} -> {item.Target?.ToString() ?? item.Problem} ({timing})");
 }
 
-var store = (RelationalJobStore)host.Services.GetRequiredService<IJobStore>();
+var store = host.Services.GetRequiredService<RelationalJobStore>();
 var result = await migration.ImportAsync(plan, store, store);
 await migration.RetireAsync(result);
 foreach (var schedule in await store.SchedulesAsync())

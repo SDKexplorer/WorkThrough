@@ -57,12 +57,49 @@ public sealed class ScheduleTests
         }
     }
 
-    private static IHost SeedingHost(StoreHarness harness, ScheduleDefinition schedule)
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    public async Task Seeding_without_a_scheduler_in_the_host_warns_that_schedules_need_one_elsewhere(bool scheduler, int warnings)
+    {
+        await using var harness = await StoreHarness.CreateAsync("postgres");
+        var logs = new LogCapture();
+        var nightly = ScheduleDefinition.Create("tests.nightly", "0 2 * * *", new JobDefinition<Alpha>("tests.alpha"), new Alpha("report"));
+        using var host = SeedingHost(harness, nightly, logs, scheduler);
+        await host.StartAsync();
+        await host.StopAsync();
+        Assert.Equal(warnings, logs.Entries.Count(entry => entry.Contains("does not run the scheduler", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task A_scheduled_flow_is_seeded_under_the_flow_key_and_targets_the_built_in_start_job()
+    {
+        await using var harness = await StoreHarness.CreateAsync("postgres");
+        var flow = new FlowBuilder("tests.nightly-flow", 1).Step("collect", new JobDefinition<Alpha>("tests.alpha"), new Alpha("report")).Build();
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddWorkThrough().UseStore(harness.NewStore()).ScheduleFlow(flow, "0 2 * * *", new { });
+        using var host = builder.Build();
+        await host.StartAsync();
+        await host.StopAsync();
+        var seeded = Assert.Single(await harness.Store.SchedulesAsync());
+        Assert.Equal((flow.Key, ScheduledFlows.Start.Identity), (seeded.Definition.Key, seeded.Definition.Processor));
+    }
+
+    private static IHost SeedingHost(StoreHarness harness, ScheduleDefinition schedule, ILoggerProvider? logs = null, bool scheduler = false)
     {
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
-        builder.Services.AddSingleton<IJobStore>(harness.NewStore());
-        builder.Services.AddWorkThrough().SeedSchedules(schedule);
+        if (logs is not null)
+        {
+            builder.Logging.AddProvider(logs);
+        }
+
+        var workThrough = builder.Services.AddWorkThrough().UseStore(harness.NewStore()).SeedSchedules(schedule);
+        if (scheduler)
+        {
+            workThrough.AddScheduler();
+        }
 
         return builder.Build();
     }
